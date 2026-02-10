@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { createInterface } from "node:readline";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import chalk from "chalk";
 import ora from "ora";
 import { program } from "commander";
@@ -13,9 +15,52 @@ import type { Message, CLIConfig } from "./types.js";
 
 // ─── Config ──────────────────────────────────────────────
 const VERSION = "1.0.0";
+const CONFIG_DIR = join(homedir(), ".morningstar");
+const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+
+// Load saved config
+function loadSavedConfig(): { apiKey?: string; model?: string } {
+  try {
+    if (existsSync(CONFIG_FILE)) {
+      return JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
+    }
+  } catch {}
+  return {};
+}
+
+function saveConfig(data: { apiKey?: string; model?: string }) {
+  try {
+    if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true });
+    const existing = loadSavedConfig();
+    writeFileSync(CONFIG_FILE, JSON.stringify({ ...existing, ...data }, null, 2), "utf-8");
+  } catch {}
+}
+
+// Load .env from cwd if exists
+function loadEnvFile(dir: string) {
+  for (const name of [".env.local", ".env"]) {
+    const envPath = join(dir, name);
+    if (existsSync(envPath)) {
+      try {
+        const content = readFileSync(envPath, "utf-8");
+        for (const line of content.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) continue;
+          const eqIdx = trimmed.indexOf("=");
+          if (eqIdx === -1) continue;
+          const key = trimmed.slice(0, eqIdx).trim();
+          const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "");
+          if (key && !process.env[key]) process.env[key] = val;
+        }
+      } catch {}
+    }
+  }
+}
+
+const saved = loadSavedConfig();
 
 const DEFAULT_CONFIG: CLIConfig = {
-  apiKey: process.env.DEEPSEEK_API_KEY || "sk-595c100043be498387b22a0cd648dc0f",
+  apiKey: "",
   model: "deepseek-reasoner",  // DeepSeek R1
   baseUrl: "https://api.deepseek.com/v1",
   maxTokens: 8192,
@@ -34,22 +79,47 @@ program
   .parse();
 
 const opts = program.opts();
-const config: CLIConfig = {
-  ...DEFAULT_CONFIG,
-  apiKey: opts.apiKey || DEFAULT_CONFIG.apiKey,
-  model: opts.model || DEFAULT_CONFIG.model,
-};
-
-if (!config.apiKey) {
-  console.error(chalk.red("\nFehler: DeepSeek API Key nicht gefunden!"));
-  console.error(chalk.gray("Setze DEEPSEEK_API_KEY als Umgebungsvariable oder nutze --api-key\n"));
-  console.error(chalk.yellow("  export DEEPSEEK_API_KEY=sk-dein-key-hier"));
-  console.error(chalk.yellow("  morningstar\n"));
-  process.exit(1);
-}
-
 const cwd = resolve(opts.dir || process.cwd());
 const chatOnly = opts.chat || false;
+
+// Load .env files
+loadEnvFile(cwd);
+
+const config: CLIConfig = {
+  ...DEFAULT_CONFIG,
+  apiKey: opts.apiKey || process.env.DEEPSEEK_API_KEY || saved.apiKey || "sk-595c100043be498387b22a0cd648dc0f",
+  model: opts.model || saved.model || DEFAULT_CONFIG.model,
+};
+
+// ─── Interactive API Key Setup ───────────────────────────
+async function ensureApiKey(): Promise<void> {
+  // If we have a key (from env, saved config, or hardcoded default), skip
+  if (config.apiKey) return;
+
+  console.log(chalk.yellow("\n  Kein DeepSeek API Key gefunden!\n"));
+  console.log(chalk.gray("  Du brauchst einen API Key von https://platform.deepseek.com"));
+  console.log(chalk.gray("  Der Key wird in ~/.morningstar/config.json gespeichert.\n"));
+
+  const setupRl = createInterface({ input: process.stdin, output: process.stdout });
+
+  return new Promise((resolve) => {
+    setupRl.question(chalk.cyan("  API Key eingeben: "), (answer) => {
+      setupRl.close();
+      const key = answer.trim();
+      if (key) {
+        config.apiKey = key;
+        saveConfig({ apiKey: key });
+        console.log(chalk.green("\n  API Key gespeichert!\n"));
+      } else {
+        console.log(chalk.red("\n  Kein Key eingegeben. Beende.\n"));
+        process.exit(1);
+      }
+      resolve();
+    });
+  });
+}
+
+await ensureApiKey();
 
 // ─── Project Detection ───────────────────────────────────
 const ctx = detectProject(cwd);
@@ -61,6 +131,8 @@ const systemPrompt = chatOnly
 const messages: Message[] = [{ role: "system", content: systemPrompt }];
 let totalTokensEstimate = 0;
 let activeAgent: string | null = null;
+let isProcessing = false;
+let currentAbort: AbortController | null = null;
 
 // ─── UI Helpers ──────────────────────────────────────────
 const STAR = chalk.magenta("*");
@@ -190,6 +262,7 @@ function handleSlashCommand(input: string): boolean {
       const newModel = parts[1];
       if (newModel) {
         config.model = newModel;
+        saveConfig({ model: newModel });
         console.log(chalk.green(`\n  Model gewechselt: ${newModel}\n`));
       } else {
         console.log(chalk.cyan(`\n  Aktuelles Model: ${config.model}`));
@@ -259,32 +332,62 @@ function handleSlashCommand(input: string): boolean {
   }
 }
 
-// ─── Main Chat Loop ──────────────────────────────────────
-async function processInput(input: string) {
-  if (!input.trim()) return;
-  if (input.startsWith("/") && handleSlashCommand(input)) return;
-
-  messages.push({ role: "user", content: input });
-  totalTokensEstimate += input.length / 3;
-
+// ─── Stream AI with abort support ────────────────────────
+async function streamAI(msgs: Message[], cfg: CLIConfig, signal: AbortSignal): Promise<string> {
+  let full = "";
+  let firstToken = true;
   const spinner = ora({ text: chalk.gray("Denkt nach..."), spinner: "dots" }).start();
 
   try {
-    let fullResponse = "";
-    let firstToken = true;
-
-    for await (const token of streamChat(messages, config)) {
+    for await (const token of streamChat(msgs, cfg, signal)) {
+      if (signal.aborted) break;
       if (firstToken) {
         spinner.stop();
         process.stdout.write("\n  " + chalk.magenta(STAR + " "));
         firstToken = false;
       }
       process.stdout.write(token);
-      fullResponse += token;
+      full += token;
+    }
+  } catch (err) {
+    spinner.stop();
+    if (signal.aborted) {
+      console.log(chalk.yellow("\n\n  Abgebrochen.\n"));
+      return full;
+    }
+    throw err;
+  }
+
+  if (firstToken) spinner.stop();
+  if (full) console.log("\n");
+  return full;
+}
+
+// ─── Main Chat Loop ──────────────────────────────────────
+async function processInput(input: string) {
+  if (!input.trim()) return;
+  if (input.startsWith("/") && handleSlashCommand(input)) return;
+
+  if (isProcessing) {
+    console.log(chalk.yellow("\n  Bitte warten, Anfrage wird noch verarbeitet...\n"));
+    return;
+  }
+
+  isProcessing = true;
+  currentAbort = new AbortController();
+  const signal = currentAbort.signal;
+
+  messages.push({ role: "user", content: input });
+  totalTokensEstimate += input.length / 3;
+
+  try {
+    const fullResponse = await streamAI(messages, config, signal);
+    if (signal.aborted || !fullResponse) {
+      isProcessing = false;
+      currentAbort = null;
+      return;
     }
 
-    if (firstToken) spinner.stop(); // no tokens received
-    console.log("\n");
     totalTokensEstimate += fullResponse.length / 3;
 
     // Execute tool calls if not chat-only
@@ -293,7 +396,7 @@ async function processInput(input: string) {
       try {
         toolResults = await executeToolCalls(fullResponse, cwd);
       } catch (toolErr) {
-        console.error(chalk.red(`\n  Tool-Ausfuehrung fehlgeschlagen: ${(toolErr as Error).message}\n`));
+        console.error(chalk.red(`\n  Tool-Fehler: ${(toolErr as Error).message}\n`));
       }
 
       if (toolResults && toolResults.results.length > 0) {
@@ -301,7 +404,6 @@ async function processInput(input: string) {
           printToolResult(r.tool, r.result, r.success);
         }
 
-        // Feed tool results back to AI for follow-up
         const toolFeedback = toolResults.results
           .map((r) => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`)
           .join("\n\n");
@@ -309,32 +411,17 @@ async function processInput(input: string) {
         messages.push({ role: "assistant", content: fullResponse });
         messages.push({ role: "user", content: `Tool-Ergebnisse:\n${toolFeedback}\n\nFahre fort basierend auf den Ergebnissen.` });
 
-        // Get AI follow-up (with error protection)
-        let followUp = "";
+        // Follow-up rounds (up to 5)
+        let depth = 0;
+        let currentResponse = "";
+
         try {
-          const followSpinner = ora({ text: chalk.gray("Verarbeitet Ergebnisse..."), spinner: "dots" }).start();
-          let followFirst = true;
-
-          for await (const token of streamChat(messages, config)) {
-            if (followFirst) {
-              followSpinner.stop();
-              process.stdout.write("  " + chalk.magenta(STAR + " "));
-              followFirst = false;
-            }
-            process.stdout.write(token);
-            followUp += token;
-          }
-
-          if (followFirst) followSpinner.stop();
-          console.log("\n");
-        } catch (followErr) {
-          console.error(chalk.red(`\n  Follow-up Fehler: ${(followErr as Error).message}\n`));
+          currentResponse = await streamAI(messages, config, signal);
+        } catch (err) {
+          if (!signal.aborted) console.error(chalk.red(`\n  Follow-up Fehler: ${(err as Error).message}\n`));
         }
 
-        // Check for more tool calls in follow-up (recursive, max 5 rounds)
-        let depth = 0;
-        let currentResponse = followUp;
-        while (depth < 5 && currentResponse) {
+        while (depth < 5 && currentResponse && !signal.aborted) {
           let nested: Awaited<ReturnType<typeof executeToolCalls>> | null = null;
           try {
             nested = await executeToolCalls(currentResponse, cwd);
@@ -353,19 +440,9 @@ async function processInput(input: string) {
           messages.push({ role: "user", content: `Tool-Ergebnisse:\n${nestedFeedback}\n\nFahre fort.` });
 
           try {
-            const nestedSpinner = ora({ text: chalk.gray("Weiter..."), spinner: "dots" }).start();
-            currentResponse = "";
-            let nFirst = true;
-
-            for await (const token of streamChat(messages, config)) {
-              if (nFirst) { nestedSpinner.stop(); process.stdout.write("  " + chalk.magenta(STAR + " ")); nFirst = false; }
-              process.stdout.write(token);
-              currentResponse += token;
-            }
-            if (nFirst) nestedSpinner.stop();
-            console.log("\n");
-          } catch (nestedErr) {
-            console.error(chalk.red(`\n  Runde ${depth + 1} Fehler: ${(nestedErr as Error).message}\n`));
+            currentResponse = await streamAI(messages, config, signal);
+          } catch (err) {
+            if (!signal.aborted) console.error(chalk.red(`\n  Runde ${depth + 1} Fehler: ${(err as Error).message}\n`));
             break;
           }
           depth++;
@@ -381,8 +458,12 @@ async function processInput(input: string) {
       messages.push({ role: "assistant", content: fullResponse });
     }
   } catch (e) {
-    spinner.stop();
-    console.error(chalk.red(`\n  Fehler: ${(e as Error).message}\n`));
+    if (!signal.aborted) {
+      console.error(chalk.red(`\n  Fehler: ${(e as Error).message}\n`));
+    }
+  } finally {
+    isProcessing = false;
+    currentAbort = null;
   }
 }
 
@@ -390,12 +471,34 @@ async function processInput(input: string) {
 process.on("uncaughtException", (err) => {
   console.error(chalk.red(`\n  Unerwarteter Fehler: ${err.message}`));
   console.error(chalk.gray("  Das Programm laeuft weiter. Tippe /help fuer Hilfe.\n"));
+  isProcessing = false;
+  currentAbort = null;
+  try { rl.prompt(); } catch {}
 });
 
 process.on("unhandledRejection", (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason);
   console.error(chalk.red(`\n  Async Fehler: ${msg}`));
   console.error(chalk.gray("  Das Programm laeuft weiter.\n"));
+  isProcessing = false;
+  currentAbort = null;
+  try { rl.prompt(); } catch {}
+});
+
+// ─── SIGINT Handler (Ctrl+C) ────────────────────────────
+process.on("SIGINT", () => {
+  if (isProcessing && currentAbort) {
+    // Cancel current request
+    currentAbort.abort();
+    isProcessing = false;
+    currentAbort = null;
+    console.log(chalk.yellow("\n\n  Abgebrochen. Bereit fuer neue Eingabe.\n"));
+    rl.prompt();
+  } else {
+    // Exit if not processing
+    console.log(chalk.magenta("\n\n  " + STAR + " Bis bald!\n"));
+    process.exit(0);
+  }
 });
 
 // ─── Start ───────────────────────────────────────────────
@@ -414,7 +517,7 @@ const rl = createInterface({
   input: process.stdin,
   output: process.stdout,
   prompt: PROMPT,
-  terminal: true,
+  terminal: process.stdin.isTTY !== false,
 });
 
 rl.prompt();
@@ -423,7 +526,7 @@ let multilineBuffer = "";
 let isMultiline = false;
 
 rl.on("line", async (line) => {
-  // Multiline support: end line with \\ to continue
+  // Multiline support: end line with \ to continue
   if (line.endsWith("\\\\") || line.endsWith("\\")) {
     multilineBuffer += line.slice(0, -1) + "\n";
     isMultiline = true;
@@ -450,3 +553,6 @@ rl.on("close", () => {
   console.log(chalk.magenta("\n  " + STAR + " Bis bald!\n"));
   process.exit(0);
 });
+
+// Keep process alive
+setInterval(() => {}, 1 << 30);

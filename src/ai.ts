@@ -2,7 +2,8 @@ import type { Message, CLIConfig } from "./types.js";
 
 export async function* streamChat(
   messages: Message[],
-  config: CLIConfig
+  config: CLIConfig,
+  signal?: AbortSignal
 ): AsyncGenerator<string> {
   const res = await fetch(`${config.baseUrl}/chat/completions`, {
     method: "POST",
@@ -17,6 +18,7 @@ export async function* streamChat(
       temperature: config.temperature,
       stream: true,
     }),
+    signal,
   });
 
   if (!res.ok) {
@@ -31,49 +33,55 @@ export async function* streamChat(
   let buffer = "";
   let insideThink = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      if (signal?.aborted) break;
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("data: ")) continue;
-      const data = trimmed.slice(6);
-      if (data === "[DONE]") return;
+      for (const line of lines) {
+        if (signal?.aborted) return;
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") return;
 
-      try {
-        const parsed = JSON.parse(data);
-        const choice = parsed.choices?.[0];
-        if (!choice) continue;
+        try {
+          const parsed = JSON.parse(data);
+          const choice = parsed.choices?.[0];
+          if (!choice) continue;
 
-        // DeepSeek R1 uses reasoning_content for thinking, content for output
-        const token = choice.delta?.content || "";
-        const reasoning = choice.delta?.reasoning_content || "";
+          // DeepSeek R1 uses reasoning_content for thinking, content for output
+          const token = choice.delta?.content || "";
+          const reasoning = choice.delta?.reasoning_content || "";
 
-        // Skip reasoning tokens (internal thinking)
-        if (reasoning && !token) continue;
+          // Skip reasoning tokens (internal thinking)
+          if (reasoning && !token) continue;
 
-        if (token) {
-          // Filter out <think>...</think> blocks
-          if (token.includes("<think>")) insideThink = true;
-          if (insideThink) {
-            if (token.includes("</think>")) {
-              insideThink = false;
-              const after = token.split("</think>").pop() || "";
-              if (after.trim()) yield after;
+          if (token) {
+            // Filter out <think>...</think> blocks
+            if (token.includes("<think>")) insideThink = true;
+            if (insideThink) {
+              if (token.includes("</think>")) {
+                insideThink = false;
+                const after = token.split("</think>").pop() || "";
+                if (after.trim()) yield after;
+              }
+              continue;
             }
-            continue;
+            yield token;
           }
-          yield token;
+        } catch {
+          // skip malformed JSON
         }
-      } catch {
-        // skip malformed JSON
       }
     }
+  } finally {
+    try { reader.cancel(); } catch {}
   }
 }
 
