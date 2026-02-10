@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createInterface, clearLine, cursorTo } from "node:readline";
-import { resolve, join } from "node:path";
+import { resolve, join, basename } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { homedir } from "node:os";
@@ -23,6 +23,9 @@ import { loadProjectMemory } from "./project-memory.js";
 import { trackUsage, getSessionCosts, formatCostDisplay, isFreeTier } from "./cost-tracker.js";
 import { getRepoMap, generateOnboarding, generateProjectScore, generateCodeRoast } from "./repo-map.js";
 import { parseMentions, formatMentionContext } from "./mentions.js";
+import { VISION_MODELS, DEFAULT_VISION_MODEL, isImageFile, isVisionModelInstalled, pullVisionModel, analyzeImage, getInstalledVisionModels } from "./vision.js";
+import { IMAGE_MODELS, hasPython, isSetupComplete, setupImageGen, generateImage, getAvailableMemoryGB, cleanupImageGen } from "./image-gen.js";
+import { startServer, DEFAULT_PORT } from "./server.js";
 // ─── Config ──────────────────────────────────────────────
 const VERSION = "1.0.0";
 const CONFIG_DIR = join(homedir(), ".morningstar");
@@ -431,6 +434,16 @@ function printHelp() {
     console.log(w("  @url:<url>         ") + d("URL-Inhalt als Kontext"));
     console.log(w("  @codebase          ") + d("Codebase-Map als Kontext"));
     console.log();
+    console.log(h("  Vision & Bilder"));
+    console.log(w("  /vision <path>     ") + d("Bild analysieren (lokal, Ollama)"));
+    console.log(w("  /vision models     ") + d("Vision-Modelle anzeigen"));
+    console.log(w("  /vision setup      ") + d("Vision-Model installieren"));
+    console.log(w("  /imagine <prompt>  ") + d("Bild generieren (Stable Diffusion)"));
+    console.log(w("  /imagine setup     ") + d("Image-Gen Umgebung einrichten"));
+    console.log(w("  /imagine models    ") + d("Verfuegbare Bild-Modelle"));
+    console.log(w("  /serve             ") + d("API Server starten (HTTP)"));
+    console.log(w("  /serve <port>      ") + d("Server auf bestimmtem Port"));
+    console.log();
     console.log(h("  Darstellung"));
     console.log(w("  /theme             ") + d("Theme anzeigen/wechseln"));
     console.log(w("  /theme <name>      ") + d("Theme setzen (default, ocean, hacker, sunset, nord, rose)"));
@@ -515,6 +528,23 @@ function printFeatures() {
     console.log(d("  - @folder:path \u2014 Ordner als Kontext"));
     console.log(d("  - @git:diff/log/status/staged \u2014 Git-Info als Kontext"));
     console.log(d("  - @codebase \u2014 Codebase-Map als Kontext"));
+    console.log();
+    console.log(h("  Vision (Bild-Analyse)"));
+    console.log(d("  - Lokale Bild-Analyse mit Ollama (LLaVA, Moondream)"));
+    console.log(d("  - Streaming Token-Ausgabe, auto-pull Vision-Model"));
+    console.log(d("  - /vision <path> — Bild analysieren"));
+    console.log();
+    console.log(h("  Image Generation"));
+    console.log(d("  - Lokale Bild-Erstellung mit Stable Diffusion"));
+    console.log(d("  - SDXL Turbo (1 Step!), SDXL, SD 1.5"));
+    console.log(d("  - Apple Silicon MPS + CUDA + CPU Support"));
+    console.log(d("  - /imagine <prompt> — Bild generieren"));
+    console.log();
+    console.log(h("  API Server"));
+    console.log(d("  - Selbst-gehosteter HTTP Server (/serve)"));
+    console.log(d("  - OpenAI-kompatible Chat Completions API"));
+    console.log(d("  - Vision + Image Gen Endpoints"));
+    console.log(d("  - CORS, Streaming SSE, Health Check"));
     console.log();
     console.log(h("  Permission System"));
     console.log(d("  - auto \u2014 alle Tools ohne Nachfrage"));
@@ -1653,6 +1683,190 @@ function handleSlashCommand(input) {
             console.log();
             return true;
         }
+        // ── Vision ──
+        case "/vision":
+            if (!arg) {
+                console.log(chalk.hex(t().info)("\n  Nutzung: /vision <bild-pfad> [frage]"));
+                console.log(chalk.gray("  Beispiel: /vision screenshot.png Was zeigt dieses Bild?"));
+                console.log(chalk.gray("  /vision models — Verfuegbare Modelle"));
+                console.log(chalk.gray("  /vision setup  — Vision-Model installieren\n"));
+                return true;
+            }
+            if (arg === "models") {
+                return (async () => {
+                    console.log(chalk.hex(t().info)("\n  Vision-Modelle (Ollama, lokal):\n"));
+                    const installed = await getInstalledVisionModels();
+                    for (const m of VISION_MODELS) {
+                        const tag = installed.some(i => i.startsWith(m.id)) ? chalk.hex(t().success)(" [installiert]") : chalk.gray(" [nicht installiert]");
+                        console.log(`  ${chalk.white(m.id.padEnd(16))} ${chalk.gray(m.size.padEnd(6))} ${chalk.hex(t().dim)(m.description)}${tag}`);
+                    }
+                    console.log(chalk.gray(`\n  Installieren: /vision setup <model-id>\n`));
+                })();
+            }
+            return (async () => {
+                if (arg === "setup" || arg.startsWith("setup ")) {
+                    const modelId = parts[2] || DEFAULT_VISION_MODEL;
+                    if (!isOllamaRunning()) {
+                        console.log(chalk.hex(t().error)("\n  Ollama laeuft nicht! Starte: ollama serve\n"));
+                        return;
+                    }
+                    if (await isVisionModelInstalled(modelId)) {
+                        console.log(chalk.hex(t().success)(`\n  Vision-Model '${modelId}' bereits installiert.\n`));
+                        return;
+                    }
+                    const spinner = ora({ text: `Lade Vision-Model '${modelId}'...`, color: "cyan" }).start();
+                    try {
+                        await pullVisionModel(modelId, (s) => { spinner.text = s; });
+                        spinner.succeed(`Vision-Model '${modelId}' installiert!`);
+                    }
+                    catch (err) {
+                        spinner.fail(`Fehler: ${err instanceof Error ? err.message : err}`);
+                    }
+                    return;
+                }
+                // Analyze image
+                const vp = arg.match(/^(\S+)\s*(.*)?$/);
+                if (!vp)
+                    return;
+                const imgPath = resolve(cwd, vp[1]);
+                const visionPrompt = vp[2] || "Beschreibe dieses Bild detailliert.";
+                if (!existsSync(imgPath)) {
+                    console.log(chalk.hex(t().error)(`\n  Datei nicht gefunden: ${imgPath}\n`));
+                    return;
+                }
+                if (!isImageFile(imgPath)) {
+                    console.log(chalk.hex(t().error)(`\n  Kein Bildformat: ${basename(imgPath)}\n`));
+                    return;
+                }
+                if (!isOllamaRunning()) {
+                    console.log(chalk.hex(t().error)("\n  Ollama laeuft nicht! Starte: ollama serve\n"));
+                    return;
+                }
+                const vModel = DEFAULT_VISION_MODEL;
+                if (!(await isVisionModelInstalled(vModel))) {
+                    const ps = ora({ text: `Lade Vision-Model '${vModel}'...`, color: "cyan" }).start();
+                    try {
+                        await pullVisionModel(vModel, (s) => { ps.text = s; });
+                        ps.succeed(`Vision-Model '${vModel}' installiert!`);
+                    }
+                    catch (err) {
+                        ps.fail(`Fehler: ${err instanceof Error ? err.message : err}`);
+                        return;
+                    }
+                }
+                console.log(chalk.hex(t().info)(`\n  Analysiere ${basename(imgPath)} mit ${vModel}...\n`));
+                try {
+                    process.stdout.write("  ");
+                    for await (const token of analyzeImage(imgPath, visionPrompt, vModel)) {
+                        process.stdout.write(token);
+                    }
+                    console.log("\n");
+                }
+                catch (err) {
+                    console.log(chalk.hex(t().error)(`\n  Fehler: ${err instanceof Error ? err.message : err}\n`));
+                }
+            })();
+        // ── Imagine (Image Generation) ──
+        case "/imagine":
+            if (arg === "models") {
+                console.log(chalk.hex(t().info)("\n  Image-Gen Modelle (lokal, Stable Diffusion):\n"));
+                const mem = getAvailableMemoryGB();
+                for (const m of IMAGE_MODELS) {
+                    const rec = m.id === "sdxl-turbo" ? chalk.hex(t().success)(" (empfohlen)") : "";
+                    console.log(`  ${chalk.white(m.id.padEnd(12))} ${chalk.gray(m.size.padEnd(6))} ${chalk.hex(t().dim)(m.description)}${rec}`);
+                }
+                console.log(chalk.gray(`\n  RAM: ${mem}GB — ${mem >= 16 ? "SDXL empfohlen" : "SD 1.5 empfohlen fuer <16GB RAM"}\n`));
+                return true;
+            }
+            if (!arg) {
+                console.log(chalk.hex(t().info)("\n  Nutzung: /imagine <prompt>"));
+                console.log(chalk.gray("  Beispiel: /imagine A futuristic city at sunset, cyberpunk style"));
+                console.log(chalk.gray("  /imagine setup   — Umgebung einrichten (einmalig)"));
+                console.log(chalk.gray("  /imagine models  — Verfuegbare Modelle\n"));
+                return true;
+            }
+            return (async () => {
+                if (arg === "setup") {
+                    if (await isSetupComplete()) {
+                        console.log(chalk.hex(t().success)("\n  Image Generation bereits eingerichtet.\n"));
+                        return;
+                    }
+                    if (!(await hasPython())) {
+                        console.log(chalk.hex(t().error)("\n  Python 3 nicht gefunden! Installiere: brew install python3\n"));
+                        return;
+                    }
+                    const sp = ora({ text: "Richte Image Generation ein...", color: "cyan" }).start();
+                    try {
+                        await setupImageGen((s) => { sp.text = s; });
+                        sp.succeed("Image Generation eingerichtet!");
+                        console.log(chalk.gray("  Nutze: /imagine <prompt>\n"));
+                    }
+                    catch (err) {
+                        sp.fail(`Setup fehlgeschlagen: ${err instanceof Error ? err.message : err}`);
+                    }
+                    return;
+                }
+                if (arg === "cleanup") {
+                    await cleanupImageGen();
+                    console.log(chalk.hex(t().success)("\n  Image-Gen Umgebung entfernt.\n"));
+                    return;
+                }
+                // Auto-setup on first use
+                if (!(await isSetupComplete())) {
+                    if (!(await hasPython())) {
+                        console.log(chalk.hex(t().error)("\n  Python 3 nicht gefunden! Installiere: brew install python3\n"));
+                        return;
+                    }
+                    console.log(chalk.hex(t().info)("\n  Erste Nutzung — richte Image Generation ein...\n"));
+                    const ss = ora({ text: "Installiere PyTorch + Diffusers...", color: "cyan" }).start();
+                    try {
+                        await setupImageGen((s) => { ss.text = s; });
+                        ss.succeed("Setup fertig!");
+                    }
+                    catch (err) {
+                        ss.fail(`Setup fehlgeschlagen: ${err instanceof Error ? err.message : err}`);
+                        return;
+                    }
+                }
+                const gs = ora({ text: `Generiere Bild: "${arg.slice(0, 60)}${arg.length > 60 ? "..." : ""}"`, color: "magenta" }).start();
+                try {
+                    const result = await generateImage(arg);
+                    gs.succeed("Bild generiert!");
+                    console.log(chalk.hex(t().info)(`  Pfad:       ${result.path}`));
+                    console.log(chalk.gray(`  Model:      ${result.model}`));
+                    console.log(chalk.gray(`  Aufloesung: ${result.resolution}`));
+                    console.log(chalk.gray(`  Steps:      ${result.steps}`));
+                    console.log(chalk.gray(`  Seed:       ${result.seed}`));
+                    console.log(chalk.gray(`  Dauer:      ${result.duration}s`));
+                    try {
+                        execSync(`open "${result.path}"`, { stdio: "ignore" });
+                    }
+                    catch { }
+                    console.log();
+                }
+                catch (err) {
+                    gs.fail(`Fehler: ${err instanceof Error ? err.message : err}`);
+                }
+            })();
+        // ── Serve (API Server) ──
+        case "/serve": {
+            const srvPort = arg ? parseInt(arg, 10) : DEFAULT_PORT;
+            if (isNaN(srvPort) || srvPort < 1 || srvPort > 65535) {
+                console.log(chalk.hex(t().error)("\n  Ungueltiger Port. Nutze: /serve <1-65535>\n"));
+                return true;
+            }
+            return (async () => {
+                const sp = ora({ text: `Starte Morningstar API Server auf Port ${srvPort}...`, color: "cyan" }).start();
+                try {
+                    const server = await startServer({ port: srvPort, host: "0.0.0.0", cliConfig: config, corsEnabled: true });
+                    sp.succeed(`Server laeuft: ${server.url}`);
+                    console.log(chalk.gray("  Stoppen: Ctrl+C\n"));
+                }
+                catch (err) {
+                    sp.fail(`Server-Fehler: ${err instanceof Error ? err.message : err}`);
+                }
+            })();
+        }
         // ── Quit ──
         case "/quit":
         case "/exit":
@@ -2059,7 +2273,7 @@ function buildSlashCommands() {
         return [];
     } })(), 
     // Popular Ollama models not yet installed
-    ...POPULAR_OLLAMA_MODELS.map(m => ({ cmd: `/model ${m.name}`, desc: `${m.desc} [ollama]` })), { cmd: "/context", desc: "Projekt-Kontext" }, { cmd: "/cost", desc: "Kosten-Tracking" }, { cmd: "/quit", desc: "Beenden" });
+    ...POPULAR_OLLAMA_MODELS.map(m => ({ cmd: `/model ${m.name}`, desc: `${m.desc} [ollama]` })), { cmd: "/vision", desc: "Bild analysieren (Ollama)" }, { cmd: "/vision models", desc: "Vision-Modelle anzeigen" }, { cmd: "/vision setup", desc: "Vision-Model installieren" }, ...VISION_MODELS.map(m => ({ cmd: `/vision setup ${m.id}`, desc: `${m.name} installieren (${m.size})` })), { cmd: "/imagine", desc: "Bild generieren (Stable Diffusion)" }, { cmd: "/imagine setup", desc: "Image-Gen einrichten" }, { cmd: "/imagine models", desc: "Image-Gen Modelle" }, { cmd: "/imagine cleanup", desc: "Image-Gen entfernen" }, { cmd: "/serve", desc: "API Server starten" }, { cmd: "/serve 3000", desc: "Server auf Port 3000" }, { cmd: "/serve 8080", desc: "Server auf Port 8080" }, { cmd: "/context", desc: "Projekt-Kontext" }, { cmd: "/cost", desc: "Kosten-Tracking" }, { cmd: "/quit", desc: "Beenden" });
     // Deduplicate by cmd (first occurrence wins)
     const seen = new Set();
     return cmds.filter(c => { if (seen.has(c.cmd))
