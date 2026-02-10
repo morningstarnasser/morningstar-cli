@@ -847,12 +847,12 @@ async function interactiveModelSelect(): Promise<void> {
   saveConfig({ model: modelId, provider: prov, baseUrl: config.baseUrl });
   console.log(s(`\n  \u2713 Model: ${getModelDisplayName(modelId)} [${prov}]\n`));
 
-  // Warn if no API key for cloud provider
+  // If no valid key for cloud provider, prompt for key
   if (prov !== "ollama" && !config.apiKey) {
     const envKey = getProviderApiKeyEnv(prov);
     console.log(chalk.hex(theme.warning)(`  Kein API Key fuer ${prov}!`));
-    console.log(d(`  Setze: /config set apiKey DEIN_KEY`));
-    if (envKey) console.log(d(`  Oder: export ${envKey}=DEIN_KEY\n`));
+    if (envKey) console.log(d(`  Setze: export ${envKey}=DEIN_KEY\n`));
+    await ensureApiKey();
   }
 }
 
@@ -895,6 +895,13 @@ function handleSlashCommand(input: string): boolean | Promise<void> {
         if (newKey) config.apiKey = newKey;
         saveConfig({ model: arg, provider: newProv, baseUrl: config.baseUrl });
         console.log(chalk.hex(t().success)(`\n  Model: ${getModelDisplayName(arg)} [${newProv}]\n`));
+        // If no valid key for cloud provider, prompt immediately
+        if (newProv !== "ollama" && !config.apiKey) {
+          const envKey = getProviderApiKeyEnv(newProv);
+          console.log(chalk.hex(t().warning)(`  Kein API Key fuer ${newProv}!`));
+          if (envKey) console.log(chalk.gray(`  Setze: export ${envKey}=DEIN_KEY oder /config set apiKey DEIN_KEY\n`));
+          return ensureApiKey().then(() => {});
+        }
       } else {
         return interactiveModelSelect();
       }

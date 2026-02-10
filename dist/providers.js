@@ -47,7 +47,9 @@ export function resolveApiKey(provider, configKey) {
     const envVar = getProviderApiKeyEnv(provider);
     if (provider === "ollama")
         return "ollama";
-    return configKey || (envVar ? process.env[envVar] || "" : "");
+    // Ignore "ollama" placeholder when switching to cloud providers
+    const key = configKey === "ollama" ? "" : configKey;
+    return key || (envVar ? process.env[envVar] || "" : "");
 }
 export function listProviders() {
     return [
