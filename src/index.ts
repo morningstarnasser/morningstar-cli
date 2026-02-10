@@ -683,6 +683,179 @@ async function agentImport(): Promise<void> {
   } catch { importRl.close(); console.log(chalk.hex(t().error)("\n  Abbruch.\n")); }
 }
 
+// ─── Ollama Detection ────────────────────────────────────
+function getOllamaModels(): { name: string; size: string; modified: string }[] {
+  try {
+    const output = execSync("ollama list", { encoding: "utf-8", timeout: 5000, stdio: ["pipe", "pipe", "pipe"] }).trim();
+    const lines = output.split("\n").slice(1); // skip header
+    return lines.filter(l => l.trim()).map(line => {
+      const parts = line.split(/\s{2,}/);
+      return { name: (parts[0] || "").split(":")[0], size: parts[2] || "", modified: parts[3] || "" };
+    }).filter(m => m.name);
+  } catch {
+    return [];
+  }
+}
+
+function isOllamaRunning(): boolean {
+  try {
+    execSync("curl -s http://localhost:11434/api/tags", { timeout: 3000, stdio: ["pipe", "pipe", "pipe"] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isOllamaInstalled(): boolean {
+  try {
+    execSync("which ollama", { encoding: "utf-8", timeout: 3000, stdio: ["pipe", "pipe", "pipe"] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const POPULAR_OLLAMA_MODELS = [
+  { name: "llama3.2", desc: "Meta Llama 3.2 — 3B, schnell", size: "~2GB" },
+  { name: "llama3.1", desc: "Meta Llama 3.1 — 8B, stark", size: "~4.7GB" },
+  { name: "codellama", desc: "Meta Code Llama — 7B, Code-spezialisiert", size: "~3.8GB" },
+  { name: "deepseek-coder-v2", desc: "DeepSeek Coder V2 — 16B, Coding", size: "~8.9GB" },
+  { name: "qwen2.5-coder", desc: "Qwen 2.5 Coder — 7B, Coding", size: "~4.7GB" },
+  { name: "mistral", desc: "Mistral 7B — vielseitig", size: "~4.1GB" },
+  { name: "phi3", desc: "Microsoft Phi-3 — 3.8B, kompakt", size: "~2.3GB" },
+  { name: "gemma2", desc: "Google Gemma 2 — 9B", size: "~5.4GB" },
+];
+
+// ─── Interactive Model Selection ─────────────────────────
+async function interactiveModelSelect(): Promise<void> {
+  const theme = t();
+  const d = chalk.hex(theme.dim);
+  const h = chalk.hex(theme.primary).bold;
+  const w = chalk.white;
+  const s = chalk.hex(theme.success);
+  const y = chalk.hex(theme.accent);
+  const c = chalk.hex(theme.info);
+
+  console.log(h("\n  Model-Auswahl\n"));
+  console.log(d("  Aktuell: ") + c(getModelDisplayName(config.model)) + d(" [") + y(config.provider || detectProvider(config.model)) + d("]"));
+  console.log();
+
+  // ── Section 1: Local Models (Ollama) ──
+  const ollamaOk = isOllamaInstalled();
+  const ollamaPath = join(homedir(), ".ollama", "models");
+
+  console.log(h("  1. Lokal (Ollama)") + d(" — offline, kostenlos, privat"));
+  if (ollamaOk) {
+    console.log(d(`     Pfad: ${ollamaPath}`));
+    const running = isOllamaRunning();
+    console.log(d("     Status: ") + (running ? s("Laeuft") : chalk.hex(theme.error)("Nicht gestartet") + d(" — starte mit: ollama serve")));
+
+    const installed = getOllamaModels();
+    if (installed.length > 0) {
+      console.log(s(`\n     Installierte Modelle (${installed.length}):`));
+      for (let i = 0; i < installed.length; i++) {
+        const m = installed[i];
+        const active = config.model === m.name && (config.provider === "ollama") ? y(" \u2605") : "";
+        console.log(w(`     ${(i + 1).toString().padStart(2)}. ${m.name}`) + d(` (${m.size})`) + active);
+      }
+    } else {
+      console.log(chalk.hex(theme.warning)("\n     Keine Modelle installiert."));
+    }
+
+    console.log(d("\n     Populaere Modelle zum Installieren:"));
+    for (const m of POPULAR_OLLAMA_MODELS) {
+      const isInstalled = installed.some(i => i.name.startsWith(m.name));
+      const tag = isInstalled ? s(" [installiert]") : "";
+      console.log(d("     ") + w(`ollama pull ${m.name}`) + d(` — ${m.desc} (${m.size})`) + tag);
+    }
+  } else {
+    console.log(chalk.hex(theme.warning)("     Ollama nicht installiert."));
+    console.log(d("     Installieren: ") + c("brew install ollama") + d(" oder ") + c("https://ollama.com"));
+    console.log(d(`     Modelle-Pfad: ${ollamaPath}`));
+  }
+
+  // ── Section 2: Serverless (Cloud) ──
+  console.log(h("\n  2. Serverless (Cloud)") + d(" — schnell, leistungsstark, API Key noetig"));
+  const providers = listProviders().filter(p => p.name !== "ollama");
+  for (const p of providers) {
+    const envKey = getProviderApiKeyEnv(p.name);
+    const hasKey = envKey ? !!process.env[envKey] || (config.provider === p.name && !!config.apiKey) : false;
+    const keyTag = p.name === "openrouter" ? d(" (alle Modelle)") :
+      hasKey ? s(" [Key gesetzt]") : chalk.hex(theme.warning)(` [${envKey}]`);
+    console.log(w(`\n     ${p.name.toUpperCase()}`) + keyTag);
+    for (const model of p.models) {
+      if (model.startsWith("(")) { console.log(d(`       ${model}`)); continue; }
+      const active = config.model === model ? y(" \u2605 aktiv") : "";
+      const free = isFreeTier(model) ? s(" (kostenlos)") : "";
+      console.log(d("       ") + c(model) + d(` — ${getModelDisplayName(model)}`) + free + active);
+    }
+  }
+
+  // ── Prompt ──
+  console.log(h("\n  Waehle ein Model:"));
+  console.log(d("  Eingabe: Nummer (lokal) oder Model-ID (z.B. gpt-4o, llama3)"));
+  console.log(d("  Oder: /model <id> direkt\n"));
+
+  const selectRl = createInterface({ input: process.stdin, output: process.stdout });
+  const answer = (await askQuestion(selectRl, chalk.hex(theme.prompt).bold("  Model > "))).trim();
+  selectRl.close();
+
+  if (!answer) { console.log(d("\n  Keine Auswahl.\n")); return; }
+
+  // Check if it's a number (local Ollama model)
+  const num = parseInt(answer, 10);
+  const installed = ollamaOk ? getOllamaModels() : [];
+  if (!isNaN(num) && num >= 1 && num <= installed.length) {
+    const selected = installed[num - 1].name;
+    config.model = selected;
+    config.provider = "ollama";
+    config.baseUrl = "http://localhost:11434/v1";
+    config.apiKey = "ollama";
+    saveConfig({ model: selected, provider: "ollama", baseUrl: config.baseUrl });
+    console.log(s(`\n  \u2713 Lokal: ${selected} [ollama]\n`));
+    return;
+  }
+
+  // Check if it's a known model name
+  const modelId = answer.toLowerCase();
+
+  // Check if it's an Ollama pull request
+  if (modelId.startsWith("pull ") || modelId.startsWith("ollama pull ")) {
+    const pullModel = modelId.replace("ollama pull ", "").replace("pull ", "").trim();
+    if (pullModel) {
+      console.log(chalk.hex(theme.info)(`\n  Lade ${pullModel} herunter...\n`));
+      try {
+        execSync(`ollama pull ${pullModel}`, { stdio: "inherit", timeout: 600000 });
+        config.model = pullModel;
+        config.provider = "ollama";
+        config.baseUrl = "http://localhost:11434/v1";
+        config.apiKey = "ollama";
+        saveConfig({ model: pullModel, provider: "ollama", baseUrl: config.baseUrl });
+        console.log(s(`\n  \u2713 ${pullModel} installiert und aktiviert!\n`));
+      } catch { console.log(chalk.hex(theme.error)("\n  Download fehlgeschlagen.\n")); }
+      return;
+    }
+  }
+
+  // Set as model directly
+  const prov = detectProvider(modelId);
+  config.model = modelId;
+  config.provider = prov;
+  config.baseUrl = getProviderBaseUrl(prov);
+  const newKey = resolveApiKey(prov, config.apiKey);
+  if (newKey) config.apiKey = newKey;
+  saveConfig({ model: modelId, provider: prov, baseUrl: config.baseUrl });
+  console.log(s(`\n  \u2713 Model: ${getModelDisplayName(modelId)} [${prov}]\n`));
+
+  // Warn if no API key for cloud provider
+  if (prov !== "ollama" && !config.apiKey) {
+    const envKey = getProviderApiKeyEnv(prov);
+    console.log(chalk.hex(theme.warning)(`  Kein API Key fuer ${prov}!`));
+    console.log(d(`  Setze: /config set apiKey DEIN_KEY`));
+    if (envKey) console.log(d(`  Oder: export ${envKey}=DEIN_KEY\n`));
+  }
+}
+
 // ─── Git Helpers ─────────────────────────────────────────
 function runGit(cmd: string): string {
   try {
@@ -723,8 +896,7 @@ function handleSlashCommand(input: string): boolean | Promise<void> {
         saveConfig({ model: arg, provider: newProv, baseUrl: config.baseUrl });
         console.log(chalk.hex(t().success)(`\n  Model: ${getModelDisplayName(arg)} [${newProv}]\n`));
       } else {
-        console.log(chalk.hex(t().info)(`\n  Model: ${getModelDisplayName(config.model)} [${config.provider || detectProvider(config.model)}]`));
-        console.log(chalk.gray("  Alle Models: /providers\n"));
+        return interactiveModelSelect();
       }
       return true;
 

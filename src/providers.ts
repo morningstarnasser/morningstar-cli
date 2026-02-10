@@ -18,9 +18,10 @@ export function detectProvider(model: string): string {
   if (m.startsWith("gpt-") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return "openai";
   if (m.startsWith("claude-")) return "anthropic";
   if (m.startsWith("gemini-")) return "google";
+  if (m.startsWith("deepseek-coder")) return "ollama";
   if (m.startsWith("deepseek-")) return "deepseek";
-  if (m.startsWith("llama") || m.startsWith("codellama") || m.startsWith("mistral") || m.startsWith("phi") || m.startsWith("qwen") || m.startsWith("deepseek-coder")) return "ollama";
-  if (m.startsWith("mixtral") || m.startsWith("gemma") || m.startsWith("groq/")) return "groq";
+  if (m.startsWith("llama") || m.startsWith("codellama") || m.startsWith("mistral") || m.startsWith("phi") || m.startsWith("qwen") || m.startsWith("gemma") || m.startsWith("starcoder") || m.startsWith("tinyllama") || m.startsWith("vicuna") || m.startsWith("wizardcoder") || m.startsWith("orca") || m.startsWith("neural") || m.startsWith("nomic")) return "ollama";
+  if (m.startsWith("mixtral") || m.startsWith("groq/")) return "groq";
   return "openai"; // fallback to OpenAI-compatible
 }
 
