@@ -22,26 +22,39 @@ Morningstar is a fully-featured AI coding assistant that lives in your terminal 
 ```
 $ morningstar
 
-        *
-       / \
-      / | \
-     *--+--*
-      \ | /
-       \ /
-        *
+  ╔══════════════════════════════════════════════════════════╗
+  ║                                                          ║
+  ║                    . .  ★  . .                           ║
+  ║                   .  ./ . \.  .                          ║
+  ║                  .  /  . | .  \  .                       ║
+  ║                  ── * ─────+───── * ──                   ║
+  ║                  .  \  . | .  /  .                       ║
+  ║                   .  .\ . /.  .                          ║
+  ║                    . .  ★  . .                           ║
+  ║                                                          ║
+  ║              M O R N I N G S T A R                       ║
+  ║              ━━━━━━━━━━━━━━━━━━━━━━                      ║
+  ║           Terminal AI Coding Assistant                    ║
+  ║           Powered by Mr.Morningstar                      ║
+  ║           github.com/morningstarnasser                   ║
+  ║                                                          ║
+  ╚══════════════════════════════════════════════════════════╝
 
-  Morningstar AI v1.0.0
-  Dein Terminal-Coding-Assistant
+  ┌──────────────────────────────────────────────────────┐
+  │ ★ Model    deepseek-reasoner (R1 Thinking)           │
+  │ ★ Projekt  my-app (TypeScript / Next.js)             │
+  │ ★ Branch   main                                      │
+  │ ★ CWD      /Users/dev/my-app                         │
+  │ ★ Theme    Morningstar Default                        │
+  └──────────────────────────────────────────────────────┘
 
-  Model    : deepseek-reasoner
-  Projekt  : my-app (TypeScript/JavaScript / Next.js)
-  Branch   : main
-  CWD      : /Users/dev/my-app
+  Tools   read · write · edit · bash · grep · glob · ls · git
+  Agents  code · debug · review · refactor · architect · test
+  Hilfe   /help · /features · /agents · /agent:create · /quit
 
-  Tools: read, write, edit, bash, grep, glob, ls, git, delete
-  Agents: /agent:code, /agent:debug, /agent:review, /agent:refactor
-  Befehle: /help /features /agents /agent:create /quit
-────────────────────────────────────────────────────────────
+    2 offene Aufgabe(n) — /todo list
+    3 Notiz(en) gespeichert — /memory list
+  ────────────────────────────────────────────────────────────
 
 > Analysiere dieses Projekt und finde Probleme
 
@@ -50,7 +63,7 @@ $ morningstar
   │ dann lese ich die Hauptdateien...                   │
   └─────────────────────────────────────────────────────┘
 
-  * Ich analysiere die Struktur...
+  ★ Ich analysiere die Struktur...
 
   ✓ [ls]
     src/
@@ -58,7 +71,18 @@ $ morningstar
     tsconfig.json
     ...
 
-  * Jetzt lese ich die Hauptdateien und suche nach Problemen...
+  ★ Jetzt lese ich die Hauptdateien...
+
+  ✓ [read] src/app/page.tsx
+    1│ import ...
+    2│ export default function Home() {
+    ...
+
+  ★ Ich habe 3 Probleme gefunden:
+
+  ✓ [edit] src/app/page.tsx
+  - const data = fetchData()
+  + const data = await fetchData()
 ```
 
 ---
