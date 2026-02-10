@@ -3,7 +3,7 @@ export function detectProvider(model) {
     const m = model.toLowerCase();
     if (m.includes("/"))
         return "openrouter";
-    if (m.startsWith("gpt-") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4"))
+    if (m.startsWith("gpt-") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4") || m.startsWith("codex") || m.startsWith("chatgpt"))
         return "openai";
     if (m.startsWith("claude-"))
         return "anthropic";
@@ -54,7 +54,7 @@ export function resolveApiKey(provider, configKey) {
 export function listProviders() {
     return [
         { name: "deepseek", models: ["deepseek-reasoner", "deepseek-chat"], envKey: "DEEPSEEK_API_KEY" },
-        { name: "openai", models: ["gpt-4o", "gpt-4o-mini", "o1", "o1-mini", "o3-mini", "gpt-4-turbo"], envKey: "OPENAI_API_KEY" },
+        { name: "openai", models: ["o3", "o3-mini", "o3-pro", "o4-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o1", "o1-mini", "codex-mini-latest", "gpt-4o-search-preview"], envKey: "OPENAI_API_KEY" },
         { name: "anthropic", models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-3-5-20241022"], envKey: "ANTHROPIC_API_KEY" },
         { name: "google", models: ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"], envKey: "GOOGLE_API_KEY" },
         { name: "ollama", models: ["llama3", "codellama", "mistral", "deepseek-coder", "phi3", "qwen2.5-coder"], envKey: "(lokal)" },
@@ -66,15 +66,31 @@ export function getModelDisplayName(model) {
     const names = {
         "deepseek-reasoner": "DeepSeek R1 (Thinking)",
         "deepseek-chat": "DeepSeek Chat",
+        // OpenAI Reasoning
+        "o3": "o3 (Reasoning)",
+        "o3-mini": "o3 Mini (Reasoning)",
+        "o3-pro": "o3 Pro (Reasoning Ultra)",
+        "o4-mini": "o4 Mini (Reasoning)",
+        "o1": "o1 (Reasoning)",
+        "o1-mini": "o1 Mini (Reasoning Legacy)",
+        "o1-pro": "o1 Pro",
+        // OpenAI GPT-4.1
+        "gpt-4.1": "GPT-4.1",
+        "gpt-4.1-mini": "GPT-4.1 Mini",
+        "gpt-4.1-nano": "GPT-4.1 Nano",
+        // OpenAI GPT-4o
         "gpt-4o": "GPT-4o",
         "gpt-4o-mini": "GPT-4o Mini",
-        "o1": "OpenAI o1",
-        "o1-mini": "OpenAI o1 Mini",
-        "o3-mini": "OpenAI o3 Mini",
-        "gpt-4-turbo": "GPT-4 Turbo",
+        "gpt-4-turbo": "GPT-4 Turbo (Legacy)",
+        // OpenAI Specialized
+        "codex-mini-latest": "Codex Mini (Code)",
+        "gpt-4o-search-preview": "GPT-4o Search",
+        "gpt-4o-mini-search-preview": "GPT-4o Mini Search",
+        // Anthropic
         "claude-sonnet-4-20250514": "Claude Sonnet 4",
         "claude-opus-4-20250514": "Claude Opus 4",
         "claude-haiku-3-5-20241022": "Claude Haiku 3.5",
+        // Google
         "gemini-2.0-flash": "Gemini 2.0 Flash",
         "gemini-2.0-pro": "Gemini 2.0 Pro",
         "gemini-1.5-pro": "Gemini 1.5 Pro",
