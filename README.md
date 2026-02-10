@@ -1,15 +1,5 @@
 <div align="center">
 
-```
-        *
-       / \
-      / | \
-     *--+--*
-      \ | /
-       \ /
-        *
-```
-
 # Morningstar CLI
 
 **Terminal-based AI Coding Assistant powered by DeepSeek R1**
