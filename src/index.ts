@@ -155,21 +155,28 @@ function printBanner() {
     d("  ║") + coloredText + pad(rawText) + d("║");
   const empty = d("  ║") + " ".repeat(BW) + d("║");
 
+  // Center helper: centers raw text within BW, returns colored version
+  const center = (rawText: string, coloredText: string) => {
+    const left = Math.floor((BW - rawText.length) / 2);
+    const right = BW - rawText.length - left;
+    return d("  ║") + " ".repeat(left) + coloredText + " ".repeat(right) + d("║");
+  };
+
   console.log();
   console.log(d("  ╔" + "═".repeat(BW) + "╗"));
   console.log(empty);
-  console.log(row("               . .  ★  . .",               g("               . .  ") + y(b("★")) + g("  . .")));
-  console.log(row("            .  ./ . \\.  .",               g("            .  .") + m(b("/")) + g(" . ") + m(b("\\")) + g(".  .")));
-  console.log(row("          .  /  . | .  \\  .",             g("          .  ") + m(b("/")) + g("  . ") + w(b("|")) + g(" .  ") + m(b("\\")) + g("  .")));
-  console.log(row("        ── * ─────+───── * ──",           g("        ── ") + m(b("*")) + g(" ─────") + y(b("+")) + g("───── ") + m(b("*")) + g(" ──")));
-  console.log(row("          .  \\  . | .  /  .",             g("          .  ") + m(b("\\")) + g("  . ") + w(b("|")) + g(" .  ") + m(b("/")) + g("  .")));
-  console.log(row("            .  .\\ . /.  .",               g("            .  .") + m(b("\\")) + g(" . ") + m(b("/")) + g(".  .")));
-  console.log(row("               . .  ★  . .",               g("               . .  ") + y(b("★")) + g("  . .")));
+  console.log(center(". .  ★  . .",                           g(". .  ") + y(b("★")) + g("  . .")));
+  console.log(center(".  ./ . \\.  .",                         g(".  .") + m(b("/")) + g(" . ") + m(b("\\")) + g(".  .")));
+  console.log(center(".  /  . | .  \\  .",                     g(".  ") + m(b("/")) + g("  . ") + w(b("|")) + g(" .  ") + m(b("\\")) + g("  .")));
+  console.log(center("── * ─────+───── * ──",                 g("── ") + m(b("*")) + g(" ─────") + y(b("+")) + g("───── ") + m(b("*")) + g(" ──")));
+  console.log(center(".  \\  . | .  /  .",                     g(".  ") + m(b("\\")) + g("  . ") + w(b("|")) + g(" .  ") + m(b("/")) + g("  .")));
+  console.log(center(".  .\\ . /.  .",                         g(".  .") + m(b("\\")) + g(" . ") + m(b("/")) + g(".  .")));
+  console.log(center(". .  ★  . .",                           g(". .  ") + y(b("★")) + g("  . .")));
   console.log(empty);
-  console.log(row("   M O R N I N G S T A R",                "   " + m(b("M O R N I N G S T A R"))));
-  console.log(d("  ║") + "   " + d("━".repeat(BW - 4)) + " " + d("║"));
-  console.log(row("   Terminal AI Coding Assistant",          "   " + w("Terminal AI Coding Assistant")));
-  console.log(row("   Powered by DeepSeek R1 Reasoning Engine", "   " + d("Powered by") + " " + c(b("DeepSeek R1")) + " " + d("Reasoning Engine")));
+  console.log(center("M O R N I N G S T A R",                m(b("M O R N I N G S T A R"))));
+  console.log(d("  ║") + "   " + d("━".repeat(BW - 6)) + "   " + d("║"));
+  console.log(center("Terminal AI Coding Assistant",          w("Terminal AI Coding Assistant")));
+  console.log(center("Powered by Mr.Morningstar", d("Powered by") + " " + y(b("Mr.Morningstar"))));
   console.log(empty);
   console.log(d("  ╚" + "═".repeat(BW) + "╝"));
   console.log();
@@ -577,11 +584,29 @@ function getPrompt(): string {
   return PROMPT;
 }
 
+// ─── Autocomplete ─────────────────────────────────────────
+const SLASH_COMMANDS = [
+  "/help", "/features", "/agents", "/clear", "/model", "/context",
+  "/cost", "/compact", "/quit", "/exit",
+  "/agent:code", "/agent:debug", "/agent:review",
+  "/agent:refactor", "/agent:architect", "/agent:test", "/agent:off",
+  "/model deepseek-reasoner", "/model deepseek-chat",
+];
+
+function completer(line: string): [string[], string] {
+  if (line.startsWith("/")) {
+    const hits = SLASH_COMMANDS.filter((c) => c.startsWith(line));
+    return [hits.length ? hits : SLASH_COMMANDS, line];
+  }
+  return [[], line];
+}
+
 const rl = createInterface({
   input: process.stdin,
   output: process.stdout,
   prompt: PROMPT,
   terminal: process.stdin.isTTY !== false,
+  completer,
 });
 
 rl.prompt();
