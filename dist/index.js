@@ -161,6 +161,7 @@ function printBanner() {
     console.log(d("  ║") + "   " + d("━".repeat(BW - 6)) + "   " + d("║"));
     console.log(center("Terminal AI Coding Assistant", w("Terminal AI Coding Assistant")));
     console.log(center("Powered by Mr.Morningstar", d("Powered by") + " " + y(b("Mr.Morningstar"))));
+    console.log(center("github.com/morningstarnasser", c("github.com/morningstarnasser")));
     console.log(empty);
     console.log(d("  ╚" + "═".repeat(BW) + "╝"));
     console.log();
