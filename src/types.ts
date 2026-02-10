@@ -26,4 +26,5 @@ export interface CLIConfig {
   baseUrl: string;
   maxTokens: number;
   temperature: number;
+  provider?: string;
 }

@@ -27,5 +27,6 @@ export interface CLIConfig {
     baseUrl: string;
     maxTokens: number;
     temperature: number;
+    provider?: string;
 }
 //# sourceMappingURL=types.d.ts.map

@@ -20,6 +20,12 @@ import { saveConversation, loadConversation, listConversations, deleteConversati
 import { undoLastChange, getUndoStack, getUndoStackSize, clearUndoStack, getLastChange } from "./undo.js";
 import { THEMES, setTheme, getTheme, getThemeId, listThemes } from "./theme.js";
 import type { Message, CLIConfig } from "./types.js";
+import { detectProvider, getProviderBaseUrl, getProviderApiKeyEnv, resolveApiKey, listProviders, getModelDisplayName } from "./providers.js";
+import { getPermissionMode, setPermissionMode, shouldAskPermission, getCategoryColor } from "./permissions.js";
+import { loadProjectMemory, createProjectMemory } from "./project-memory.js";
+import { trackUsage, getSessionCosts, formatCostDisplay, resetSessionCosts, isFreeTier } from "./cost-tracker.js";
+import { getRepoMap, generateOnboarding, generateProjectScore, generateCodeRoast } from "./repo-map.js";
+import { parseMentions, formatMentionContext, getMentionCompletions } from "./mentions.js";
 
 // ─── Config ──────────────────────────────────────────────
 const VERSION = "1.0.0";
@@ -74,14 +80,15 @@ const DEFAULT_CONFIG: CLIConfig = {
   baseUrl: "https://api.deepseek.com/v1",
   maxTokens: 8192,
   temperature: 0.6,
+  provider: undefined,
 };
 
 // ─── CLI Setup ───────────────────────────────────────────
 program
   .name("morningstar")
-  .description("Morningstar AI - Terminal Coding Assistant powered by DeepSeek R1")
+  .description("Morningstar AI - Multi-Provider Terminal Coding Assistant")
   .version(VERSION)
-  .option("-k, --api-key <key>", "DeepSeek API Key")
+  .option("-k, --api-key <key>", "API Key fuer den Provider")
   .option("-m, --model <model>", "Model ID (default: deepseek-reasoner)")
   .option("-d, --dir <path>", "Working directory")
   .option("--chat", "Chat-only mode (no tools)")
@@ -93,17 +100,26 @@ const chatOnly = opts.chat || false;
 
 loadEnvFile(cwd);
 
+const selectedModel = opts.model || (saved.model as string) || DEFAULT_CONFIG.model;
+const selectedProvider = (saved.provider as string) || detectProvider(selectedModel);
+
 const config: CLIConfig = {
   ...DEFAULT_CONFIG,
-  apiKey: opts.apiKey || process.env.DEEPSEEK_API_KEY || (saved.apiKey as string) || "sk-595c100043be498387b22a0cd648dc0f",
-  model: opts.model || (saved.model as string) || DEFAULT_CONFIG.model,
+  model: selectedModel,
+  provider: selectedProvider,
+  baseUrl: (saved.baseUrl as string) || getProviderBaseUrl(selectedProvider),
+  apiKey: opts.apiKey || resolveApiKey(selectedProvider, (saved.apiKey as string) || ""),
 };
 
 // ─── Interactive API Key Setup ───────────────────────────
 async function ensureApiKey(): Promise<void> {
   if (config.apiKey) return;
-  console.log(chalk.yellow("\n  Kein DeepSeek API Key gefunden!\n"));
-  console.log(chalk.gray("  Du brauchst einen API Key von https://platform.deepseek.com"));
+  // Ollama and local providers don't need a key
+  if (config.provider === "ollama") { config.apiKey = "ollama"; return; }
+  const provName = config.provider || "deepseek";
+  const envKey = getProviderApiKeyEnv(provName);
+  console.log(chalk.yellow(`\n  Kein API Key fuer ${provName} gefunden!\n`));
+  if (envKey) console.log(chalk.gray(`  Setze ${envKey} als Umgebungsvariable oder gib ihn hier ein.`));
   console.log(chalk.gray("  Der Key wird in ~/.morningstar/config.json gespeichert.\n"));
   const setupRl = createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
@@ -131,9 +147,12 @@ const baseSystemPrompt = chatOnly
   ? "Du bist Morningstar AI, ein hilfreicher Coding-Assistant. Antworte direkt und effizient."
   : buildSystemPrompt(ctx);
 
-// Add memory context to system prompt
+// Add memory + project memory context to system prompt
 function getFullSystemPrompt(): string {
-  return baseSystemPrompt + getMemoryContext();
+  let prompt = baseSystemPrompt + getMemoryContext();
+  const projectMem = loadProjectMemory(cwd);
+  if (projectMem) prompt += `\n\n--- Project Memory (MORNINGSTAR.md) ---\n${projectMem}\n--- Ende ---`;
+  return prompt;
 }
 
 // ─── State ───────────────────────────────────────────────
@@ -212,8 +231,10 @@ function printBanner() {
   console.log(d("  \u255a" + "\u2550".repeat(BW) + "\u255d"));
   console.log();
 
-  const modelRaw = config.model === "deepseek-reasoner" ? "deepseek-reasoner (R1 Thinking)" : config.model;
-  const modelDisplay = config.model === "deepseek-reasoner" ? c("deepseek-reasoner") + d(" (R1 Thinking)") : c(config.model);
+  const modelName = getModelDisplayName(config.model);
+  const provDisplay = config.provider || detectProvider(config.model);
+  const modelRaw = `${modelName} [${provDisplay}]`;
+  const modelDisplay = c(modelName) + d(" [") + y(provDisplay) + d("]");
   const langInfo = ctx.language ? ctx.language + (ctx.framework ? " / " + ctx.framework : "") : "unbekannt";
   const langDisplay = ctx.language ? chalk.white(ctx.language) + (ctx.framework ? d(" / ") + y(ctx.framework) : "") : d("unbekannt");
   const cwdShort = cwd.length > 42 ? "..." + cwd.slice(-39) : cwd;
@@ -317,10 +338,13 @@ function printHelp() {
   console.log();
 
   console.log(h("  AI & Model"));
-  console.log(w("  /model <id>        ") + d("Model wechseln (deepseek-reasoner, deepseek-chat)"));
+  console.log(w("  /model <id>        ") + d("Model wechseln (alle Provider)"));
+  console.log(w("  /provider <name>   ") + d("Provider wechseln (deepseek, openai, anthropic, google, ollama, groq)"));
+  console.log(w("  /providers         ") + d("Alle Provider und Models anzeigen"));
   console.log(w("  /context           ") + d("Projekt-Kontext anzeigen"));
-  console.log(w("  /cost              ") + d("Token-Nutzung anzeigen"));
+  console.log(w("  /cost              ") + d("Token- & Kostentracking anzeigen"));
   console.log(w("  /stats             ") + d("Session-Statistiken"));
+  console.log(w("  /permissions       ") + d("Permission-Modus (auto/ask/strict)"));
   console.log(w("  /plan              ") + d("Plan-Modus an/aus (denken vor handeln)"));
   console.log();
 
@@ -359,6 +383,13 @@ function printHelp() {
   console.log(w("  /status            ") + d("Git status"));
   console.log();
 
+  console.log(h("  Codebase-Analyse"));
+  console.log(w("  /onboard           ") + d("Projekt-Onboarding (Struktur, Dependencies, Scripts)"));
+  console.log(w("  /score             ") + d("Projekt-Qualitaetsscore"));
+  console.log(w("  /roast             ") + d("Code Roast (humorvolle Review)"));
+  console.log(w("  /map               ") + d("Codebase Map (Exports/Imports)"));
+  console.log();
+
   console.log(h("  Dateien & Projekt"));
   console.log(w("  /init              ") + d("MORNINGSTAR.md Projektnotiz erstellen"));
   console.log(w("  /undo              ") + d("Letzte Dateiaenderung rueckgaengig"));
@@ -371,6 +402,17 @@ function printHelp() {
   console.log(w("  /history list      ") + d("Gespeicherte Sessions"));
   console.log(w("  /history load <id> ") + d("Session laden"));
   console.log(w("  /history delete <id>") + d(" Session loeschen"));
+  console.log();
+
+  console.log(h("  @-Mentions (im Prompt)"));
+  console.log(w("  @file:<path>       ") + d("Datei als Kontext anhaengen"));
+  console.log(w("  @folder:<path>     ") + d("Ordner-Inhalt als Kontext"));
+  console.log(w("  @git:diff          ") + d("Git diff als Kontext"));
+  console.log(w("  @git:log           ") + d("Git log als Kontext"));
+  console.log(w("  @git:status        ") + d("Git status als Kontext"));
+  console.log(w("  @git:staged        ") + d("Staged changes als Kontext"));
+  console.log(w("  @url:<url>         ") + d("URL-Inhalt als Kontext"));
+  console.log(w("  @codebase          ") + d("Codebase-Map als Kontext"));
   console.log();
 
   console.log(h("  Darstellung"));
@@ -390,13 +432,15 @@ function printFeatures() {
 
   console.log(chalk.hex(theme.primary).bold("\n  " + STAR() + " Morningstar AI \u2014 Alle Features\n"));
 
-  h("  AI-Backend");
-  console.log(h("  AI-Backend"));
-  console.log(d("  - DeepSeek R1 (Reasoning) \u2014 denkt Schritt fuer Schritt"));
-  console.log(d("  - DeepSeek Chat \u2014 schnelle Antworten"));
-  console.log(d("  - Streaming \u2014 live Token fuer Token"));
-  console.log(d("  - Multi-Turn \u2014 bis 5 Tool-Runden automatisch"));
-  console.log(d("  - Plan-Modus \u2014 denken vor handeln"));
+  console.log(h("  Multi-Provider AI"));
+  console.log(d("  - DeepSeek R1 (Reasoning) + Chat"));
+  console.log(d("  - OpenAI GPT-4o, o1, o3-mini"));
+  console.log(d("  - Anthropic Claude Sonnet/Opus/Haiku"));
+  console.log(d("  - Google Gemini 2.0 Flash/Pro"));
+  console.log(d("  - Ollama (lokale Modelle)"));
+  console.log(d("  - Groq (Llama, Mixtral)"));
+  console.log(d("  - OpenRouter (alle Modelle)"));
+  console.log(d("  - Streaming + Plan-Modus + Multi-Turn (5 Runden)"));
   console.log();
 
   console.log(h("  Tools (9 verfuegbar)"));
@@ -455,6 +499,32 @@ function printFeatures() {
   console.log(h("  Themes"));
   const themes = listThemes();
   console.log(d("  - " + themes.map(t => t.name + (t.active ? " *" : "")).join(", ")));
+  console.log();
+
+  console.log(h("  Codebase-Analyse"));
+  console.log(d("  - /onboard \u2014 Projekt-Onboarding (Struktur, Dependencies, Scripts)"));
+  console.log(d("  - /score \u2014 Qualitaetsscore (Tests, Types, Docs, Security)"));
+  console.log(d("  - /roast \u2014 Humorvolle Code-Review"));
+  console.log(d("  - /map \u2014 Codebase Map mit Exports/Imports"));
+  console.log();
+
+  console.log(h("  @-Mentions"));
+  console.log(d("  - @file:path \u2014 Datei als Kontext"));
+  console.log(d("  - @folder:path \u2014 Ordner als Kontext"));
+  console.log(d("  - @git:diff/log/status/staged \u2014 Git-Info als Kontext"));
+  console.log(d("  - @codebase \u2014 Codebase-Map als Kontext"));
+  console.log();
+
+  console.log(h("  Permission System"));
+  console.log(d("  - auto \u2014 alle Tools ohne Nachfrage"));
+  console.log(d("  - ask \u2014 bei write/edit/delete nachfragen"));
+  console.log(d("  - strict \u2014 bei jedem Tool nachfragen"));
+  console.log();
+
+  console.log(h("  Cost Tracking"));
+  console.log(d("  - Token-Schaetzung pro Message"));
+  console.log(d("  - Kostenberechnung per Model (USD)"));
+  console.log(d("  - Session-Uebersicht mit /cost"));
   console.log();
 
   console.log(h("  Projekt-Erkennung"));
@@ -643,8 +713,19 @@ function handleSlashCommand(input: string): boolean | Promise<void> {
 
     // ── Model ──
     case "/model":
-      if (arg) { config.model = arg; saveConfig({ model: arg }); console.log(chalk.hex(t().success)(`\n  Model: ${arg}\n`)); }
-      else { console.log(chalk.hex(t().info)(`\n  Model: ${config.model}`)); console.log(chalk.gray("  Verfuegbar: deepseek-reasoner, deepseek-chat\n")); }
+      if (arg) {
+        config.model = arg;
+        const newProv = detectProvider(arg);
+        config.provider = newProv;
+        config.baseUrl = getProviderBaseUrl(newProv);
+        const newKey = resolveApiKey(newProv, config.apiKey);
+        if (newKey) config.apiKey = newKey;
+        saveConfig({ model: arg, provider: newProv, baseUrl: config.baseUrl });
+        console.log(chalk.hex(t().success)(`\n  Model: ${getModelDisplayName(arg)} [${newProv}]\n`));
+      } else {
+        console.log(chalk.hex(t().info)(`\n  Model: ${getModelDisplayName(config.model)} [${config.provider || detectProvider(config.model)}]`));
+        console.log(chalk.gray("  Alle Models: /providers\n"));
+      }
       return true;
 
     // ── Context ──
@@ -659,10 +740,14 @@ function handleSlashCommand(input: string): boolean | Promise<void> {
       return true;
 
     // ── Cost ──
-    case "/cost":
-      console.log(chalk.hex(t().info)(`\n  Messages: ${messages.length}`));
-      console.log(chalk.gray(`  Geschaetzte Tokens: ~${Math.round(totalTokensEstimate)}\n`));
+    case "/cost": {
+      const costs = getSessionCosts();
+      console.log(chalk.hex(t().info)("\n  Kosten-Tracking:\n"));
+      console.log(chalk.white(formatCostDisplay()));
+      if (isFreeTier(config.model)) console.log(chalk.hex(t().success)("\n  Aktuelles Model ist kostenlos!"));
+      console.log();
       return true;
+    }
 
     // ── Compact ──
     case "/compact": {
@@ -693,9 +778,132 @@ function handleSlashCommand(input: string): boolean | Promise<void> {
       console.log(chalk.gray(`  Dateien geloescht:   ${toolStats.filesDeleted}`));
       console.log(chalk.gray(`  Bash-Befehle:    ${toolStats.bashCommands}`));
       console.log(chalk.gray(`  Undo-Stack:      ${getUndoStackSize()} Eintraege`));
-      console.log(chalk.gray(`  Model:           ${config.model}`));
+      console.log(chalk.gray(`  Model:           ${getModelDisplayName(config.model)}`));
+      console.log(chalk.gray(`  Provider:        ${config.provider || detectProvider(config.model)}`));
       console.log(chalk.gray(`  Agent:           ${activeAgent || "keiner"}`));
       console.log(chalk.gray(`  Plan-Modus:      ${planMode ? "AN" : "AUS"}`));
+      console.log(chalk.gray(`  Permission:      ${getPermissionMode()}`));
+      const costs = getSessionCosts();
+      if (costs.messages > 0) console.log(chalk.gray(`  Kosten:          $${costs.totalCost.toFixed(4)}`));
+      console.log();
+      return true;
+    }
+
+    // ── Provider ──
+    case "/provider": {
+      if (arg) {
+        const providers = listProviders();
+        const found = providers.find(p => p.name === arg.toLowerCase());
+        if (found) {
+          config.provider = found.name;
+          config.baseUrl = getProviderBaseUrl(found.name);
+          const newKey = resolveApiKey(found.name, config.apiKey);
+          if (newKey) config.apiKey = newKey;
+          // Set a sensible default model for the provider
+          const defaultModel = found.models[0];
+          if (defaultModel && !defaultModel.startsWith("(")) {
+            config.model = defaultModel;
+            saveConfig({ provider: found.name, model: defaultModel, baseUrl: config.baseUrl });
+            console.log(chalk.hex(t().success)(`\n  Provider: ${found.name}, Model: ${getModelDisplayName(defaultModel)}\n`));
+          } else {
+            saveConfig({ provider: found.name, baseUrl: config.baseUrl });
+            console.log(chalk.hex(t().success)(`\n  Provider: ${found.name}\n`));
+          }
+        } else {
+          console.log(chalk.hex(t().error)(`\n  Provider "${arg}" nicht gefunden.`));
+          console.log(chalk.gray("  Verfuegbar: " + providers.map(p => p.name).join(", ") + "\n"));
+        }
+      } else {
+        console.log(chalk.hex(t().info)(`\n  Provider: ${config.provider || detectProvider(config.model)}`));
+        console.log(chalk.gray("  /provider <name> zum Wechseln, /providers fuer Uebersicht\n"));
+      }
+      return true;
+    }
+
+    case "/providers": {
+      const providers = listProviders();
+      console.log(chalk.hex(t().info)("\n  Verfuegbare Provider:\n"));
+      for (const p of providers) {
+        const active = p.name === (config.provider || detectProvider(config.model));
+        const marker = active ? chalk.hex(t().accent)(" \u2605") : "";
+        const keyStatus = p.envKey === "(lokal)" ? chalk.hex(t().success)("lokal") :
+          process.env[p.envKey] ? chalk.hex(t().success)("Key gesetzt") : chalk.hex(t().dim)("kein Key");
+        console.log(chalk.hex(t().primary).bold(`  ${p.name}`) + marker);
+        console.log(chalk.gray(`    Models: ${p.models.join(", ")}`));
+        console.log(chalk.gray(`    API Key: ${p.envKey}`) + " " + keyStatus);
+      }
+      console.log(chalk.gray("\n  /provider <name> zum Wechseln, /model <id> fuer Model\n"));
+      return true;
+    }
+
+    // ── Permissions ──
+    case "/permissions": {
+      if (arg && ["auto", "ask", "strict"].includes(arg.toLowerCase())) {
+        const mode = arg.toLowerCase() as "auto" | "ask" | "strict";
+        setPermissionMode(mode);
+        const labels: Record<string, string> = { auto: "Automatisch (alle Tools)", ask: "Nachfragen (bei Schreibzugriff)", strict: "Strikt (bei jedem Tool)" };
+        console.log(chalk.hex(t().success)(`\n  Permission-Modus: ${labels[mode]}\n`));
+      } else {
+        const current = getPermissionMode();
+        console.log(chalk.hex(t().info)(`\n  Permission-Modus: ${current}`));
+        console.log(chalk.gray("  auto   \u2014 alle Tools ohne Nachfrage"));
+        console.log(chalk.gray("  ask    \u2014 bei write/edit/delete nachfragen"));
+        console.log(chalk.gray("  strict \u2014 bei jedem Tool nachfragen"));
+        console.log(chalk.gray("\n  /permissions <mode> zum Aendern\n"));
+      }
+      return true;
+    }
+
+    // ── Codebase Analysis ──
+    case "/onboard": {
+      console.log(chalk.hex(t().info)("\n  Projekt-Onboarding...\n"));
+      const onboarding = generateOnboarding(cwd);
+      console.log(chalk.white(onboarding));
+      console.log();
+      return true;
+    }
+
+    case "/score": {
+      console.log(chalk.hex(t().info)("\n  Projekt-Score wird berechnet...\n"));
+      const score = generateProjectScore(cwd);
+      const bar = (label: string, val: number) => {
+        const filled = Math.round(val / 5);
+        const empty = 20 - filled;
+        const color = val >= 70 ? t().success : val >= 40 ? t().warning : t().error;
+        return `  ${label.padEnd(16)} ${chalk.hex(color)("\u2588".repeat(filled))}${chalk.hex(t().dim)("\u2591".repeat(empty))} ${val}%`;
+      };
+      console.log(bar("Quality", score.quality));
+      console.log(bar("Test Coverage", score.testCoverage));
+      console.log(bar("Type Safety", score.typeSafety));
+      console.log(bar("Documentation", score.documentation));
+      console.log(bar("Security", score.security));
+      console.log(chalk.hex(t().primary).bold(`\n  Overall: ${score.overall}%`));
+      if (score.quickWins.length > 0) {
+        console.log(chalk.hex(t().accent)("\n  Quick Wins:"));
+        for (const win of score.quickWins) console.log(chalk.gray(`    ${win}`));
+      }
+      console.log();
+      return true;
+    }
+
+    case "/roast": {
+      console.log(chalk.hex(t().info)("\n  Code Roast...\n"));
+      const roast = generateCodeRoast(cwd);
+      console.log(chalk.white(roast));
+      console.log();
+      return true;
+    }
+
+    case "/map": {
+      console.log(chalk.hex(t().info)("\n  Codebase Map...\n"));
+      const map = getRepoMap(cwd);
+      if (map.length === 0) { console.log(chalk.gray("  Keine Code-Dateien gefunden.\n")); return true; }
+      for (const file of map.slice(0, 50)) {
+        console.log(chalk.hex(t().accent)(`  ${file.path}`) + chalk.gray(` (${file.lines} Zeilen)`));
+        if (file.exports.length > 0) console.log(chalk.hex(t().success)(`    exports: ${file.exports.join(", ")}`));
+        if (file.imports.length > 0) console.log(chalk.hex(t().dim)(`    imports: ${file.imports.join(", ")}`));
+      }
+      if (map.length > 50) console.log(chalk.gray(`\n  ... +${map.length - 50} weitere Dateien`));
       console.log();
       return true;
     }
@@ -984,7 +1192,7 @@ function handleSlashCommand(input: string): boolean | Promise<void> {
         const key = parts[2];
         const val = parts.slice(3).join(" ");
         if (!val) { console.log(chalk.hex(t().error)("\n  Nutzung: /config set <key> <value>\n")); return true; }
-        const validKeys = ["apiKey", "model", "baseUrl", "maxTokens", "temperature", "theme"];
+        const validKeys = ["apiKey", "model", "baseUrl", "maxTokens", "temperature", "theme", "provider"];
         if (!validKeys.includes(key)) { console.log(chalk.hex(t().error)(`\n  Ungueltig. Verfuegbar: ${validKeys.join(", ")}\n`)); return true; }
         if (key === "maxTokens") (config as unknown as Record<string, unknown>)[key] = parseInt(val, 10);
         else if (key === "temperature") (config as unknown as Record<string, unknown>)[key] = parseFloat(val);
@@ -995,8 +1203,9 @@ function handleSlashCommand(input: string): boolean | Promise<void> {
         return true;
       }
       console.log(chalk.hex(t().info)("\n  Konfiguration:\n"));
-      console.log(chalk.gray("  apiKey:      ") + chalk.white(config.apiKey.slice(0, 8) + "..." + config.apiKey.slice(-4)));
-      console.log(chalk.gray("  model:       ") + chalk.white(config.model));
+      console.log(chalk.gray("  apiKey:      ") + chalk.white(config.apiKey ? config.apiKey.slice(0, 8) + "..." + config.apiKey.slice(-4) : "(nicht gesetzt)"));
+      console.log(chalk.gray("  provider:    ") + chalk.white(config.provider || detectProvider(config.model)));
+      console.log(chalk.gray("  model:       ") + chalk.white(getModelDisplayName(config.model)));
       console.log(chalk.gray("  baseUrl:     ") + chalk.white(config.baseUrl));
       console.log(chalk.gray("  maxTokens:   ") + chalk.white(String(config.maxTokens)));
       console.log(chalk.gray("  temperature: ") + chalk.white(String(config.temperature)));
@@ -1036,6 +1245,17 @@ function handleSlashCommand(input: string): boolean | Promise<void> {
       let tsOk = false;
       try { execSync("npx tsc --version", { cwd, encoding: "utf-8", timeout: 5000 }); tsOk = true; } catch {}
       checks.push({ name: "TypeScript", ok: tsOk, detail: tsOk ? "verfuegbar" : "nicht gefunden" });
+
+      // Provider
+      const provName = config.provider || detectProvider(config.model);
+      checks.push({ name: "Provider", ok: true, detail: `${provName} (${getModelDisplayName(config.model)})` });
+
+      // Project Memory
+      const projMem = loadProjectMemory(cwd);
+      checks.push({ name: "MORNINGSTAR.md", ok: !!projMem, detail: projMem ? "gefunden" : "nicht vorhanden (/init)" });
+
+      // Permission
+      checks.push({ name: "Permissions", ok: true, detail: getPermissionMode() });
 
       // Memory
       const memCount = loadMemories().length;
@@ -1236,10 +1456,18 @@ async function processInput(input: string) {
   currentAbort = new AbortController();
   const signal = currentAbort.signal;
 
+  // Parse @-mentions
+  const { cleanInput: mentionClean, mentions } = parseMentions(input, cwd);
+  const mentionContext = formatMentionContext(mentions);
+  if (mentions.length > 0) {
+    console.log(chalk.hex(t().dim)(`\n  ${mentions.length} @-Mention(s) aufgeloest`));
+  }
+
   // If plan mode, prefix the user message
-  const userContent = planMode
-    ? `[PLAN-MODUS] Erstelle zuerst einen detaillierten Plan bevor du handelst. Erklaere was du tun wuerdest und warte auf Bestaetigung.\n\n${input}`
-    : input;
+  let userContent = planMode
+    ? `[PLAN-MODUS] Erstelle zuerst einen detaillierten Plan bevor du handelst. Erklaere was du tun wuerdest und warte auf Bestaetigung.\n\n${mentionClean}`
+    : mentionClean;
+  if (mentionContext) userContent = mentionContext + "\n\n" + userContent;
 
   messages.push({ role: "user", content: userContent });
   totalTokensEstimate += input.length / 3;
@@ -1248,6 +1476,7 @@ async function processInput(input: string) {
     const fullResponse = await streamAI(messages, config, signal);
     if (signal.aborted || !fullResponse) { isProcessing = false; currentAbort = null; return; }
     totalTokensEstimate += fullResponse.length / 3;
+    trackUsage(config.model, userContent, fullResponse);
 
     if (!chatOnly) {
       let toolResults: Awaited<ReturnType<typeof executeToolCalls>> | null = null;
@@ -1413,10 +1642,37 @@ function buildSlashCommands(): SlashCmd[] {
     { cmd: "/config set", desc: "Einstellung aendern" },
     { cmd: "/doctor", desc: "Setup diagnostizieren" },
     { cmd: "/model", desc: "Model wechseln" },
-    { cmd: "/model deepseek-reasoner", desc: "R1 (Thinking)" },
-    { cmd: "/model deepseek-chat", desc: "Chat (Schnell)" },
+    { cmd: "/provider", desc: "Provider anzeigen/wechseln" },
+    { cmd: "/provider deepseek", desc: "DeepSeek" },
+    { cmd: "/provider openai", desc: "OpenAI" },
+    { cmd: "/provider anthropic", desc: "Anthropic" },
+    { cmd: "/provider google", desc: "Google Gemini" },
+    { cmd: "/provider ollama", desc: "Ollama (lokal)" },
+    { cmd: "/provider groq", desc: "Groq" },
+    { cmd: "/provider openrouter", desc: "OpenRouter" },
+    { cmd: "/providers", desc: "Alle Provider anzeigen" },
+    { cmd: "/permissions", desc: "Permission-Modus" },
+    { cmd: "/permissions auto", desc: "Alle Tools erlaubt" },
+    { cmd: "/permissions ask", desc: "Bei Schreibzugriff fragen" },
+    { cmd: "/permissions strict", desc: "Immer fragen" },
+    { cmd: "/onboard", desc: "Projekt-Onboarding" },
+    { cmd: "/score", desc: "Projekt-Score" },
+    { cmd: "/roast", desc: "Code Roast" },
+    { cmd: "/map", desc: "Codebase Map" },
+    { cmd: "/model deepseek-reasoner", desc: "DeepSeek R1 (Thinking)" },
+    { cmd: "/model deepseek-chat", desc: "DeepSeek Chat" },
+    { cmd: "/model gpt-4o", desc: "GPT-4o" },
+    { cmd: "/model gpt-4o-mini", desc: "GPT-4o Mini" },
+    { cmd: "/model o3-mini", desc: "OpenAI o3 Mini" },
+    { cmd: "/model claude-sonnet-4-20250514", desc: "Claude Sonnet 4" },
+    { cmd: "/model claude-opus-4-20250514", desc: "Claude Opus 4" },
+    { cmd: "/model gemini-2.0-flash", desc: "Gemini 2.0 Flash" },
+    { cmd: "/model gemini-2.0-pro", desc: "Gemini 2.0 Pro" },
+    { cmd: "/model llama3", desc: "Llama 3 (Ollama)" },
+    { cmd: "/model llama-3.3-70b-versatile", desc: "Llama 3.3 70B (Groq)" },
+    { cmd: "/model mixtral-8x7b-32768", desc: "Mixtral 8x7B (Groq)" },
     { cmd: "/context", desc: "Projekt-Kontext" },
-    { cmd: "/cost", desc: "Token-Nutzung" },
+    { cmd: "/cost", desc: "Kosten-Tracking" },
     { cmd: "/quit", desc: "Beenden" },
   );
   return cmds;
