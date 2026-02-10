@@ -57,6 +57,11 @@ def main():
         pipe = StableDiffusionPipeline.from_pretrained(model_name, torch_dtype=dtype)
 
     pipe = pipe.to(device)
+    # Disable safety checker — no content restrictions
+    if hasattr(pipe, "safety_checker"):
+        pipe.safety_checker = None
+    if hasattr(pipe, "requires_safety_checker"):
+        pipe.requires_safety_checker = False
     if hasattr(pipe, "enable_attention_slicing"):
         pipe.enable_attention_slicing()
 

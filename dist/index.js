@@ -19,6 +19,7 @@ import { undoLastChange, getUndoStack, getUndoStackSize, clearUndoStack } from "
 import { THEMES, setTheme, getTheme, getThemeId, listThemes } from "./theme.js";
 import { detectProvider, getProviderBaseUrl, getProviderApiKeyEnv, resolveApiKey, listProviders, getModelDisplayName } from "./providers.js";
 import { getPermissionMode, setPermissionMode } from "./permissions.js";
+import { loadSettings, initProjectSettings, projectSettingsExist, addToProjectSetting, getProjectSettingsPath, getGlobalSettingsPath } from "./settings.js";
 import { loadProjectMemory } from "./project-memory.js";
 import { trackUsage, getSessionCosts, formatCostDisplay, isFreeTier } from "./cost-tracker.js";
 import { getRepoMap, generateOnboarding, generateProjectScore, generateCodeRoast } from "./repo-map.js";
@@ -128,19 +129,32 @@ program
     .option("-m, --model <model>", "Model ID (default: deepseek-reasoner)")
     .option("-d, --dir <path>", "Working directory")
     .option("--chat", "Chat-only mode (no tools)")
+    .option("--skip-permissions", "Bypass all permission prompts")
     .parse();
 const opts = program.opts();
 const cwd = resolve(opts.dir || process.cwd());
 const chatOnly = opts.chat || false;
+const skipPermissions = opts.skipPermissions || false;
+// ─── Settings ─────────────────────────────────────────────
+const projectSettings = loadSettings(cwd);
+// Apply env vars from settings
+if (projectSettings.env) {
+    for (const [key, val] of Object.entries(projectSettings.env)) {
+        if (!process.env[key])
+            process.env[key] = val;
+    }
+}
 loadEnvFile(cwd);
-const selectedModel = opts.model || saved.model || DEFAULT_CONFIG.model;
-const selectedProvider = saved.provider || detectProvider(selectedModel);
+const selectedModel = opts.model || projectSettings.model || saved.model || DEFAULT_CONFIG.model;
+const selectedProvider = projectSettings.provider || saved.provider || detectProvider(selectedModel);
 const config = {
     ...DEFAULT_CONFIG,
     model: selectedModel,
     provider: selectedProvider,
     baseUrl: saved.baseUrl || getProviderBaseUrl(selectedProvider),
     apiKey: opts.apiKey || getStoredApiKey(selectedProvider),
+    temperature: projectSettings.temperature ?? DEFAULT_CONFIG.temperature,
+    maxTokens: projectSettings.maxTokens ?? DEFAULT_CONFIG.maxTokens,
 };
 // ─── Interactive API Key Setup ───────────────────────────
 async function ensureApiKey() {
@@ -187,12 +201,14 @@ const ctx = detectProject(cwd);
 const baseSystemPrompt = chatOnly
     ? "Du bist Morningstar AI, ein hilfreicher Coding-Assistant. Antworte direkt und effizient."
     : buildSystemPrompt(ctx);
-// Add memory + project memory context to system prompt
+// Add memory + project memory + settings context to system prompt
 function getFullSystemPrompt() {
     let prompt = baseSystemPrompt + getMemoryContext();
     const projectMem = loadProjectMemory(cwd);
     if (projectMem)
         prompt += `\n\n--- Project Memory (MORNINGSTAR.md) ---\n${projectMem}\n--- Ende ---`;
+    if (projectSettings.customInstructions)
+        prompt += `\n\n--- Custom Instructions ---\n${projectSettings.customInstructions}\n--- Ende ---`;
     return prompt;
 }
 // ─── State ───────────────────────────────────────────────
@@ -273,11 +289,16 @@ function printBanner() {
     const langInfo = ctx.language ? ctx.language + (ctx.framework ? " / " + ctx.framework : "") : "unbekannt";
     const langDisplay = ctx.language ? chalk.white(ctx.language) + (ctx.framework ? d(" / ") + y(ctx.framework) : "") : d("unbekannt");
     const cwdShort = cwd.length > 42 ? "..." + cwd.slice(-39) : cwd;
+    const permLabel = skipPermissions ? "BYPASS" : getPermissionMode();
+    const permColor = skipPermissions ? chalk.hex("#ef4444").bold("BYPASS") : d(getPermissionMode());
+    const settingsTag = projectSettingsExist(cwd) ? chalk.hex("#10b981")("active") : d("none");
     const infoLines = [
         { raw: `Model    ${modelRaw}`, colored: m(" \u2605 ") + d("Model    ") + modelDisplay },
         { raw: `Projekt  ${ctx.projectName} (${langInfo})`, colored: m(" \u2605 ") + d("Projekt  ") + chalk.white.bold(ctx.projectName) + " " + d("(") + langDisplay + d(")") },
         ...(ctx.hasGit ? [{ raw: `Branch   ${ctx.gitBranch || "unknown"}`, colored: m(" \u2605 ") + d("Branch   ") + y(ctx.gitBranch || "unknown") }] : []),
         { raw: `CWD      ${cwdShort}`, colored: m(" \u2605 ") + d("CWD      ") + chalk.white(cwdShort) },
+        { raw: `Perms    ${permLabel}`, colored: m(" \u2605 ") + d("Perms    ") + permColor },
+        { raw: `Settings ${projectSettingsExist(cwd) ? "active" : "none"}`, colored: m(" \u2605 ") + d("Settings ") + settingsTag },
         { raw: `Theme    ${getTheme().name}`, colored: m(" \u2605 ") + d("Theme    ") + chalk.hex(theme.primary)(theme.name) },
     ];
     const maxW = Math.max(...infoLines.map(l => l.raw.length + 4)) + 2;
@@ -309,41 +330,53 @@ function printBanner() {
     console.log();
 }
 function printToolResult(tool, result, success, diff) {
-    const icon = success ? chalk.hex(t().success)("\u2713") : chalk.hex(t().error)("\u2717");
-    const header = chalk.hex(t().warning)(`[${tool}]`);
-    console.log(`\n  ${icon} ${header}`);
-    // Show colored diff for edit operations (like Claude Code: red = old, blue = new)
+    const theme = t();
+    const d = chalk.hex(theme.dim);
+    const icon = success ? chalk.hex(theme.success)("\u2714") : chalk.hex(theme.error)("\u2718");
+    const toolLabel = chalk.hex(theme.warning).bold(`[${tool}]`);
+    // Extract a short preview for the header
+    const preview = result.split("\n")[0]?.slice(0, 60) || "";
+    const previewDisplay = preview ? " " + d(preview.length >= 60 ? preview + "..." : preview) : "";
+    console.log(`\n  ${icon} ${toolLabel}${previewDisplay}`);
+    const BOX_W = 70;
+    const boxD = d;
+    const maxLines = 25;
     if (diff && tool === "edit") {
-        console.log(chalk.gray(`  ${result}`));
-        console.log();
-        console.log(chalk.hex(t().dim)(`  ${diff.filePath}:`));
+        // Colored diff in box
+        console.log(boxD(`  \u250c${"─".repeat(BOX_W)}\u2510`));
+        console.log(boxD("  \u2502 ") + chalk.hex(theme.info)(diff.filePath) + " ".repeat(Math.max(1, BOX_W - diff.filePath.length - 1)) + boxD("\u2502"));
+        console.log(boxD(`  \u251c${"─".repeat(BOX_W)}\u2524`));
         const oldLines = diff.oldStr.split("\n");
         const newLines = diff.newStr.split("\n");
-        const maxDiffLines = 40;
-        // Show removed lines in red
-        const oldShow = oldLines.slice(0, maxDiffLines);
-        for (const line of oldShow) {
-            console.log(chalk.red(`  - ${line}`));
-        }
-        if (oldLines.length > maxDiffLines)
-            console.log(chalk.red(`  ... (+${oldLines.length - maxDiffLines} weitere)`));
-        // Show added lines in blue
-        const newShow = newLines.slice(0, maxDiffLines);
-        for (const line of newShow) {
-            console.log(chalk.blueBright(`  + ${line}`));
-        }
-        if (newLines.length > maxDiffLines)
-            console.log(chalk.blueBright(`  ... (+${newLines.length - maxDiffLines} weitere)`));
+        const allDiff = [];
+        for (const line of oldLines)
+            allDiff.push(chalk.red(`  \u2502 - ${line}`) + " ".repeat(Math.max(0, BOX_W - line.length - 4)) + boxD("\u2502"));
+        for (const line of newLines)
+            allDiff.push(chalk.cyan(`  \u2502 + ${line}`) + " ".repeat(Math.max(0, BOX_W - line.length - 4)) + boxD("\u2502"));
+        const show = allDiff.slice(0, maxLines);
+        for (const l of show)
+            console.log(l);
+        if (allDiff.length > maxLines)
+            console.log(boxD("  \u2502 ") + chalk.hex(theme.dim)(`... +${allDiff.length - maxLines} weitere Zeilen`) + " ".repeat(Math.max(1, BOX_W - 25)) + boxD("\u2502"));
+        console.log(boxD(`  \u2514${"─".repeat(BOX_W)}\u2518`));
     }
     else {
-        const lines = result.split("\n").slice(0, 30);
-        for (const line of lines)
-            console.log(chalk.gray(`  ${line}`));
-        if (result.split("\n").length > 30)
-            console.log(chalk.gray(`  ...(${result.split("\n").length - 30} weitere Zeilen)`));
+        // Normal output in box
+        const lines = result.split("\n");
+        const show = lines.slice(0, maxLines);
+        if (show.length > 0 && show[0].trim()) {
+            console.log(boxD(`  \u250c${"─".repeat(BOX_W)}\u2510`));
+            for (const line of show) {
+                const truncLine = line.length > BOX_W - 2 ? line.slice(0, BOX_W - 5) + "..." : line;
+                const color = !success ? chalk.hex(theme.error) : chalk.white;
+                console.log(boxD("  \u2502 ") + color(truncLine) + " ".repeat(Math.max(0, BOX_W - truncLine.length - 1)) + boxD("\u2502"));
+            }
+            if (lines.length > maxLines)
+                console.log(boxD("  \u2502 ") + d(`... +${lines.length - maxLines} weitere Zeilen`) + " ".repeat(Math.max(1, BOX_W - 25)) + boxD("\u2502"));
+            console.log(boxD(`  \u2514${"─".repeat(BOX_W)}\u2518`));
+        }
     }
-    process.stdout.write("\x1b[0m"); // Reset ANSI after tool output
-    console.log();
+    process.stdout.write("\x1b[0m");
 }
 // ─── readline question helper ────────────────────────────
 function askQuestion(promptRl, question) {
@@ -372,6 +405,10 @@ function printHelp() {
     console.log(w("  /cost              ") + d("Token- & Kostentracking anzeigen"));
     console.log(w("  /stats             ") + d("Session-Statistiken"));
     console.log(w("  /permissions       ") + d("Permission-Modus (auto/ask/strict)"));
+    console.log(w("  /settings          ") + d("Projekt-Settings anzeigen/verwalten"));
+    console.log(w("  /settings init     ") + d("settings.local.json erstellen"));
+    console.log(w("  /settings allow    ") + d("Tool erlauben"));
+    console.log(w("  /settings deny     ") + d("Tool verbieten"));
     console.log(w("  /plan              ") + d("Plan-Modus an/aus (denken vor handeln)"));
     console.log();
     console.log(h("  Agenten"));
@@ -550,6 +587,15 @@ function printFeatures() {
     console.log(d("  - auto \u2014 alle Tools ohne Nachfrage"));
     console.log(d("  - ask \u2014 bei write/edit/delete nachfragen"));
     console.log(d("  - strict \u2014 bei jedem Tool nachfragen"));
+    console.log(d("  - --skip-permissions \u2014 alle Prompts umgehen"));
+    console.log();
+    console.log(h("  Project Settings (.morningstar/)"));
+    console.log(d("  - Per-Project settings.local.json (wie Claude Code)"));
+    console.log(d("  - Tool Allow/Deny Listen"));
+    console.log(d("  - Command Allow/Deny mit Wildcards (git *, npm run *)"));
+    console.log(d("  - Model, Provider, Temperature Overrides"));
+    console.log(d("  - Custom Instructions pro Projekt"));
+    console.log(d("  - /settings init, /settings show, /settings allow <tool>"));
     console.log();
     console.log(h("  Cost Tracking"));
     console.log(d("  - Token-Schaetzung pro Message"));
@@ -1080,7 +1126,8 @@ function handleSlashCommand(input) {
             console.log(chalk.gray(`  Provider:        ${config.provider || detectProvider(config.model)}`));
             console.log(chalk.gray(`  Agent:           ${activeAgent || "keiner"}`));
             console.log(chalk.gray(`  Plan-Modus:      ${planMode ? "AN" : "AUS"}`));
-            console.log(chalk.gray(`  Permission:      ${getPermissionMode()}`));
+            console.log(chalk.gray(`  Permission:      ${skipPermissions ? "BYPASS (--skip-permissions)" : getPermissionMode()}`));
+            console.log(chalk.gray(`  Settings:        ${projectSettingsExist(cwd) ? getProjectSettingsPath(cwd) : "keine"}`));
             const costs = getSessionCosts();
             if (costs.messages > 0)
                 console.log(chalk.gray(`  Kosten:          $${costs.totalCost.toFixed(4)}`));
@@ -1151,6 +1198,91 @@ function handleSlashCommand(input) {
                 console.log(chalk.gray("  ask    \u2014 bei write/edit/delete nachfragen"));
                 console.log(chalk.gray("  strict \u2014 bei jedem Tool nachfragen"));
                 console.log(chalk.gray("\n  /permissions <mode> zum Aendern\n"));
+            }
+            return true;
+        }
+        // ── Settings ──
+        case "/settings": {
+            const subCmd = arg?.split(" ")[0]?.toLowerCase() || "";
+            const subArg = arg?.slice(subCmd.length).trim() || "";
+            if (subCmd === "init") {
+                const path = initProjectSettings(cwd);
+                console.log(chalk.hex(t().success)(`\n  Settings erstellt: ${path}`));
+                console.log(chalk.gray("  .morningstar/ wurde zu .gitignore hinzugefuegt (falls vorhanden)\n"));
+            }
+            else if (subCmd === "show" || subCmd === "") {
+                const hasProject = projectSettingsExist(cwd);
+                const d2 = chalk.hex(t().dim);
+                const c2 = chalk.hex(t().info);
+                console.log(chalk.hex(t().primary).bold("\n  Morningstar Settings\n"));
+                console.log(d2("  Global:  ") + c2(getGlobalSettingsPath()));
+                console.log(d2("  Projekt: ") + (hasProject ? c2(getProjectSettingsPath(cwd)) : chalk.gray("nicht vorhanden")));
+                if (skipPermissions)
+                    console.log(d2("  Perms:   ") + chalk.hex("#ef4444").bold("BYPASS (--skip-permissions)"));
+                const s = loadSettings(cwd);
+                if (s.permissions?.allow?.length)
+                    console.log(d2("  Allow:   ") + chalk.white(s.permissions.allow.join(", ")));
+                if (s.permissions?.deny?.length)
+                    console.log(d2("  Deny:    ") + chalk.hex("#ef4444")(s.permissions.deny.join(", ")));
+                if (s.permissions?.allowedCommands?.length)
+                    console.log(d2("  Cmds OK: ") + chalk.white(s.permissions.allowedCommands.join(", ")));
+                if (s.permissions?.deniedCommands?.length)
+                    console.log(d2("  Cmds NO: ") + chalk.hex("#ef4444")(s.permissions.deniedCommands.join(", ")));
+                if (s.model)
+                    console.log(d2("  Model:   ") + chalk.white(s.model));
+                if (s.provider)
+                    console.log(d2("  Provider:") + chalk.white(s.provider));
+                if (s.customInstructions)
+                    console.log(d2("  Custom:  ") + chalk.gray(s.customInstructions.slice(0, 80) + (s.customInstructions.length > 80 ? "..." : "")));
+                console.log(chalk.gray("\n  /settings init   \u2014 Projekt-Settings erstellen"));
+                console.log(chalk.gray("  /settings allow <tool>         \u2014 Tool erlauben"));
+                console.log(chalk.gray("  /settings deny <tool>          \u2014 Tool verbieten"));
+                console.log(chalk.gray("  /settings allow-cmd <command>  \u2014 Befehl erlauben"));
+                console.log(chalk.gray("  /settings deny-cmd <command>   \u2014 Befehl verbieten\n"));
+            }
+            else if (subCmd === "allow" && subArg) {
+                addToProjectSetting(cwd, "allow", subArg);
+                console.log(chalk.hex(t().success)(`\n  Tool "${subArg}" zu allow-Liste hinzugefuegt\n`));
+            }
+            else if (subCmd === "deny" && subArg) {
+                addToProjectSetting(cwd, "deny", subArg);
+                console.log(chalk.hex(t().success)(`\n  Tool "${subArg}" zu deny-Liste hinzugefuegt\n`));
+            }
+            else if (subCmd === "allow-cmd" && subArg) {
+                addToProjectSetting(cwd, "allowedCommands", subArg);
+                console.log(chalk.hex(t().success)(`\n  Command "${subArg}" zu allowed-Liste hinzugefuegt\n`));
+            }
+            else if (subCmd === "deny-cmd" && subArg) {
+                addToProjectSetting(cwd, "deniedCommands", subArg);
+                console.log(chalk.hex(t().success)(`\n  Command "${subArg}" zu denied-Liste hinzugefuegt\n`));
+            }
+            else if (subCmd === "edit") {
+                const settingsPath = getProjectSettingsPath(cwd);
+                if (!projectSettingsExist(cwd)) {
+                    console.log(chalk.hex(t().warning)("\n  Keine Projekt-Settings. Erstelle mit /settings init\n"));
+                }
+                else {
+                    try {
+                        execSync(`${process.env.EDITOR || "nano"} "${settingsPath}"`, { stdio: "inherit" });
+                        console.log(chalk.hex(t().success)("\n  Settings gespeichert.\n"));
+                    }
+                    catch {
+                        console.log(chalk.gray("\n  Editor geschlossen.\n"));
+                    }
+                }
+            }
+            else if (subCmd === "global") {
+                const globalPath = getGlobalSettingsPath();
+                try {
+                    execSync(`${process.env.EDITOR || "nano"} "${globalPath}"`, { stdio: "inherit" });
+                    console.log(chalk.hex(t().success)("\n  Global Settings gespeichert.\n"));
+                }
+                catch {
+                    console.log(chalk.gray("\n  Editor geschlossen.\n"));
+                }
+            }
+            else {
+                console.log(chalk.hex(t().warning)(`\n  Unbekannter Settings-Befehl: ${subCmd}\n`));
             }
             return true;
         }
@@ -1967,6 +2099,18 @@ async function streamAI(msgs, cfg, signal) {
     const MAX_LINE_WIDTH = 68; // wrap long lines
     const planStart = Date.now();
     const spinner = ora({ text: chalk.gray("Denkt nach..."), spinner: "dots", stream: process.stderr }).start();
+    // Live elapsed time + token estimate in spinner
+    const spinnerStart = Date.now();
+    let streamedChars = 0;
+    const spinnerTimer = setInterval(() => {
+        if (spinner.isSpinning) {
+            const elapsed = ((Date.now() - spinnerStart) / 1000).toFixed(1);
+            const estTokens = Math.round(streamedChars / 4);
+            const tokenStr = estTokens >= 1000 ? `${(estTokens / 1000).toFixed(1)}k` : String(estTokens);
+            spinner.text = chalk.gray(`Denkt nach... (${elapsed}s${streamedChars > 0 ? ` \u00b7 \u2193 ~${tokenStr} tokens` : ""})`);
+        }
+    }, 200);
+    const stopSpinnerTimer = () => { clearInterval(spinnerTimer); };
     // Helper: start a new plan line
     function planNewLine() {
         reasoningLines++;
@@ -2003,6 +2147,7 @@ async function streamAI(msgs, cfg, signal) {
             if (token.type === "reasoning") {
                 // ── Plan/Thinking Phase ──
                 if (firstReasoningToken) {
+                    stopSpinnerTimer();
                     spinner.stop();
                     process.stdout.write("\n" + chalk.hex(t().dim)("  ┌─ ") + chalk.hex(t().accent).bold("Plan") + chalk.hex(t().dim)(" ──────────────────────────────────────"));
                     process.stdout.write("\n" + chalk.hex(t().dim)("  │ "));
@@ -2025,17 +2170,21 @@ async function streamAI(msgs, cfg, signal) {
                 // ── Content Phase ──
                 closePlanBox();
                 if (firstContentToken) {
-                    if (firstReasoningToken)
-                        spinner.stop(); // No reasoning happened
+                    if (firstReasoningToken) {
+                        stopSpinnerTimer();
+                        spinner.stop();
+                    } // No reasoning happened
                     process.stdout.write("\n  " + chalk.hex(t().star)(STAR() + " "));
                     firstContentToken = false;
                 }
                 process.stdout.write(token.text);
                 full += token.text;
+                streamedChars += token.text.length;
             }
         }
     }
     catch (err) {
+        stopSpinnerTimer();
         spinner.stop();
         if (signal.aborted) {
             console.log(chalk.hex(t().warning)("\n\n  Abgebrochen.\n"));
@@ -2045,8 +2194,10 @@ async function streamAI(msgs, cfg, signal) {
     }
     // Close plan box if reasoning ended without content
     closePlanBox();
-    if (firstContentToken && firstReasoningToken)
+    if (firstContentToken && firstReasoningToken) {
+        stopSpinnerTimer();
         spinner.stop();
+    }
     if (full) {
         process.stdout.write("\x1b[0m\n\n");
     }
@@ -2231,8 +2382,6 @@ function getPrompt() {
         return chalk.hex(t().warning).bold("[Plan] > ");
     return PROMPT();
 }
-// ─── Autocomplete ────────────────────────────────────────
-import { emitKeypressEvents } from "node:readline";
 function buildSlashCommands() {
     const cmds = [
         { cmd: "/help", desc: "Alle Befehle" },
@@ -2259,7 +2408,7 @@ function buildSlashCommands() {
         cmds.push({ cmd: `/agent:show ${id}`, desc: `${agent.name} Details` });
         cmds.push({ cmd: `/agent:export ${id}`, desc: `${agent.name} Export` });
     }
-    cmds.push({ cmd: "/memory add", desc: "Notiz speichern" }, { cmd: "/memory list", desc: "Notizen anzeigen" }, { cmd: "/memory search", desc: "Notizen suchen" }, { cmd: "/memory remove", desc: "Notiz loeschen" }, { cmd: "/memory clear", desc: "Alle Notizen loeschen" }, { cmd: "/todo add", desc: "Aufgabe hinzufuegen" }, { cmd: "/todo list", desc: "Aufgaben anzeigen" }, { cmd: "/todo done", desc: "Aufgabe erledigt" }, { cmd: "/todo remove", desc: "Aufgabe loeschen" }, { cmd: "/todo clear", desc: "Erledigte loeschen" }, { cmd: "/diff", desc: "Git diff" }, { cmd: "/diff staged", desc: "Staged changes" }, { cmd: "/commit", desc: "Smart Commit" }, { cmd: "/status", desc: "Git status" }, { cmd: "/log", desc: "Git log" }, { cmd: "/branch", desc: "Git branches" }, { cmd: "/init", desc: "MORNINGSTAR.md erstellen" }, { cmd: "/undo", desc: "Letzte Aenderung rueckgaengig" }, { cmd: "/undo list", desc: "Undo-Stack anzeigen" }, { cmd: "/search", desc: "Im Projekt suchen" }, { cmd: "/history save", desc: "Session speichern" }, { cmd: "/history list", desc: "Sessions anzeigen" }, { cmd: "/history load", desc: "Session laden" }, { cmd: "/history delete", desc: "Session loeschen" }, { cmd: "/theme", desc: "Theme wechseln" }, ...Object.keys(THEMES).map(id => ({ cmd: `/theme ${id}`, desc: `Theme: ${THEMES[id].name}` })), { cmd: "/config", desc: "Konfiguration" }, { cmd: "/config set", desc: "Einstellung aendern" }, { cmd: "/doctor", desc: "Setup diagnostizieren" }, { cmd: "/model", desc: "Model wechseln" }, { cmd: "/provider", desc: "Provider anzeigen/wechseln" }, { cmd: "/provider deepseek", desc: "DeepSeek" }, { cmd: "/provider openai", desc: "OpenAI" }, { cmd: "/provider anthropic", desc: "Anthropic" }, { cmd: "/provider google", desc: "Google Gemini" }, { cmd: "/provider ollama", desc: "Ollama (lokal)" }, { cmd: "/provider groq", desc: "Groq" }, { cmd: "/provider openrouter", desc: "OpenRouter" }, { cmd: "/providers", desc: "Alle Provider anzeigen" }, { cmd: "/permissions", desc: "Permission-Modus" }, { cmd: "/permissions auto", desc: "Alle Tools erlaubt" }, { cmd: "/permissions ask", desc: "Bei Schreibzugriff fragen" }, { cmd: "/permissions strict", desc: "Immer fragen" }, { cmd: "/onboard", desc: "Projekt-Onboarding" }, { cmd: "/score", desc: "Projekt-Score" }, { cmd: "/roast", desc: "Code Roast" }, { cmd: "/map", desc: "Codebase Map" }, 
+    cmds.push({ cmd: "/memory add", desc: "Notiz speichern" }, { cmd: "/memory list", desc: "Notizen anzeigen" }, { cmd: "/memory search", desc: "Notizen suchen" }, { cmd: "/memory remove", desc: "Notiz loeschen" }, { cmd: "/memory clear", desc: "Alle Notizen loeschen" }, { cmd: "/todo add", desc: "Aufgabe hinzufuegen" }, { cmd: "/todo list", desc: "Aufgaben anzeigen" }, { cmd: "/todo done", desc: "Aufgabe erledigt" }, { cmd: "/todo remove", desc: "Aufgabe loeschen" }, { cmd: "/todo clear", desc: "Erledigte loeschen" }, { cmd: "/diff", desc: "Git diff" }, { cmd: "/diff staged", desc: "Staged changes" }, { cmd: "/commit", desc: "Smart Commit" }, { cmd: "/status", desc: "Git status" }, { cmd: "/log", desc: "Git log" }, { cmd: "/branch", desc: "Git branches" }, { cmd: "/init", desc: "MORNINGSTAR.md erstellen" }, { cmd: "/undo", desc: "Letzte Aenderung rueckgaengig" }, { cmd: "/undo list", desc: "Undo-Stack anzeigen" }, { cmd: "/search", desc: "Im Projekt suchen" }, { cmd: "/history save", desc: "Session speichern" }, { cmd: "/history list", desc: "Sessions anzeigen" }, { cmd: "/history load", desc: "Session laden" }, { cmd: "/history delete", desc: "Session loeschen" }, { cmd: "/theme", desc: "Theme wechseln" }, ...Object.keys(THEMES).map(id => ({ cmd: `/theme ${id}`, desc: `Theme: ${THEMES[id].name}` })), { cmd: "/config", desc: "Konfiguration" }, { cmd: "/config set", desc: "Einstellung aendern" }, { cmd: "/doctor", desc: "Setup diagnostizieren" }, { cmd: "/model", desc: "Model wechseln" }, { cmd: "/provider", desc: "Provider anzeigen/wechseln" }, { cmd: "/provider deepseek", desc: "DeepSeek" }, { cmd: "/provider openai", desc: "OpenAI" }, { cmd: "/provider anthropic", desc: "Anthropic" }, { cmd: "/provider google", desc: "Google Gemini" }, { cmd: "/provider ollama", desc: "Ollama (lokal)" }, { cmd: "/provider groq", desc: "Groq" }, { cmd: "/provider openrouter", desc: "OpenRouter" }, { cmd: "/providers", desc: "Alle Provider anzeigen" }, { cmd: "/permissions", desc: "Permission-Modus" }, { cmd: "/permissions auto", desc: "Alle Tools erlaubt" }, { cmd: "/permissions ask", desc: "Bei Schreibzugriff fragen" }, { cmd: "/permissions strict", desc: "Immer fragen" }, { cmd: "/settings", desc: "Projekt-Settings" }, { cmd: "/settings init", desc: "Settings erstellen" }, { cmd: "/settings show", desc: "Settings anzeigen" }, { cmd: "/settings edit", desc: "Settings bearbeiten" }, { cmd: "/settings global", desc: "Global Settings bearbeiten" }, { cmd: "/settings allow", desc: "Tool erlauben" }, { cmd: "/settings deny", desc: "Tool verbieten" }, { cmd: "/settings allow-cmd", desc: "Command erlauben" }, { cmd: "/settings deny-cmd", desc: "Command verbieten" }, { cmd: "/onboard", desc: "Projekt-Onboarding" }, { cmd: "/score", desc: "Projekt-Score" }, { cmd: "/roast", desc: "Code Roast" }, { cmd: "/map", desc: "Codebase Map" }, 
     // Dynamic: all models from all providers
     ...listProviders().flatMap(p => p.models.filter(m => !m.startsWith("(")).map(m => ({
         cmd: `/model ${m}`,
@@ -2330,7 +2479,8 @@ function renderSuggestions(line) {
     process.stdout.write("\x1b[u");
 }
 if (process.stdin.isTTY) {
-    emitKeypressEvents(process.stdin, rl);
+    // NOTE: Do NOT call emitKeypressEvents here — readline already handles that.
+    // Calling it again causes every keystroke to be processed twice (double characters).
     process.stdin.on("keypress", (_ch, key) => {
         if (isProcessing)
             return;

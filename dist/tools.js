@@ -282,6 +282,51 @@ export async function executeToolCalls(response, cwd) {
         results.push(result);
         cleanResponse = cleanResponse.replace(fullMatch, "");
     }
+    // ─── Auto-Execute Code Blocks (for models that don't use <tool:> tags) ───
+    if (results.length === 0) {
+        const codeBlockRegex = /```(?:bash|sh|shell)\n([\s\S]*?)```/g;
+        const pyBlockRegex = /```python\n([\s\S]*?)```/g;
+        let cbMatch;
+        while ((cbMatch = codeBlockRegex.exec(response)) !== null) {
+            const [fullBlock, code] = cbMatch;
+            const trimmed = code.trim();
+            if (!trimmed)
+                continue;
+            try {
+                const result = bash(trimmed, cwd);
+                results.push({ ...result, tool: "auto-bash" });
+            }
+            catch (e) {
+                results.push({ tool: "auto-bash", result: `Fehler: ${e.message}`, success: false });
+            }
+            cleanResponse = cleanResponse.replace(fullBlock, "");
+        }
+        while ((cbMatch = pyBlockRegex.exec(response)) !== null) {
+            const [fullBlock, code] = cbMatch;
+            const trimmed = code.trim();
+            if (!trimmed)
+                continue;
+            // Write to temp file and execute (avoids shell escaping issues)
+            const tmpFile = `/tmp/morningstar_auto_${Date.now()}.py`;
+            try {
+                writeFileSync(tmpFile, trimmed, "utf-8");
+                const result = bash(`python3 "${tmpFile}"`, cwd);
+                results.push({ ...result, tool: "auto-python" });
+                try {
+                    unlinkSync(tmpFile);
+                }
+                catch { }
+            }
+            catch (e) {
+                results.push({ tool: "auto-python", result: `Fehler: ${e.message}`, success: false });
+                try {
+                    unlinkSync(tmpFile);
+                }
+                catch { }
+            }
+            cleanResponse = cleanResponse.replace(fullBlock, "");
+        }
+    }
     return { results, cleanResponse: cleanResponse.trim() };
 }
 //# sourceMappingURL=tools.js.map

@@ -346,37 +346,51 @@ function printBanner() {
 }
 
 function printToolResult(tool: string, result: string, success: boolean, diff?: { filePath: string; oldStr: string; newStr: string }) {
-  const icon = success ? chalk.hex(t().success)("\u2713") : chalk.hex(t().error)("\u2717");
-  const header = chalk.hex(t().warning)(`[${tool}]`);
-  console.log(`\n  ${icon} ${header}`);
+  const theme = t();
+  const d = chalk.hex(theme.dim);
+  const icon = success ? chalk.hex(theme.success)("\u2714") : chalk.hex(theme.error)("\u2718");
+  const toolLabel = chalk.hex(theme.warning).bold(`[${tool}]`);
 
-  // Show colored diff for edit operations (like Claude Code: red = old, blue = new)
+  // Extract a short preview for the header
+  const preview = result.split("\n")[0]?.slice(0, 60) || "";
+  const previewDisplay = preview ? " " + d(preview.length >= 60 ? preview + "..." : preview) : "";
+
+  console.log(`\n  ${icon} ${toolLabel}${previewDisplay}`);
+
+  const BOX_W = 70;
+  const boxD = d;
+  const maxLines = 25;
+
   if (diff && tool === "edit") {
-    console.log(chalk.gray(`  ${result}`));
-    console.log();
-    console.log(chalk.hex(t().dim)(`  ${diff.filePath}:`));
+    // Colored diff in box
+    console.log(boxD(`  \u250c${"─".repeat(BOX_W)}\u2510`));
+    console.log(boxD("  \u2502 ") + chalk.hex(theme.info)(diff.filePath) + " ".repeat(Math.max(1, BOX_W - diff.filePath.length - 1)) + boxD("\u2502"));
+    console.log(boxD(`  \u251c${"─".repeat(BOX_W)}\u2524`));
     const oldLines = diff.oldStr.split("\n");
     const newLines = diff.newStr.split("\n");
-    const maxDiffLines = 40;
-    // Show removed lines in red
-    const oldShow = oldLines.slice(0, maxDiffLines);
-    for (const line of oldShow) {
-      console.log(chalk.red(`  - ${line}`));
-    }
-    if (oldLines.length > maxDiffLines) console.log(chalk.red(`  ... (+${oldLines.length - maxDiffLines} weitere)`));
-    // Show added lines in blue
-    const newShow = newLines.slice(0, maxDiffLines);
-    for (const line of newShow) {
-      console.log(chalk.blueBright(`  + ${line}`));
-    }
-    if (newLines.length > maxDiffLines) console.log(chalk.blueBright(`  ... (+${newLines.length - maxDiffLines} weitere)`));
+    const allDiff: string[] = [];
+    for (const line of oldLines) allDiff.push(chalk.red(`  \u2502 - ${line}`) + " ".repeat(Math.max(0, BOX_W - line.length - 4)) + boxD("\u2502"));
+    for (const line of newLines) allDiff.push(chalk.cyan(`  \u2502 + ${line}`) + " ".repeat(Math.max(0, BOX_W - line.length - 4)) + boxD("\u2502"));
+    const show = allDiff.slice(0, maxLines);
+    for (const l of show) console.log(l);
+    if (allDiff.length > maxLines) console.log(boxD("  \u2502 ") + chalk.hex(theme.dim)(`... +${allDiff.length - maxLines} weitere Zeilen`) + " ".repeat(Math.max(1, BOX_W - 25)) + boxD("\u2502"));
+    console.log(boxD(`  \u2514${"─".repeat(BOX_W)}\u2518`));
   } else {
-    const lines = result.split("\n").slice(0, 30);
-    for (const line of lines) console.log(chalk.gray(`  ${line}`));
-    if (result.split("\n").length > 30) console.log(chalk.gray(`  ...(${result.split("\n").length - 30} weitere Zeilen)`));
+    // Normal output in box
+    const lines = result.split("\n");
+    const show = lines.slice(0, maxLines);
+    if (show.length > 0 && show[0].trim()) {
+      console.log(boxD(`  \u250c${"─".repeat(BOX_W)}\u2510`));
+      for (const line of show) {
+        const truncLine = line.length > BOX_W - 2 ? line.slice(0, BOX_W - 5) + "..." : line;
+        const color = !success ? chalk.hex(theme.error) : chalk.white;
+        console.log(boxD("  \u2502 ") + color(truncLine) + " ".repeat(Math.max(0, BOX_W - truncLine.length - 1)) + boxD("\u2502"));
+      }
+      if (lines.length > maxLines) console.log(boxD("  \u2502 ") + d(`... +${lines.length - maxLines} weitere Zeilen`) + " ".repeat(Math.max(1, BOX_W - 25)) + boxD("\u2502"));
+      console.log(boxD(`  \u2514${"─".repeat(BOX_W)}\u2518`));
+    }
   }
-  process.stdout.write("\x1b[0m"); // Reset ANSI after tool output
-  console.log();
+  process.stdout.write("\x1b[0m");
 }
 
 // ─── readline question helper ────────────────────────────
@@ -1837,6 +1851,19 @@ async function streamAI(msgs: Message[], cfg: CLIConfig, signal: AbortSignal): P
   const planStart = Date.now();
   const spinner = ora({ text: chalk.gray("Denkt nach..."), spinner: "dots", stream: process.stderr }).start();
 
+  // Live elapsed time + token estimate in spinner
+  const spinnerStart = Date.now();
+  let streamedChars = 0;
+  const spinnerTimer = setInterval(() => {
+    if (spinner.isSpinning) {
+      const elapsed = ((Date.now() - spinnerStart) / 1000).toFixed(1);
+      const estTokens = Math.round(streamedChars / 4);
+      const tokenStr = estTokens >= 1000 ? `${(estTokens / 1000).toFixed(1)}k` : String(estTokens);
+      spinner.text = chalk.gray(`Denkt nach... (${elapsed}s${streamedChars > 0 ? ` \u00b7 \u2193 ~${tokenStr} tokens` : ""})`);
+    }
+  }, 200);
+  const stopSpinnerTimer = () => { clearInterval(spinnerTimer); };
+
   // Helper: start a new plan line
   function planNewLine() {
     reasoningLines++;
@@ -1874,6 +1901,7 @@ async function streamAI(msgs: Message[], cfg: CLIConfig, signal: AbortSignal): P
       if (token.type === "reasoning") {
         // ── Plan/Thinking Phase ──
         if (firstReasoningToken) {
+          stopSpinnerTimer();
           spinner.stop();
           process.stdout.write("\n" + chalk.hex(t().dim)("  ┌─ ") + chalk.hex(t().accent).bold("Plan") + chalk.hex(t().dim)(" ──────────────────────────────────────"));
           process.stdout.write("\n" + chalk.hex(t().dim)("  │ "));
@@ -1894,15 +1922,17 @@ async function streamAI(msgs: Message[], cfg: CLIConfig, signal: AbortSignal): P
         // ── Content Phase ──
         closePlanBox();
         if (firstContentToken) {
-          if (firstReasoningToken) spinner.stop(); // No reasoning happened
+          if (firstReasoningToken) { stopSpinnerTimer(); spinner.stop(); } // No reasoning happened
           process.stdout.write("\n  " + chalk.hex(t().star)(STAR() + " "));
           firstContentToken = false;
         }
         process.stdout.write(token.text);
         full += token.text;
+        streamedChars += token.text.length;
       }
     }
   } catch (err) {
+    stopSpinnerTimer();
     spinner.stop();
     if (signal.aborted) { console.log(chalk.hex(t().warning)("\n\n  Abgebrochen.\n")); return full; }
     throw err;
@@ -1910,7 +1940,7 @@ async function streamAI(msgs: Message[], cfg: CLIConfig, signal: AbortSignal): P
 
   // Close plan box if reasoning ended without content
   closePlanBox();
-  if (firstContentToken && firstReasoningToken) spinner.stop();
+  if (firstContentToken && firstReasoningToken) { stopSpinnerTimer(); spinner.stop(); }
   if (full) { process.stdout.write("\x1b[0m\n\n"); }
   return full;
 }
