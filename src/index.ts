@@ -22,6 +22,8 @@ import { THEMES, setTheme, getTheme, getThemeId, listThemes } from "./theme.js";
 import type { Message, CLIConfig } from "./types.js";
 import { detectProvider, getProviderBaseUrl, getProviderApiKeyEnv, resolveApiKey, listProviders, getModelDisplayName } from "./providers.js";
 import { getPermissionMode, setPermissionMode, shouldAskPermission, getCategoryColor } from "./permissions.js";
+import { loadSettings, initProjectSettings, projectSettingsExist, isToolAllowed, isCommandAllowed, addToProjectSetting, getProjectSettingsPath, getGlobalSettingsPath, loadGlobalSettings, loadProjectSettings } from "./settings.js";
+import type { MorningstarSettings } from "./settings.js";
 import { loadProjectMemory, createProjectMemory } from "./project-memory.js";
 import { trackUsage, getSessionCosts, formatCostDisplay, resetSessionCosts, isFreeTier } from "./cost-tracker.js";
 import { getRepoMap, generateOnboarding, generateProjectScore, generateCodeRoast } from "./repo-map.js";
@@ -131,16 +133,28 @@ program
   .option("-m, --model <model>", "Model ID (default: deepseek-reasoner)")
   .option("-d, --dir <path>", "Working directory")
   .option("--chat", "Chat-only mode (no tools)")
+  .option("--skip-permissions", "Bypass all permission prompts")
   .parse();
 
 const opts = program.opts();
 const cwd = resolve(opts.dir || process.cwd());
 const chatOnly = opts.chat || false;
+const skipPermissions: boolean = opts.skipPermissions || false;
+
+// ─── Settings ─────────────────────────────────────────────
+const projectSettings: MorningstarSettings = loadSettings(cwd);
+
+// Apply env vars from settings
+if (projectSettings.env) {
+  for (const [key, val] of Object.entries(projectSettings.env)) {
+    if (!process.env[key]) process.env[key] = val;
+  }
+}
 
 loadEnvFile(cwd);
 
-const selectedModel = opts.model || (saved.model as string) || DEFAULT_CONFIG.model;
-const selectedProvider = (saved.provider as string) || detectProvider(selectedModel);
+const selectedModel = opts.model || projectSettings.model || (saved.model as string) || DEFAULT_CONFIG.model;
+const selectedProvider = projectSettings.provider || (saved.provider as string) || detectProvider(selectedModel);
 
 const config: CLIConfig = {
   ...DEFAULT_CONFIG,
@@ -148,6 +162,8 @@ const config: CLIConfig = {
   provider: selectedProvider,
   baseUrl: (saved.baseUrl as string) || getProviderBaseUrl(selectedProvider),
   apiKey: opts.apiKey || getStoredApiKey(selectedProvider),
+  temperature: projectSettings.temperature ?? DEFAULT_CONFIG.temperature,
+  maxTokens: projectSettings.maxTokens ?? DEFAULT_CONFIG.maxTokens,
 };
 
 // ─── Interactive API Key Setup ───────────────────────────
@@ -189,11 +205,12 @@ const baseSystemPrompt = chatOnly
   ? "Du bist Morningstar AI, ein hilfreicher Coding-Assistant. Antworte direkt und effizient."
   : buildSystemPrompt(ctx);
 
-// Add memory + project memory context to system prompt
+// Add memory + project memory + settings context to system prompt
 function getFullSystemPrompt(): string {
   let prompt = baseSystemPrompt + getMemoryContext();
   const projectMem = loadProjectMemory(cwd);
   if (projectMem) prompt += `\n\n--- Project Memory (MORNINGSTAR.md) ---\n${projectMem}\n--- Ende ---`;
+  if (projectSettings.customInstructions) prompt += `\n\n--- Custom Instructions ---\n${projectSettings.customInstructions}\n--- Ende ---`;
   return prompt;
 }
 
@@ -281,11 +298,17 @@ function printBanner() {
   const langDisplay = ctx.language ? chalk.white(ctx.language) + (ctx.framework ? d(" / ") + y(ctx.framework) : "") : d("unbekannt");
   const cwdShort = cwd.length > 42 ? "..." + cwd.slice(-39) : cwd;
 
+  const permLabel = skipPermissions ? "BYPASS" : getPermissionMode();
+  const permColor = skipPermissions ? chalk.hex("#ef4444").bold("BYPASS") : d(getPermissionMode());
+  const settingsTag = projectSettingsExist(cwd) ? chalk.hex("#10b981")("active") : d("none");
+
   const infoLines = [
     { raw: `Model    ${modelRaw}`, colored: m(" \u2605 ") + d("Model    ") + modelDisplay },
     { raw: `Projekt  ${ctx.projectName} (${langInfo})`, colored: m(" \u2605 ") + d("Projekt  ") + chalk.white.bold(ctx.projectName) + " " + d("(") + langDisplay + d(")") },
     ...(ctx.hasGit ? [{ raw: `Branch   ${ctx.gitBranch || "unknown"}`, colored: m(" \u2605 ") + d("Branch   ") + y(ctx.gitBranch || "unknown") }] : []),
     { raw: `CWD      ${cwdShort}`, colored: m(" \u2605 ") + d("CWD      ") + chalk.white(cwdShort) },
+    { raw: `Perms    ${permLabel}`, colored: m(" \u2605 ") + d("Perms    ") + permColor },
+    { raw: `Settings ${projectSettingsExist(cwd) ? "active" : "none"}`, colored: m(" \u2605 ") + d("Settings ") + settingsTag },
     { raw: `Theme    ${getTheme().name}`, colored: m(" \u2605 ") + d("Theme    ") + chalk.hex(theme.primary)(theme.name) },
   ];
   const maxW = Math.max(...infoLines.map(l => l.raw.length + 4)) + 2;
@@ -387,6 +410,10 @@ function printHelp() {
   console.log(w("  /cost              ") + d("Token- & Kostentracking anzeigen"));
   console.log(w("  /stats             ") + d("Session-Statistiken"));
   console.log(w("  /permissions       ") + d("Permission-Modus (auto/ask/strict)"));
+  console.log(w("  /settings          ") + d("Projekt-Settings anzeigen/verwalten"));
+  console.log(w("  /settings init     ") + d("settings.local.json erstellen"));
+  console.log(w("  /settings allow    ") + d("Tool erlauben"));
+  console.log(w("  /settings deny     ") + d("Tool verbieten"));
   console.log(w("  /plan              ") + d("Plan-Modus an/aus (denken vor handeln)"));
   console.log();
 
@@ -592,6 +619,16 @@ function printFeatures() {
   console.log(d("  - auto \u2014 alle Tools ohne Nachfrage"));
   console.log(d("  - ask \u2014 bei write/edit/delete nachfragen"));
   console.log(d("  - strict \u2014 bei jedem Tool nachfragen"));
+  console.log(d("  - --skip-permissions \u2014 alle Prompts umgehen"));
+  console.log();
+
+  console.log(h("  Project Settings (.morningstar/)"));
+  console.log(d("  - Per-Project settings.local.json (wie Claude Code)"));
+  console.log(d("  - Tool Allow/Deny Listen"));
+  console.log(d("  - Command Allow/Deny mit Wildcards (git *, npm run *)"));
+  console.log(d("  - Model, Provider, Temperature Overrides"));
+  console.log(d("  - Custom Instructions pro Projekt"));
+  console.log(d("  - /settings init, /settings show, /settings allow <tool>"));
   console.log();
 
   console.log(h("  Cost Tracking"));
@@ -1025,7 +1062,8 @@ function handleSlashCommand(input: string): boolean | Promise<void> {
       console.log(chalk.gray(`  Provider:        ${config.provider || detectProvider(config.model)}`));
       console.log(chalk.gray(`  Agent:           ${activeAgent || "keiner"}`));
       console.log(chalk.gray(`  Plan-Modus:      ${planMode ? "AN" : "AUS"}`));
-      console.log(chalk.gray(`  Permission:      ${getPermissionMode()}`));
+      console.log(chalk.gray(`  Permission:      ${skipPermissions ? "BYPASS (--skip-permissions)" : getPermissionMode()}`));
+      console.log(chalk.gray(`  Settings:        ${projectSettingsExist(cwd) ? getProjectSettingsPath(cwd) : "keine"}`));
       const costs = getSessionCosts();
       if (costs.messages > 0) console.log(chalk.gray(`  Kosten:          $${costs.totalCost.toFixed(4)}`));
       console.log();
@@ -1093,6 +1131,70 @@ function handleSlashCommand(input: string): boolean | Promise<void> {
         console.log(chalk.gray("  ask    \u2014 bei write/edit/delete nachfragen"));
         console.log(chalk.gray("  strict \u2014 bei jedem Tool nachfragen"));
         console.log(chalk.gray("\n  /permissions <mode> zum Aendern\n"));
+      }
+      return true;
+    }
+
+    // ── Settings ──
+    case "/settings": {
+      const subCmd = arg?.split(" ")[0]?.toLowerCase() || "";
+      const subArg = arg?.slice(subCmd.length).trim() || "";
+
+      if (subCmd === "init") {
+        const path = initProjectSettings(cwd);
+        console.log(chalk.hex(t().success)(`\n  Settings erstellt: ${path}`));
+        console.log(chalk.gray("  .morningstar/ wurde zu .gitignore hinzugefuegt (falls vorhanden)\n"));
+      } else if (subCmd === "show" || subCmd === "") {
+        const hasProject = projectSettingsExist(cwd);
+        const d2 = chalk.hex(t().dim);
+        const c2 = chalk.hex(t().info);
+        console.log(chalk.hex(t().primary).bold("\n  Morningstar Settings\n"));
+        console.log(d2("  Global:  ") + c2(getGlobalSettingsPath()));
+        console.log(d2("  Projekt: ") + (hasProject ? c2(getProjectSettingsPath(cwd)) : chalk.gray("nicht vorhanden")));
+        if (skipPermissions) console.log(d2("  Perms:   ") + chalk.hex("#ef4444").bold("BYPASS (--skip-permissions)"));
+        const s = loadSettings(cwd);
+        if (s.permissions?.allow?.length) console.log(d2("  Allow:   ") + chalk.white(s.permissions.allow.join(", ")));
+        if (s.permissions?.deny?.length) console.log(d2("  Deny:    ") + chalk.hex("#ef4444")(s.permissions.deny.join(", ")));
+        if (s.permissions?.allowedCommands?.length) console.log(d2("  Cmds OK: ") + chalk.white(s.permissions.allowedCommands.join(", ")));
+        if (s.permissions?.deniedCommands?.length) console.log(d2("  Cmds NO: ") + chalk.hex("#ef4444")(s.permissions.deniedCommands.join(", ")));
+        if (s.model) console.log(d2("  Model:   ") + chalk.white(s.model));
+        if (s.provider) console.log(d2("  Provider:") + chalk.white(s.provider));
+        if (s.customInstructions) console.log(d2("  Custom:  ") + chalk.gray(s.customInstructions.slice(0, 80) + (s.customInstructions.length > 80 ? "..." : "")));
+        console.log(chalk.gray("\n  /settings init   \u2014 Projekt-Settings erstellen"));
+        console.log(chalk.gray("  /settings allow <tool>         \u2014 Tool erlauben"));
+        console.log(chalk.gray("  /settings deny <tool>          \u2014 Tool verbieten"));
+        console.log(chalk.gray("  /settings allow-cmd <command>  \u2014 Befehl erlauben"));
+        console.log(chalk.gray("  /settings deny-cmd <command>   \u2014 Befehl verbieten\n"));
+      } else if (subCmd === "allow" && subArg) {
+        addToProjectSetting(cwd, "allow", subArg);
+        console.log(chalk.hex(t().success)(`\n  Tool "${subArg}" zu allow-Liste hinzugefuegt\n`));
+      } else if (subCmd === "deny" && subArg) {
+        addToProjectSetting(cwd, "deny", subArg);
+        console.log(chalk.hex(t().success)(`\n  Tool "${subArg}" zu deny-Liste hinzugefuegt\n`));
+      } else if (subCmd === "allow-cmd" && subArg) {
+        addToProjectSetting(cwd, "allowedCommands", subArg);
+        console.log(chalk.hex(t().success)(`\n  Command "${subArg}" zu allowed-Liste hinzugefuegt\n`));
+      } else if (subCmd === "deny-cmd" && subArg) {
+        addToProjectSetting(cwd, "deniedCommands", subArg);
+        console.log(chalk.hex(t().success)(`\n  Command "${subArg}" zu denied-Liste hinzugefuegt\n`));
+      } else if (subCmd === "edit") {
+        const settingsPath = getProjectSettingsPath(cwd);
+        if (!projectSettingsExist(cwd)) {
+          console.log(chalk.hex(t().warning)("\n  Keine Projekt-Settings. Erstelle mit /settings init\n"));
+        } else {
+          try {
+            execSync(`${process.env.EDITOR || "nano"} "${settingsPath}"`, { stdio: "inherit" });
+            console.log(chalk.hex(t().success)("\n  Settings gespeichert.\n"));
+          } catch { console.log(chalk.gray("\n  Editor geschlossen.\n")); }
+        }
+      } else if (subCmd === "global") {
+        const globalPath = getGlobalSettingsPath();
+        try {
+          execSync(`${process.env.EDITOR || "nano"} "${globalPath}"`, { stdio: "inherit" });
+          console.log(chalk.hex(t().success)("\n  Global Settings gespeichert.\n"));
+        } catch { console.log(chalk.gray("\n  Editor geschlossen.\n")); }
+      } else {
+        console.log(chalk.hex(t().warning)(`\n  Unbekannter Settings-Befehl: ${subCmd}\n`));
       }
       return true;
     }
@@ -2032,6 +2134,15 @@ function buildSlashCommands(): SlashCmd[] {
     { cmd: "/permissions auto", desc: "Alle Tools erlaubt" },
     { cmd: "/permissions ask", desc: "Bei Schreibzugriff fragen" },
     { cmd: "/permissions strict", desc: "Immer fragen" },
+    { cmd: "/settings", desc: "Projekt-Settings" },
+    { cmd: "/settings init", desc: "Settings erstellen" },
+    { cmd: "/settings show", desc: "Settings anzeigen" },
+    { cmd: "/settings edit", desc: "Settings bearbeiten" },
+    { cmd: "/settings global", desc: "Global Settings bearbeiten" },
+    { cmd: "/settings allow", desc: "Tool erlauben" },
+    { cmd: "/settings deny", desc: "Tool verbieten" },
+    { cmd: "/settings allow-cmd", desc: "Command erlauben" },
+    { cmd: "/settings deny-cmd", desc: "Command verbieten" },
     { cmd: "/onboard", desc: "Projekt-Onboarding" },
     { cmd: "/score", desc: "Projekt-Score" },
     { cmd: "/roast", desc: "Code Roast" },
