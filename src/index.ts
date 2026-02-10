@@ -2058,7 +2058,7 @@ function getPrompt(): string {
 }
 
 // ─── Autocomplete ────────────────────────────────────────
-import { emitKeypressEvents } from "node:readline";
+// emitKeypressEvents removed — readline with terminal:true handles it internally
 
 interface SlashCmd { cmd: string; desc: string; }
 
@@ -2222,7 +2222,8 @@ function renderSuggestions(line: string) {
 }
 
 if (process.stdin.isTTY) {
-  emitKeypressEvents(process.stdin, rl);
+  // NOTE: Do NOT call emitKeypressEvents here — readline already handles that.
+  // Calling it again causes every keystroke to be processed twice (double characters).
   process.stdin.on("keypress", (_ch: string | undefined, key: { name?: string; ctrl?: boolean; sequence?: string }) => {
     if (isProcessing) return;
     const line = (rl as unknown as { line: string }).line || "";
