@@ -1,52 +1,79 @@
 <div align="center">
 
-# Morningstar CLI
+<br>
 
-**Terminal-based AI Coding Assistant powered by DeepSeek R1**
+```
+               . .  ★  . .
+              .  ./ . \.  .
+             .  /  . | .  \  .
+             ── * ─────+───── * ──
+             .  \  . | .  /  .
+              .  .\ . /.  .
+               . .  ★  . .
+```
 
-[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![DeepSeek](https://img.shields.io/badge/DeepSeek-R1_Reasoner-4A90D9?style=flat-square)](https://deepseek.com)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
+# ✦ M O R N I N G S T A R ✦
+
+### Terminal AI Coding Assistant
+
+**Powered by [Mr.Morningstar](https://github.com/morningstarnasser)**
+
+<br>
+
+[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![DeepSeek](https://img.shields.io/badge/DeepSeek-R1_Reasoner-4A90D9?style=for-the-badge)](https://deepseek.com)
+[![License](https://img.shields.io/badge/License-MIT-F59E0B?style=for-the-badge)](LICENSE)
+
+<br>
+
+![Tools](https://img.shields.io/badge/Tools-9-06b6d4?style=flat-square)
+![Agents](https://img.shields.io/badge/Agents-6_Built--in_+_Custom-a855f7?style=flat-square)
+![Commands](https://img.shields.io/badge/Commands-40+-f59e0b?style=flat-square)
+![Themes](https://img.shields.io/badge/Themes-6-ec4899?style=flat-square)
+
+<br>
+
+A fully-featured AI coding assistant that lives in your terminal — inspired by **Claude Code**.<br>
+Streams responses in real-time with **Plan Display** (visible thinking), provides **40+ slash commands**,<br>
+**9 tools**, **custom agents**, **memory**, **todos**, **session history**, **undo**, **themes**, and more.
+
+<br>
+
+---
 
 </div>
 
----
-
-Morningstar is a fully-featured AI coding assistant that lives in your terminal — inspired by Claude Code. It connects to **DeepSeek R1** (Reasoning model), streams responses in real-time with **Plan display** (visible thinking), and provides **40+ slash commands**, **9 tools**, **custom agents**, **memory**, **todos**, **session history**, **undo**, **themes**, and more.
-
----
-
 ## Demo
 
+<div align="center">
+
 ```
-$ morningstar
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║                    . .  ★  . .                           ║
+║                   .  ./ . \.  .                          ║
+║                  .  /  . | .  \  .                       ║
+║                  ── * ─────+───── * ──                   ║
+║                  .  \  . | .  /  .                       ║
+║                   .  .\ . /.  .                          ║
+║                    . .  ★  . .                           ║
+║                                                          ║
+║               M O R N I N G S T A R                      ║
+║               ━━━━━━━━━━━━━━━━━━━━━━                     ║
+║            Terminal AI Coding Assistant                   ║
+║            Powered by Mr.Morningstar                     ║
+║            github.com/morningstarnasser                  ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝
 
-  ╔══════════════════════════════════════════════════════════╗
-  ║                                                          ║
-  ║                    . .  ★  . .                           ║
-  ║                   .  ./ . \.  .                          ║
-  ║                  .  /  . | .  \  .                       ║
-  ║                  ── * ─────+───── * ──                   ║
-  ║                  .  \  . | .  /  .                       ║
-  ║                   .  .\ . /.  .                          ║
-  ║                    . .  ★  . .                           ║
-  ║                                                          ║
-  ║              M O R N I N G S T A R                       ║
-  ║              ━━━━━━━━━━━━━━━━━━━━━━                      ║
-  ║           Terminal AI Coding Assistant                   ║
-  ║           Powered by Mr.Morningstar                      ║
-  ║           github.com/morningstarnasser                   ║
-  ║                                                          ║
-  ╚══════════════════════════════════════════════════════════╝
-
-  ┌──────────────────────────────────────────────────────┐
-  │ ★ Model    deepseek-reasoner (R1 Thinking)           │
-  │ ★ Projekt  my-app (TypeScript / Next.js)             │
-  │ ★ Branch   main                                      │
-  │ ★ CWD      /Users/dev/my-app                         │
-  │ ★ Theme    Morningstar Default                       │
-  └──────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  ★ Model    deepseek-reasoner (R1 Thinking)              │
+│  ★ Projekt  my-app (TypeScript / Next.js)                │
+│  ★ Branch   main                                         │
+│  ★ CWD      /Users/dev/my-app                            │
+│  ★ Theme    Morningstar Default                           │
+└──────────────────────────────────────────────────────────┘
 
   Tools   read · write · edit · bash · grep · glob · ls · git
   Agents  code · debug · review · refactor · architect · test
@@ -54,86 +81,117 @@ $ morningstar
 
     2 offene Aufgabe(n) — /todo list
     3 Notiz(en) gespeichert — /memory list
-  ────────────────────────────────────────────────────────────
+  ──────────────────────────────────────────────────────────
+```
 
+</div>
+
+**AI Thinking (Plan Display):**
+
+```
 > Analysiere dieses Projekt und finde Probleme
 
-  ┌─ Plan ──────────────────────────────────────────────┐
-  │ Ich schaue mir zuerst die Projektstruktur an,       │
-  │ dann lese ich die Hauptdateien...                   │
-  └─────────────────────────────────────────────────────┘
+  ┌─ Plan ──────────────────────────────────────────────────┐
+  │ Ich schaue mir zuerst die Projektstruktur an,           │
+  │ dann lese ich die Hauptdateien um Probleme zu finden... │
+  └─────────────────────────────────────────────────────────┘
 
   ★ Ich analysiere die Struktur...
 
   ✓ [ls]
-    src/
-    package.json
-    tsconfig.json
-    ...
+    src/  package.json  tsconfig.json  ...
 
   ★ Jetzt lese ich die Hauptdateien...
 
   ✓ [read] src/app/page.tsx
-    1│ import ...
+    1│ import { getData } from './lib/api'
     2│ export default function Home() {
     ...
+```
 
-  ★ Ich habe 3 Probleme gefunden:
+**Colored Diffs (Edit Operations):**
 
+```diff
   ✓ [edit] src/app/page.tsx
-  - const data = fetchData()
-  + const data = await fetchData()
+
+- const data = fetchData()
++ const data = await fetchData()
+
+- console.log(data)
++ console.log("Loaded:", data)
 ```
 
 ---
 
+<div align="center">
+
 ## Features
 
+</div>
+
+> [!TIP]
+> Morningstar erkennt dein Projekt automatisch — Sprache, Framework, Git Branch — und passt sich an.
+
 ### Core
-- **DeepSeek R1 Reasoning** — thinks step-by-step before answering
-- **Plan Display** — visible reasoning/thinking in styled box (like Claude Code)
-- **Real-time Streaming** — responses appear token-by-token
-- **Multi-Turn Tool Execution** — AI chains tool calls automatically (up to 5 rounds)
-- **Automatic Project Detection** — detects language, framework, and git branch
-- **Custom Agent System** — create, edit, delete, import/export your own agents
-- **Memory System** — persistent notes across sessions
-- **Todo System** — task management with priorities
-- **Session History** — save and restore conversations
-- **Undo System** — revert file changes with full undo stack
-- **6 Themes** — customizable terminal color themes
-- **Colored Diffs** — red (old) / blue (new) for edit operations
-- **Input Buffering** — type while AI is still processing
-- **Smart Autocomplete** — tab completion for all slash commands
-- **Crash-Proof** — global error handlers prevent any crash
+
+| Feature | Description |
+|:-------:|-------------|
+| **DeepSeek R1 Reasoning** | Thinks step-by-step before answering |
+| **Plan Display** | Visible AI reasoning in styled box (like Claude Code) |
+| **Real-time Streaming** | Responses appear token-by-token |
+| **Multi-Turn Tools** | AI chains tool calls automatically (up to 5 rounds) |
+| **Project Detection** | Auto-detects language, framework, git branch |
+| **Custom Agents** | Create, edit, delete, import/export your own agents |
+| **Memory System** | Persistent notes across sessions |
+| **Todo System** | Task management with priorities |
+| **Session History** | Save and restore conversations |
+| **Undo System** | Revert file changes with full undo stack |
+| **6 Themes** | Customizable terminal color themes |
+| **Colored Diffs** | Red (old) / blue (new) for edit operations |
+| **Input Buffering** | Type while AI is still processing |
+| **Smart Autocomplete** | Tab completion for all 40+ slash commands |
+| **Crash-Proof** | Global error handlers prevent any crash |
+
+---
+
+<div align="center">
 
 ### 9 Built-in Tools
 
-| Tool | Description |
-|------|-------------|
-| `read` | Read files with line numbers |
-| `write` | Create/overwrite files (auto-creates directories, with undo) |
-| `edit` | Find & replace in files (colored diff, with undo) |
-| `delete` | Delete files (with undo) |
-| `bash` | Execute shell commands (30s timeout) |
-| `grep` | Search for patterns across files |
-| `glob` | Find files by glob pattern (e.g. `**/*.ts`) |
-| `ls` | List directory contents with file sizes |
-| `git` | Git status + last 5 commits |
+</div>
 
-### 6 Built-in Agents
+| Tool | Description | Undo |
+|:----:|-------------|:----:|
+| ![](https://img.shields.io/badge/read-06b6d4?style=flat-square) | Read files with line numbers | — |
+| ![](https://img.shields.io/badge/write-10b981?style=flat-square) | Create/overwrite files (auto-creates directories) | ✓ |
+| ![](https://img.shields.io/badge/edit-f59e0b?style=flat-square) | Find & replace in files (colored diff output) | ✓ |
+| ![](https://img.shields.io/badge/delete-ef4444?style=flat-square) | Delete files | ✓ |
+| ![](https://img.shields.io/badge/bash-a855f7?style=flat-square) | Execute shell commands (30s timeout) | — |
+| ![](https://img.shields.io/badge/grep-3b82f6?style=flat-square) | Search for patterns across files | — |
+| ![](https://img.shields.io/badge/glob-ec4899?style=flat-square) | Find files by glob pattern (e.g. `**/*.ts`) | — |
+| ![](https://img.shields.io/badge/ls-f97316?style=flat-square) | List directory contents with file sizes | — |
+| ![](https://img.shields.io/badge/git-6366f1?style=flat-square) | Git status + last 5 commits | — |
+
+---
+
+<div align="center">
+
+### 6 Built-in Agents + Custom Agents
+
+</div>
 
 | Agent | Command | Focus |
-|-------|---------|-------|
-| Code | `/agent:code` | Write code, implement features, create files |
-| Debug | `/agent:debug` | Find bugs, root cause analysis |
-| Review | `/agent:review` | Code review, security, performance analysis |
-| Refactor | `/agent:refactor` | Code cleanup, optimization |
-| Architect | `/agent:architect` | System design, architecture planning |
-| Test | `/agent:test` | Write tests, improve coverage |
+|:-----:|---------|-------|
+| ![](https://img.shields.io/badge/Code-06b6d4?style=flat-square) | `/agent:code` | Write code, implement features, create files |
+| ![](https://img.shields.io/badge/Debug-ef4444?style=flat-square) | `/agent:debug` | Find bugs, root cause analysis |
+| ![](https://img.shields.io/badge/Review-f59e0b?style=flat-square) | `/agent:review` | Code review, security, performance |
+| ![](https://img.shields.io/badge/Refactor-10b981?style=flat-square) | `/agent:refactor` | Code cleanup, optimization |
+| ![](https://img.shields.io/badge/Architect-d946ef?style=flat-square) | `/agent:architect` | System design, architecture planning |
+| ![](https://img.shields.io/badge/Test-3b82f6?style=flat-square) | `/agent:test` | Write tests, improve coverage |
+| ![](https://img.shields.io/badge/Custom-a855f7?style=flat-square) | `/agent:create` | **Create your own agents!** |
 
-### Custom Agents
-
-Create your own specialized agents with custom system prompts:
+<details>
+<summary><b>Custom Agent erstellen</b></summary>
 
 ```
 > /agent:create
@@ -143,25 +201,31 @@ Create your own specialized agents with custom system prompts:
   ID (z.B. security):  security
   Name:                 Security Agent
   Beschreibung:         Security Audits und Vulnerability Scanning
-  Farbe (#hex):         #ef4444
+  Farbe:                1. Rot  2. Orange  3. Gelb  4. Gruen ...
 
   System Prompt (mehrzeilig, leere Zeile zum Beenden):
-  Du bist ein Security-Experte...
+  Du bist ein Security-Experte. Analysiere Code auf:
+  - SQL Injection, XSS, CSRF
+  - Authentication/Authorization Fehler
+  - Secrets im Code
 
   ✓ Agent "security" erstellt! Aktiviere mit /agent:security
 ```
 
-Custom agents are stored persistently in `~/.morningstar/agents.json` and support export/import for sharing.
+Custom agents are stored persistently in `~/.morningstar/agents.json` and support **export/import** for sharing.
+
+</details>
 
 ---
 
+<div align="center">
+
 ## Installation
 
-### Prerequisites
-- **Node.js** 18+
-- **DeepSeek API Key** ([get one here](https://platform.deepseek.com))
+</div>
 
-### From Source
+> [!IMPORTANT]
+> Requires **Node.js 18+** and a **DeepSeek API Key** ([get one here](https://platform.deepseek.com))
 
 ```bash
 git clone https://github.com/morningstarnasser/morningstar-cli.git
@@ -173,41 +237,36 @@ npm link
 
 Now `morningstar` is available globally in your terminal.
 
-### Set API Key
+**Set API Key** (choose one):
 
 ```bash
+# Environment variable
 export DEEPSEEK_API_KEY="sk-your-key-here"
-```
 
-Or create a `.env` file in your project directory:
-```
-DEEPSEEK_API_KEY=sk-your-key-here
-```
+# .env file in project directory
+echo 'DEEPSEEK_API_KEY=sk-your-key-here' > .env
 
-Or configure via the CLI:
-```
+# Via CLI config
+morningstar
 > /config set apiKey sk-your-key-here
 ```
 
 ---
 
+<div align="center">
+
 ## Usage
 
+</div>
+
 ```bash
-# Start in any project directory
-morningstar
-
-# Start in a specific directory
-morningstar --dir /path/to/project
-
-# Chat-only mode (no file tools)
-morningstar --chat
-
-# Use a different model
-morningstar --model deepseek-chat
+morningstar                          # Start in current directory
+morningstar --dir /path/to/project   # Start in specific directory
+morningstar --chat                   # Chat-only mode (no file tools)
+morningstar --model deepseek-chat    # Use a different model
 ```
 
-### Example Prompts
+**Example Prompts:**
 
 ```
 > Erklaere mir src/app/page.tsx
@@ -220,9 +279,14 @@ morningstar --model deepseek-chat
 
 ---
 
+<div align="center">
+
 ## All Commands (40+)
 
-### General
+</div>
+
+<details>
+<summary><b>General</b></summary>
 
 | Command | Description |
 |---------|-------------|
@@ -232,7 +296,10 @@ morningstar --model deepseek-chat
 | `/compact` | Compress conversation (keep recent messages) |
 | `/quit` | Exit (also `/exit`, `/q`) |
 
-### AI & Model
+</details>
+
+<details>
+<summary><b>AI & Model</b></summary>
 
 | Command | Description |
 |---------|-------------|
@@ -242,22 +309,28 @@ morningstar --model deepseek-chat
 | `/stats` | Session statistics (uptime, messages, tools used) |
 | `/plan` | Toggle plan mode (think before acting) |
 
-### Agents
+</details>
+
+<details>
+<summary><b>Agents (10 commands)</b></summary>
 
 | Command | Description |
 |---------|-------------|
 | `/agents` | List available agents |
-| `/agent:<id>` | Activate agent (e.g. `/agent:code`, `/agent:debug`) |
-| `/agent:off` | Deactivate agent, return to default mode |
+| `/agent:<id>` | Activate agent (e.g. `/agent:code`) |
+| `/agent:off` | Deactivate agent |
 | `/agent:create` | Interactive wizard to create a custom agent |
 | `/agent:edit <id>` | Edit a custom agent |
 | `/agent:delete <id>` | Delete a custom agent |
-| `/agent:show <id>` | Show full agent details including system prompt |
+| `/agent:show <id>` | Show full agent details |
 | `/agent:list` | List all agents (built-in + custom) |
 | `/agent:export <id>` | Export agent as JSON |
 | `/agent:import` | Import agent from JSON |
 
-### Memory
+</details>
+
+<details>
+<summary><b>Memory</b></summary>
 
 | Command | Description |
 |---------|-------------|
@@ -267,7 +340,10 @@ morningstar --model deepseek-chat
 | `/memory remove <n>` | Remove a note |
 | `/memory clear` | Clear all notes |
 
-### Todos
+</details>
+
+<details>
+<summary><b>Todos</b></summary>
 
 | Command | Description |
 |---------|-------------|
@@ -277,18 +353,24 @@ morningstar --model deepseek-chat
 | `/todo remove <id>` | Remove a task |
 | `/todo clear` | Clear completed tasks |
 
-### Git
+</details>
+
+<details>
+<summary><b>Git</b></summary>
 
 | Command | Description |
 |---------|-------------|
 | `/diff` | Show git diff |
 | `/diff staged` | Show staged changes |
-| `/commit` | Smart commit (AI analyzes changes and suggests message) |
+| `/commit` | Smart commit (AI analyzes & suggests message) |
 | `/log` | Show git log |
 | `/branch` | Show branches |
 | `/status` | Show git status |
 
-### Files & Project
+</details>
+
+<details>
+<summary><b>Files & Project</b></summary>
 
 | Command | Description |
 |---------|-------------|
@@ -297,7 +379,10 @@ morningstar --model deepseek-chat
 | `/undo list` | Show undo stack |
 | `/search <query>` | Search project files (grep) |
 
-### History & Sessions
+</details>
+
+<details>
+<summary><b>History & Sessions</b></summary>
 
 | Command | Description |
 |---------|-------------|
@@ -306,7 +391,10 @@ morningstar --model deepseek-chat
 | `/history load <id>` | Load a saved session |
 | `/history delete <id>` | Delete a saved session |
 
-### Appearance & Config
+</details>
+
+<details>
+<summary><b>Appearance & Config</b></summary>
 
 | Command | Description |
 |---------|-------------|
@@ -316,14 +404,42 @@ morningstar --model deepseek-chat
 | `/config set <key> <value>` | Change a setting |
 | `/doctor` | Diagnose setup (API, tools, git, Node.js) |
 
+</details>
+
 ---
+
+<div align="center">
+
+## Themes
+
+</div>
+
+| Theme | Preview | Style |
+|:-----:|---------|-------|
+| ![](https://img.shields.io/badge/default-f59e0b?style=flat-square) | `default` | Morningstar gold/amber |
+| ![](https://img.shields.io/badge/ocean-0ea5e9?style=flat-square) | `ocean` | Blue/cyan deep sea |
+| ![](https://img.shields.io/badge/hacker-22c55e?style=flat-square) | `hacker` | Green terminal classic |
+| ![](https://img.shields.io/badge/sunset-ef4444?style=flat-square) | `sunset` | Warm orange/red |
+| ![](https://img.shields.io/badge/nord-88c0d0?style=flat-square) | `nord` | Arctic blue/frost |
+| ![](https://img.shields.io/badge/rose-ec4899?style=flat-square) | `rose` | Pink/rose elegance |
+
+```
+> /theme hacker
+  ✓ Theme gewechselt: hacker
+```
+
+---
+
+<div align="center">
 
 ## Project Detection
 
-Morningstar automatically detects your project when you start it:
+</div>
+
+Morningstar automatically detects your project:
 
 | Detected By | Language |
-|-------------|----------|
+|:-----------:|----------|
 | `package.json` | TypeScript/JavaScript |
 | `requirements.txt` / `pyproject.toml` | Python |
 | `go.mod` | Go |
@@ -334,92 +450,108 @@ Morningstar automatically detects your project when you start it:
 
 ---
 
+<div align="center">
+
 ## Architecture
+
+</div>
 
 ```
 morningstar-cli/
 ├── bin/
-│   └── morningstar.js        # Entry point (#!/usr/bin/env node)
+│   └── morningstar.js          ← Entry point
 ├── src/
-│   ├── index.ts              # CLI loop, readline, 40+ slash commands, banner
-│   ├── ai.ts                 # DeepSeek R1 streaming + reasoning/plan tokens
-│   ├── tools.ts              # 9 tools + tool call parser + undo tracking
-│   ├── agents.ts             # 6 built-in agent definitions
-│   ├── custom-agents.ts      # Custom agent CRUD + persistence
-│   ├── memory.ts             # Persistent memory/notes system
-│   ├── todo.ts               # Todo/task management with priorities
-│   ├── history.ts            # Session save/load/list/delete
-│   ├── undo.ts               # Undo stack for file operations
-│   ├── theme.ts              # 6 color themes
-│   ├── context.ts            # Project auto-detection
-│   └── types.ts              # TypeScript interfaces
-├── dist/                     # Compiled JavaScript
+│   ├── index.ts                ← CLI loop, 40+ commands, banner, autocomplete
+│   ├── ai.ts                   ← DeepSeek R1 streaming + plan tokens
+│   ├── tools.ts                ← 9 tools + parser + undo tracking
+│   ├── agents.ts               ← 6 built-in agents
+│   ├── custom-agents.ts        ← Custom agent CRUD + persistence
+│   ├── memory.ts               ← Persistent notes system
+│   ├── todo.ts                 ← Task management
+│   ├── history.ts              ← Session save/load
+│   ├── undo.ts                 ← Undo stack
+│   ├── theme.ts                ← 6 color themes
+│   ├── context.ts              ← Project auto-detection
+│   └── types.ts                ← TypeScript interfaces
+├── dist/                       ← Compiled JavaScript
 ├── package.json
 ├── tsconfig.json
 └── README.md
 ```
 
+<div align="center">
+
 ### How It Works
 
-1. **Startup** — Detects project type, language, framework, git branch. Loads memory, todos, config.
-2. **Input** — Readline captures user input with smart autocomplete. Slash commands handled locally.
-3. **AI Request** — Sends conversation to DeepSeek R1 API with streaming.
-4. **Plan Display** — Shows `reasoning_content` and `<think>` blocks in a styled Plan box.
-5. **Response Streaming** — Content tokens displayed in real-time with markdown formatting.
-6. **Tool Execution** — Parses `<tool:name>args</tool>` blocks, executes tools, shows colored diffs, tracks undo.
-7. **Multi-Turn** — AI receives tool results and can chain more tool calls (up to 5 rounds).
-8. **Input Buffering** — Users can type while AI is processing; messages are queued and processed.
+</div>
+
+```
+ ┌─────────┐    ┌──────────┐    ┌──────────────┐    ┌───────────┐
+ │  Input   │───→│  Router   │───→│  DeepSeek R1 │───→│  Stream   │
+ │ readline │    │ 40+ cmds  │    │  API + SSE   │    │  Output   │
+ └─────────┘    └──────────┘    └──────────────┘    └───────────┘
+                                        │                   │
+                                        ▼                   ▼
+                                 ┌──────────────┐    ┌───────────┐
+                                 │  Tool Calls  │    │   Plan    │
+                                 │ read/write/  │    │  Display  │
+                                 │ edit/bash/.. │    │  (Think)  │
+                                 └──────────────┘    └───────────┘
+                                        │
+                                        ▼
+                                 ┌──────────────┐
+                                 │  Multi-Turn  │
+                                 │  (up to 5x)  │
+                                 └──────────────┘
+```
 
 ---
+
+<div align="center">
 
 ## Tech Stack
 
+</div>
+
 | Component | Technology |
-|-----------|------------|
-| Runtime | Node.js 18+ |
-| Language | TypeScript 5.x |
-| AI Model | DeepSeek R1 (Reasoner) / DeepSeek Chat |
+|:---------:|------------|
+| Runtime | ![](https://img.shields.io/badge/Node.js_18+-339933?style=flat-square&logo=node.js&logoColor=white) |
+| Language | ![](https://img.shields.io/badge/TypeScript_5.x-3178C6?style=flat-square&logo=typescript&logoColor=white) |
+| AI Model | ![](https://img.shields.io/badge/DeepSeek_R1-4A90D9?style=flat-square) ![](https://img.shields.io/badge/DeepSeek_Chat-06b6d4?style=flat-square) |
 | Streaming | Native `fetch` + `ReadableStream` |
-| CLI | Node.js `readline` with custom autocomplete |
-| Terminal UI | chalk, ora |
-| Markdown | marked + marked-terminal |
-| File Search | glob |
-| Build | tsc |
+| CLI | Node.js `readline` + custom autocomplete |
+| Terminal UI | `chalk` + `ora` |
+| Markdown | `marked` + `marked-terminal` |
+| File Search | `glob` |
+| Build | `tsc` |
 
 ---
 
-## Themes
-
-Switch between 6 built-in themes:
-
-| Theme | Style |
-|-------|-------|
-| `default` | Morningstar gold/amber |
-| `ocean` | Blue/cyan deep sea |
-| `hacker` | Green terminal classic |
-| `sunset` | Warm orange/red |
-| `nord` | Arctic blue/frost |
-| `rose` | Pink/rose elegance |
-
-```
-> /theme hacker
-  ✓ Theme gewechselt: hacker
-```
-
----
+<div align="center">
 
 ## Configuration
 
-All settings are persisted in `~/.morningstar/config.json`:
+</div>
+
+All settings persisted in `~/.morningstar/`:
+
+```
+~/.morningstar/
+├── config.json          ← API key, model, temperature, theme
+├── agents.json          ← Custom agents
+├── memory.json          ← Persistent notes
+├── todo.json            ← Tasks
+└── history/             ← Saved sessions
+```
 
 ```
 > /config
-  apiKey     : sk-...****
-  model      : deepseek-reasoner
-  baseUrl    : https://api.deepseek.com/v1
-  maxTokens  : 8192
-  temperature: 0.6
-  theme      : default
+  apiKey      : sk-...****
+  model       : deepseek-reasoner
+  baseUrl     : https://api.deepseek.com/v1
+  maxTokens   : 8192
+  temperature : 0.6
+  theme       : default
 
 > /config set temperature 0.8
   ✓ temperature = 0.8
@@ -427,7 +559,11 @@ All settings are persisted in `~/.morningstar/config.json`:
 
 ---
 
+<div align="center">
+
 ## CLI Options
+
+</div>
 
 ```
 Usage: morningstar [options]
@@ -443,16 +579,22 @@ Options:
 
 ---
 
+<div align="center">
+
 ## License
 
 MIT
 
 ---
 
-<div align="center">
+<br>
 
 **Built for engineers who live in the terminal.**
 
-[GitHub](https://github.com/morningstarnasser/morningstar-cli)
+<br>
+
+[![GitHub](https://img.shields.io/badge/GitHub-morningstarnasser-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/morningstarnasser/morningstar-cli)
+
+<br>
 
 </div>
