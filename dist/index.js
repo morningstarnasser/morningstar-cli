@@ -128,28 +128,77 @@ const STAR = chalk.magenta("*");
 const PROMPT = chalk.cyan.bold("> ");
 const DIVIDER = chalk.gray("─".repeat(60));
 function printBanner() {
+    const m = chalk.hex("#d946ef"); // magenta/purple
+    const g = chalk.hex("#a855f7"); // violet glow
+    const w = chalk.hex("#f0abfc"); // soft pink
+    const y = chalk.hex("#fbbf24"); // gold accent
+    const c = chalk.hex("#22d3ee"); // cyan
+    const d = chalk.hex("#6b7280"); // dim gray
+    const b = chalk.bold;
+    // Top banner box with star
+    const BW = 58; // inner box width
+    const pad = (raw) => " ".repeat(Math.max(0, BW - raw.length));
+    const row = (rawText, coloredText) => d("  ║") + coloredText + pad(rawText) + d("║");
+    const empty = d("  ║") + " ".repeat(BW) + d("║");
     console.log();
-    console.log(chalk.magenta(`
-        ${chalk.bold("*")}
-       ${chalk.bold("/ \\\\")}
-      ${chalk.bold("/ | \\\\")}
-     ${chalk.bold("*--+--*")}
-      ${chalk.bold("\\\\ | /")}
-       ${chalk.bold("\\\\ /")}
-        ${chalk.bold("*")}
-  `));
-    console.log(chalk.magenta.bold("  Morningstar AI") + chalk.gray(` v${VERSION}`));
-    console.log(chalk.magenta("  Dein Terminal-Coding-Assistant\n"));
-    console.log(chalk.gray(`  Model    : ${chalk.cyan(config.model)}`));
-    console.log(chalk.gray(`  Projekt  : ${chalk.white(ctx.projectName)}${ctx.language ? chalk.gray(" (" + ctx.language + (ctx.framework ? " / " + ctx.framework : "") + ")") : ""}`));
-    if (ctx.hasGit)
-        console.log(chalk.gray(`  Branch   : ${chalk.yellow(ctx.gitBranch || "unknown")}`));
-    console.log(chalk.gray(`  CWD      : ${cwd}`));
+    console.log(d("  ╔" + "═".repeat(BW) + "╗"));
+    console.log(empty);
+    console.log(row("               . .  ★  . .", g("               . .  ") + y(b("★")) + g("  . .")));
+    console.log(row("            .  ./ . \\.  .", g("            .  .") + m(b("/")) + g(" . ") + m(b("\\")) + g(".  .")));
+    console.log(row("          .  /  . | .  \\  .", g("          .  ") + m(b("/")) + g("  . ") + w(b("|")) + g(" .  ") + m(b("\\")) + g("  .")));
+    console.log(row("        ── * ─────+───── * ──", g("        ── ") + m(b("*")) + g(" ─────") + y(b("+")) + g("───── ") + m(b("*")) + g(" ──")));
+    console.log(row("          .  \\  . | .  /  .", g("          .  ") + m(b("\\")) + g("  . ") + w(b("|")) + g(" .  ") + m(b("/")) + g("  .")));
+    console.log(row("            .  .\\ . /.  .", g("            .  .") + m(b("\\")) + g(" . ") + m(b("/")) + g(".  .")));
+    console.log(row("               . .  ★  . .", g("               . .  ") + y(b("★")) + g("  . .")));
+    console.log(empty);
+    console.log(row("   M O R N I N G S T A R", "   " + m(b("M O R N I N G S T A R"))));
+    console.log(d("  ║") + "   " + d("━".repeat(BW - 4)) + " " + d("║"));
+    console.log(row("   Terminal AI Coding Assistant", "   " + w("Terminal AI Coding Assistant")));
+    console.log(row("   Powered by DeepSeek R1 Reasoning Engine", "   " + d("Powered by") + " " + c(b("DeepSeek R1")) + " " + d("Reasoning Engine")));
+    console.log(empty);
+    console.log(d("  ╚" + "═".repeat(BW) + "╝"));
     console.log();
-    console.log(chalk.gray("  Tools: read, write, edit, bash, grep, glob, ls, git"));
-    console.log(chalk.gray("  Agents: /agent:code, /agent:debug, /agent:review, /agent:refactor"));
-    console.log(chalk.gray("  Befehle: /help /clear /model /context /compact /quit"));
-    console.log(DIVIDER);
+    // Info block (left-border style, no right alignment issues)
+    const modelRaw = config.model === "deepseek-reasoner" ? "deepseek-reasoner (R1 Thinking)" : config.model;
+    const modelDisplay = config.model === "deepseek-reasoner" ? c("deepseek-reasoner") + d(" (R1 Thinking)") : c(config.model);
+    const langInfo = ctx.language
+        ? ctx.language + (ctx.framework ? " / " + ctx.framework : "")
+        : "unbekannt";
+    const langDisplay = ctx.language
+        ? chalk.white(ctx.language) + (ctx.framework ? d(" / ") + y(ctx.framework) : "")
+        : d("unbekannt");
+    const cwdShort = cwd.length > 42 ? "..." + cwd.slice(-39) : cwd;
+    // Calculate max width for box
+    const infoLines = [
+        { raw: `Model    ${modelRaw}`, colored: m(" ★ ") + d("Model    ") + modelDisplay },
+        { raw: `Projekt  ${ctx.projectName} (${langInfo})`, colored: m(" ★ ") + d("Projekt  ") + chalk.white.bold(ctx.projectName) + " " + d("(") + langDisplay + d(")") },
+        ...(ctx.hasGit ? [{ raw: `Branch   ${ctx.gitBranch || "unknown"}`, colored: m(" ★ ") + d("Branch   ") + y(ctx.gitBranch || "unknown") }] : []),
+        { raw: `CWD      ${cwdShort}`, colored: m(" ★ ") + d("CWD      ") + chalk.white(cwdShort) },
+    ];
+    const maxW = Math.max(...infoLines.map(l => l.raw.length + 4)) + 2; // +4 for " ★ ", +2 padding
+    const boxW = Math.max(maxW, 50);
+    console.log(d("  ┌" + "─".repeat(boxW) + "┐"));
+    for (const line of infoLines) {
+        const pad = boxW - line.raw.length - 4; // 4 = " ★ " visible width
+        console.log(d("  │") + line.colored + " ".repeat(Math.max(1, pad)) + d("│"));
+    }
+    console.log(d("  └" + "─".repeat(boxW) + "┘"));
+    console.log();
+    // Tools & commands
+    console.log(d("  Tools   ") +
+        c("read") + d(" · ") + c("write") + d(" · ") + c("edit") + d(" · ") + c("bash") + d(" · ") +
+        c("grep") + d(" · ") + c("glob") + d(" · ") + c("ls") + d(" · ") + c("git"));
+    console.log(d("  Agents  ") +
+        chalk.hex("#06b6d4")("code") + d(" · ") +
+        chalk.hex("#ef4444")("debug") + d(" · ") +
+        chalk.hex("#f59e0b")("review") + d(" · ") +
+        chalk.hex("#10b981")("refactor") + d(" · ") +
+        chalk.hex("#d946ef")("architect") + d(" · ") +
+        chalk.hex("#3b82f6")("test"));
+    console.log(d("  Hilfe   ") +
+        w("/help") + d(" · ") + w("/features") + d(" · ") + w("/agents") + d(" · ") + w("/quit"));
+    console.log();
+    console.log(d("  ─────────────────────────────────────────────────────────"));
     console.log();
 }
 function printToolResult(tool, result, success) {
