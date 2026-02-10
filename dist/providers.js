@@ -1,4 +1,19 @@
+import { execSync } from "child_process";
 // ─── Provider Detection ──────────────────────────────────
+// Cache for Ollama model names (avoid repeated shell calls)
+let _ollamaModels = null;
+function getOllamaModelNames() {
+    if (_ollamaModels)
+        return _ollamaModels;
+    try {
+        const out = execSync("ollama list 2>/dev/null", { encoding: "utf-8", timeout: 3000 });
+        _ollamaModels = new Set(out.split("\n").slice(1).map(l => l.split(/\s+/)[0]?.replace(/:latest$/, "")).filter(Boolean));
+    }
+    catch {
+        _ollamaModels = new Set();
+    }
+    return _ollamaModels;
+}
 export function detectProvider(model) {
     const m = model.toLowerCase();
     if (m.includes("/"))
@@ -17,7 +32,11 @@ export function detectProvider(model) {
         return "ollama";
     if (m.startsWith("mixtral") || m.startsWith("groq/"))
         return "groq";
-    return "openai"; // fallback to OpenAI-compatible
+    // Check if model exists in local Ollama before falling back to OpenAI
+    const ollamaModels = getOllamaModelNames();
+    if (ollamaModels.has(m) || ollamaModels.has(m.replace(/:.*$/, "")))
+        return "ollama";
+    return "openai";
 }
 export function getProviderBaseUrl(provider) {
     switch (provider) {

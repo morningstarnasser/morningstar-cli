@@ -1,3 +1,4 @@
+import { execSync } from "child_process";
 import type { Message, CLIConfig } from "./types.js";
 
 export interface StreamToken {
@@ -12,6 +13,19 @@ export interface LLMProvider {
 
 // ─── Provider Detection ──────────────────────────────────
 
+// Cache for Ollama model names (avoid repeated shell calls)
+let _ollamaModels: Set<string> | null = null;
+function getOllamaModelNames(): Set<string> {
+  if (_ollamaModels) return _ollamaModels;
+  try {
+    const out = execSync("ollama list 2>/dev/null", { encoding: "utf-8", timeout: 3000 });
+    _ollamaModels = new Set(
+      out.split("\n").slice(1).map(l => l.split(/\s+/)[0]?.replace(/:latest$/, "")).filter(Boolean)
+    );
+  } catch { _ollamaModels = new Set(); }
+  return _ollamaModels;
+}
+
 export function detectProvider(model: string): string {
   const m = model.toLowerCase();
   if (m.includes("/")) return "openrouter";
@@ -22,7 +36,10 @@ export function detectProvider(model: string): string {
   if (m.startsWith("deepseek-")) return "deepseek";
   if (m.startsWith("llama") || m.startsWith("codellama") || m.startsWith("mistral") || m.startsWith("phi") || m.startsWith("qwen") || m.startsWith("gemma") || m.startsWith("starcoder") || m.startsWith("tinyllama") || m.startsWith("vicuna") || m.startsWith("wizardcoder") || m.startsWith("orca") || m.startsWith("neural") || m.startsWith("nomic")) return "ollama";
   if (m.startsWith("mixtral") || m.startsWith("groq/")) return "groq";
-  return "openai"; // fallback to OpenAI-compatible
+  // Check if model exists in local Ollama before falling back to OpenAI
+  const ollamaModels = getOllamaModelNames();
+  if (ollamaModels.has(m) || ollamaModels.has(m.replace(/:.*$/, ""))) return "ollama";
+  return "openai";
 }
 
 export function getProviderBaseUrl(provider: string): string {
