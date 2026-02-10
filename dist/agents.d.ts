@@ -5,6 +5,6 @@ export interface Agent {
     color: string;
 }
 export declare const AGENTS: Record<string, Agent>;
-export declare function getAgentPrompt(agentId: string, baseSystemPrompt: string): string;
-export declare function listAgents(): string;
+export declare function getAgentPrompt(agentId: string, baseSystemPrompt: string, allAgents?: Record<string, Agent>): string;
+export declare function listAgents(allAgents?: Record<string, Agent>, customOnly?: boolean): string;
 //# sourceMappingURL=agents.d.ts.map

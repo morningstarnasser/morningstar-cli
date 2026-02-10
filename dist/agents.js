@@ -2,7 +2,7 @@ export const AGENTS = {
     code: {
         name: "Code Agent",
         description: "Schreibt neuen Code, implementiert Features, erstellt Dateien",
-        color: "cyan",
+        color: "#06b6d4",
         systemPrompt: `Du bist der Morningstar CODE AGENT. Deine Aufgabe ist es, Code zu schreiben und Features zu implementieren.
 
 Regeln:
@@ -16,7 +16,7 @@ Regeln:
     debug: {
         name: "Debug Agent",
         description: "Findet und behebt Bugs, analysiert Fehler",
-        color: "red",
+        color: "#ef4444",
         systemPrompt: `Du bist der Morningstar DEBUG AGENT. Deine Aufgabe ist es, Bugs zu finden und zu beheben.
 
 Vorgehen:
@@ -32,7 +32,7 @@ Sei gruendlich und systematisch. Erklaere die Root Cause.`,
     review: {
         name: "Review Agent",
         description: "Code Review, Qualitaetsanalyse, Security Check",
-        color: "yellow",
+        color: "#f59e0b",
         systemPrompt: `Du bist der Morningstar REVIEW AGENT. Deine Aufgabe ist Code Review.
 
 Analysiere den Code auf:
@@ -49,7 +49,7 @@ Gib konkretes Feedback mit Zeilen-Referenzen.`,
     refactor: {
         name: "Refactor Agent",
         description: "Code-Refactoring, Optimierung, Cleanup",
-        color: "green",
+        color: "#10b981",
         systemPrompt: `Du bist der Morningstar REFACTOR AGENT. Deine Aufgabe ist Code-Refactoring.
 
 Regeln:
@@ -63,7 +63,7 @@ Regeln:
     architect: {
         name: "Architect Agent",
         description: "System Design, Architektur-Planung, Tech-Stack Entscheidungen",
-        color: "magenta",
+        color: "#d946ef",
         systemPrompt: `Du bist der Morningstar ARCHITECT AGENT. Deine Aufgabe ist Architektur und Design.
 
 Analysiere:
@@ -80,7 +80,7 @@ Dann:
     test: {
         name: "Test Agent",
         description: "Tests schreiben, Test Coverage, TDD",
-        color: "blue",
+        color: "#3b82f6",
         systemPrompt: `Du bist der Morningstar TEST AGENT. Deine Aufgabe ist Testing.
 
 Vorgehen:
@@ -93,15 +93,27 @@ Vorgehen:
 Nutze das bestehende Test-Framework des Projekts.`,
     },
 };
-export function getAgentPrompt(agentId, baseSystemPrompt) {
-    const agent = AGENTS[agentId];
+export function getAgentPrompt(agentId, baseSystemPrompt, allAgents) {
+    const agents = allAgents || AGENTS;
+    const agent = agents[agentId];
     if (!agent)
         return baseSystemPrompt;
     return `${agent.systemPrompt}\n\n--- Projekt-Kontext ---\n${baseSystemPrompt}`;
 }
-export function listAgents() {
-    return Object.entries(AGENTS)
-        .map(([id, a]) => `  /agent:${id.padEnd(10)} ${a.name} - ${a.description}`)
+export function listAgents(allAgents, customOnly) {
+    const agents = allAgents || AGENTS;
+    return Object.entries(agents)
+        .filter(([id]) => {
+        if (customOnly)
+            return !(id in AGENTS);
+        return true;
+    })
+        .map(([id, a]) => {
+        const tag = id in AGENTS ? chalk.gray("[built-in]") : chalk.hex("#a855f7")("[custom]");
+        return `  /agent:${id.padEnd(12)} ${tag} ${a.name} - ${a.description}`;
+    })
         .join("\n");
 }
+// chalk import for listAgents coloring
+import chalk from "chalk";
 //# sourceMappingURL=agents.js.map

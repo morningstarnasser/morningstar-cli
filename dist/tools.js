@@ -2,7 +2,22 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSy
 import { execSync } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { glob } from "glob";
+import { trackChange, captureBeforeState } from "./undo.js";
 const MAX_OUTPUT = 15000; // truncate long outputs
+// ─── Stats Tracking ───
+export const toolStats = {
+    calls: 0,
+    byTool: {},
+    filesRead: 0,
+    filesWritten: 0,
+    filesEdited: 0,
+    filesDeleted: 0,
+    bashCommands: 0,
+};
+function countTool(tool) {
+    toolStats.calls++;
+    toolStats.byTool[tool] = (toolStats.byTool[tool] || 0) + 1;
+}
 function truncate(s, max = MAX_OUTPUT) {
     if (s.length <= max)
         return s;
@@ -10,12 +25,14 @@ function truncate(s, max = MAX_OUTPUT) {
 }
 // ─── Read File ───
 export function readFile(filePath, cwd) {
+    countTool("read");
     try {
         const abs = resolve(cwd, filePath);
         if (!existsSync(abs))
             return { tool: "read", result: `Datei nicht gefunden: ${filePath}`, success: false };
         const content = readFileSync(abs, "utf-8");
         const lines = content.split("\n").map((l, i) => `${String(i + 1).padStart(4)} | ${l}`).join("\n");
+        toolStats.filesRead++;
         return { tool: "read", result: truncate(lines), success: true };
     }
     catch (e) {
@@ -24,12 +41,24 @@ export function readFile(filePath, cwd) {
 }
 // ─── Write File ───
 export function writeFile(filePath, content, cwd) {
+    countTool("write");
     try {
         const abs = resolve(cwd, filePath);
         const dir = dirname(abs);
         if (!existsSync(dir))
             mkdirSync(dir, { recursive: true });
+        // Track for undo
+        const prev = captureBeforeState(abs);
+        trackChange({
+            type: "write",
+            filePath: abs,
+            previousContent: prev,
+            newContent: content,
+            timestamp: new Date().toISOString(),
+            description: `write ${filePath}`,
+        });
         writeFileSync(abs, content, "utf-8");
+        toolStats.filesWritten++;
         return { tool: "write", result: `Datei geschrieben: ${filePath} (${content.length} Zeichen)`, success: true };
     }
     catch (e) {
@@ -38,6 +67,7 @@ export function writeFile(filePath, content, cwd) {
 }
 // ─── Edit File (find & replace) ───
 export function editFile(filePath, oldStr, newStr, cwd) {
+    countTool("edit");
     try {
         const abs = resolve(cwd, filePath);
         if (!existsSync(abs))
@@ -46,9 +76,19 @@ export function editFile(filePath, oldStr, newStr, cwd) {
         if (!content.includes(oldStr)) {
             return { tool: "edit", result: `String nicht gefunden in ${filePath}. Keine Aenderung.`, success: false };
         }
+        // Track for undo
+        trackChange({
+            type: "edit",
+            filePath: abs,
+            previousContent: content,
+            newContent: content.replace(oldStr, newStr),
+            timestamp: new Date().toISOString(),
+            description: `edit ${filePath}`,
+        });
         const newContent = content.replace(oldStr, newStr);
         writeFileSync(abs, newContent, "utf-8");
-        return { tool: "edit", result: `Datei bearbeitet: ${filePath}`, success: true };
+        toolStats.filesEdited++;
+        return { tool: "edit", result: `Datei bearbeitet: ${filePath}`, success: true, diff: { filePath, oldStr, newStr } };
     }
     catch (e) {
         return { tool: "edit", result: `Fehler: ${e.message}`, success: false };
@@ -56,11 +96,23 @@ export function editFile(filePath, oldStr, newStr, cwd) {
 }
 // ─── Delete File ───
 export function deleteFile(filePath, cwd) {
+    countTool("delete");
     try {
         const abs = resolve(cwd, filePath);
         if (!existsSync(abs))
             return { tool: "delete", result: `Datei nicht gefunden: ${filePath}`, success: false };
+        // Track for undo
+        const prev = captureBeforeState(abs);
+        trackChange({
+            type: "delete",
+            filePath: abs,
+            previousContent: prev,
+            newContent: null,
+            timestamp: new Date().toISOString(),
+            description: `delete ${filePath}`,
+        });
         unlinkSync(abs);
+        toolStats.filesDeleted++;
         return { tool: "delete", result: `Datei geloescht: ${filePath}`, success: true };
     }
     catch (e) {
@@ -69,6 +121,8 @@ export function deleteFile(filePath, cwd) {
 }
 // ─── Bash Execution ───
 export function bash(command, cwd) {
+    countTool("bash");
+    toolStats.bashCommands++;
     try {
         const output = execSync(command, {
             cwd,
@@ -87,6 +141,7 @@ export function bash(command, cwd) {
 }
 // ─── Grep (Content Search) ───
 export function grepSearch(pattern, cwd, fileGlob) {
+    countTool("grep");
     try {
         const cmd = fileGlob
             ? `grep -rn --include="${fileGlob}" "${pattern}" . 2>/dev/null | head -50`
@@ -102,6 +157,7 @@ export function grepSearch(pattern, cwd, fileGlob) {
 }
 // ─── Glob (File Search) ───
 export async function globSearch(pattern, cwd) {
+    countTool("glob");
     try {
         const files = await glob(pattern, { cwd, ignore: ["**/node_modules/**", "**/.git/**", "**/dist/**", "**/.next/**"], nodir: true });
         if (files.length === 0)
@@ -115,6 +171,7 @@ export async function globSearch(pattern, cwd) {
 }
 // ─── List Directory ───
 export function listDir(dirPath, cwd) {
+    countTool("ls");
     try {
         const abs = resolve(cwd, dirPath || ".");
         if (!existsSync(abs))
@@ -137,6 +194,7 @@ export function listDir(dirPath, cwd) {
 }
 // ─── Git Status ───
 export function gitStatus(cwd) {
+    countTool("git");
     try {
         const status = execSync("git status --short && echo '---' && git log --oneline -5", {
             cwd, encoding: "utf-8", timeout: 5000,

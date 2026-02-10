@@ -1,19 +1,27 @@
 #!/usr/bin/env node
-import { createInterface } from "node:readline";
+import { createInterface, clearLine, cursorTo } from "node:readline";
 import { resolve, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { homedir } from "node:os";
 import chalk from "chalk";
 import ora from "ora";
 import { program } from "commander";
 import { streamChat } from "./ai.js";
-import { executeToolCalls } from "./tools.js";
+import { executeToolCalls, toolStats } from "./tools.js";
 import { detectProject, buildSystemPrompt } from "./context.js";
 import { AGENTS, getAgentPrompt, listAgents } from "./agents.js";
+import { getAllAgents, createAgent, editAgent, deleteAgent, isBuiltinAgent, loadCustomAgents } from "./custom-agents.js";
+import { addMemory, removeMemory, loadMemories, searchMemories, clearMemories, getMemoryContext } from "./memory.js";
+import { addTodo, toggleTodo, removeTodo, loadTodos, clearDoneTodos, clearAllTodos, getTodoStats } from "./todo.js";
+import { saveConversation, loadConversation, listConversations, deleteConversation } from "./history.js";
+import { undoLastChange, getUndoStack, getUndoStackSize, clearUndoStack } from "./undo.js";
+import { THEMES, setTheme, getTheme, getThemeId, listThemes } from "./theme.js";
 // ─── Config ──────────────────────────────────────────────
 const VERSION = "1.0.0";
 const CONFIG_DIR = join(homedir(), ".morningstar");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+const sessionStart = Date.now();
 // Load saved config
 function loadSavedConfig() {
     try {
@@ -60,7 +68,7 @@ function loadEnvFile(dir) {
 const saved = loadSavedConfig();
 const DEFAULT_CONFIG = {
     apiKey: "",
-    model: "deepseek-reasoner", // DeepSeek R1
+    model: "deepseek-reasoner",
     baseUrl: "https://api.deepseek.com/v1",
     maxTokens: 8192,
     temperature: 0.6,
@@ -78,7 +86,6 @@ program
 const opts = program.opts();
 const cwd = resolve(opts.dir || process.cwd());
 const chatOnly = opts.chat || false;
-// Load .env files
 loadEnvFile(cwd);
 const config = {
     ...DEFAULT_CONFIG,
@@ -87,7 +94,6 @@ const config = {
 };
 // ─── Interactive API Key Setup ───────────────────────────
 async function ensureApiKey() {
-    // If we have a key (from env, saved config, or hardcoded default), skip
     if (config.apiKey)
         return;
     console.log(chalk.yellow("\n  Kein DeepSeek API Key gefunden!\n"));
@@ -114,173 +120,574 @@ async function ensureApiKey() {
 await ensureApiKey();
 // ─── Project Detection ───────────────────────────────────
 const ctx = detectProject(cwd);
-const systemPrompt = chatOnly
+const baseSystemPrompt = chatOnly
     ? "Du bist Morningstar AI, ein hilfreicher Coding-Assistant. Antworte direkt und effizient."
     : buildSystemPrompt(ctx);
+// Add memory context to system prompt
+function getFullSystemPrompt() {
+    return baseSystemPrompt + getMemoryContext();
+}
 // ─── State ───────────────────────────────────────────────
-const messages = [{ role: "system", content: systemPrompt }];
+const messages = [{ role: "system", content: getFullSystemPrompt() }];
 let totalTokensEstimate = 0;
 let activeAgent = null;
 let isProcessing = false;
 let currentAbort = null;
-// ─── UI Helpers ──────────────────────────────────────────
-const STAR = chalk.magenta("*");
-const PROMPT = chalk.cyan.bold("> ");
-const DIVIDER = chalk.gray("─".repeat(60));
+let planMode = false;
+const inputQueue = [];
+let lastProcessingEndTime = 0;
+// ─── Theme-aware UI Helpers ──────────────────────────────
+const t = () => getTheme();
+const STAR = () => chalk.hex(t().star)("*");
+const PROMPT = () => chalk.hex(t().prompt).bold("> ");
+// ─── Readline State Restore (solves TTY desync after streaming) ──
+function restorePrompt() {
+    try {
+        process.stdout.write("\x1b[0m"); // Reset all ANSI attributes
+        process.stdout.write("\x1b[?25h"); // Ensure cursor is visible
+        process.stdin.resume(); // Ensure stdin is reading
+        rl.resume(); // Ensure readline is not paused
+        // Clear current terminal line — readline may have stale cursor position
+        clearLine(process.stdout, 0);
+        cursorTo(process.stdout, 0);
+        // Reset readline's internal line buffer (critical for TTY sync)
+        const rlInternal = rl;
+        rlInternal.line = "";
+        rlInternal.cursor = 0;
+        // Set and display prompt
+        rl.setPrompt(getPrompt());
+        rl.prompt();
+    }
+    catch {
+        // Absolute fallback — write prompt manually
+        process.stdout.write("\r\n" + getPrompt());
+    }
+}
 function printBanner() {
-    const m = chalk.hex("#d946ef"); // magenta/purple
-    const g = chalk.hex("#a855f7"); // violet glow
-    const w = chalk.hex("#f0abfc"); // soft pink
-    const y = chalk.hex("#fbbf24"); // gold accent
-    const c = chalk.hex("#22d3ee"); // cyan
-    const d = chalk.hex("#6b7280"); // dim gray
+    const theme = t();
+    const m = chalk.hex(theme.primary);
+    const g = chalk.hex(theme.secondary);
+    const w = chalk.hex("#f0abfc");
+    const y = chalk.hex(theme.accent);
+    const c = chalk.hex(theme.info);
+    const d = chalk.hex(theme.dim);
     const b = chalk.bold;
-    // Top banner box with star
-    const BW = 58; // inner box width
-    const pad = (raw) => " ".repeat(Math.max(0, BW - raw.length));
-    const row = (rawText, coloredText) => d("  ║") + coloredText + pad(rawText) + d("║");
-    const empty = d("  ║") + " ".repeat(BW) + d("║");
-    // Center helper: centers raw text within BW, returns colored version
+    const BW = 58;
+    const empty = d("  \u2551") + " ".repeat(BW) + d("\u2551");
     const center = (rawText, coloredText) => {
         const left = Math.floor((BW - rawText.length) / 2);
         const right = BW - rawText.length - left;
-        return d("  ║") + " ".repeat(left) + coloredText + " ".repeat(right) + d("║");
+        return d("  \u2551") + " ".repeat(left) + coloredText + " ".repeat(right) + d("\u2551");
     };
     console.log();
-    console.log(d("  ╔" + "═".repeat(BW) + "╗"));
+    console.log(d("  \u2554" + "\u2550".repeat(BW) + "\u2557"));
     console.log(empty);
-    console.log(center(". .  ★  . .", g(". .  ") + y(b("★")) + g("  . .")));
+    console.log(center(". .  \u2605  . .", g(". .  ") + y(b("\u2605")) + g("  . .")));
     console.log(center(".  ./ . \\.  .", g(".  .") + m(b("/")) + g(" . ") + m(b("\\")) + g(".  .")));
     console.log(center(".  /  . | .  \\  .", g(".  ") + m(b("/")) + g("  . ") + w(b("|")) + g(" .  ") + m(b("\\")) + g("  .")));
-    console.log(center("── * ─────+───── * ──", g("── ") + m(b("*")) + g(" ─────") + y(b("+")) + g("───── ") + m(b("*")) + g(" ──")));
+    console.log(center("\u2500\u2500 * \u2500\u2500\u2500\u2500\u2500+\u2500\u2500\u2500\u2500\u2500 * \u2500\u2500", g("\u2500\u2500 ") + m(b("*")) + g(" \u2500\u2500\u2500\u2500\u2500") + y(b("+")) + g("\u2500\u2500\u2500\u2500\u2500 ") + m(b("*")) + g(" \u2500\u2500")));
     console.log(center(".  \\  . | .  /  .", g(".  ") + m(b("\\")) + g("  . ") + w(b("|")) + g(" .  ") + m(b("/")) + g("  .")));
     console.log(center(".  .\\ . /.  .", g(".  .") + m(b("\\")) + g(" . ") + m(b("/")) + g(".  .")));
-    console.log(center(". .  ★  . .", g(". .  ") + y(b("★")) + g("  . .")));
+    console.log(center(". .  \u2605  . .", g(". .  ") + y(b("\u2605")) + g("  . .")));
     console.log(empty);
     console.log(center("M O R N I N G S T A R", m(b("M O R N I N G S T A R"))));
-    console.log(d("  ║") + "   " + d("━".repeat(BW - 6)) + "   " + d("║"));
+    console.log(d("  \u2551") + "   " + d("\u2501".repeat(BW - 6)) + "   " + d("\u2551"));
     console.log(center("Terminal AI Coding Assistant", w("Terminal AI Coding Assistant")));
     console.log(center("Powered by Mr.Morningstar", d("Powered by") + " " + y(b("Mr.Morningstar"))));
     console.log(center("github.com/morningstarnasser", c("github.com/morningstarnasser")));
     console.log(empty);
-    console.log(d("  ╚" + "═".repeat(BW) + "╝"));
+    console.log(d("  \u255a" + "\u2550".repeat(BW) + "\u255d"));
     console.log();
-    // Info block (left-border style, no right alignment issues)
     const modelRaw = config.model === "deepseek-reasoner" ? "deepseek-reasoner (R1 Thinking)" : config.model;
     const modelDisplay = config.model === "deepseek-reasoner" ? c("deepseek-reasoner") + d(" (R1 Thinking)") : c(config.model);
-    const langInfo = ctx.language
-        ? ctx.language + (ctx.framework ? " / " + ctx.framework : "")
-        : "unbekannt";
-    const langDisplay = ctx.language
-        ? chalk.white(ctx.language) + (ctx.framework ? d(" / ") + y(ctx.framework) : "")
-        : d("unbekannt");
+    const langInfo = ctx.language ? ctx.language + (ctx.framework ? " / " + ctx.framework : "") : "unbekannt";
+    const langDisplay = ctx.language ? chalk.white(ctx.language) + (ctx.framework ? d(" / ") + y(ctx.framework) : "") : d("unbekannt");
     const cwdShort = cwd.length > 42 ? "..." + cwd.slice(-39) : cwd;
-    // Calculate max width for box
     const infoLines = [
-        { raw: `Model    ${modelRaw}`, colored: m(" ★ ") + d("Model    ") + modelDisplay },
-        { raw: `Projekt  ${ctx.projectName} (${langInfo})`, colored: m(" ★ ") + d("Projekt  ") + chalk.white.bold(ctx.projectName) + " " + d("(") + langDisplay + d(")") },
-        ...(ctx.hasGit ? [{ raw: `Branch   ${ctx.gitBranch || "unknown"}`, colored: m(" ★ ") + d("Branch   ") + y(ctx.gitBranch || "unknown") }] : []),
-        { raw: `CWD      ${cwdShort}`, colored: m(" ★ ") + d("CWD      ") + chalk.white(cwdShort) },
+        { raw: `Model    ${modelRaw}`, colored: m(" \u2605 ") + d("Model    ") + modelDisplay },
+        { raw: `Projekt  ${ctx.projectName} (${langInfo})`, colored: m(" \u2605 ") + d("Projekt  ") + chalk.white.bold(ctx.projectName) + " " + d("(") + langDisplay + d(")") },
+        ...(ctx.hasGit ? [{ raw: `Branch   ${ctx.gitBranch || "unknown"}`, colored: m(" \u2605 ") + d("Branch   ") + y(ctx.gitBranch || "unknown") }] : []),
+        { raw: `CWD      ${cwdShort}`, colored: m(" \u2605 ") + d("CWD      ") + chalk.white(cwdShort) },
+        { raw: `Theme    ${getTheme().name}`, colored: m(" \u2605 ") + d("Theme    ") + chalk.hex(theme.primary)(theme.name) },
     ];
-    const maxW = Math.max(...infoLines.map(l => l.raw.length + 4)) + 2; // +4 for " ★ ", +2 padding
+    const maxW = Math.max(...infoLines.map(l => l.raw.length + 4)) + 2;
     const boxW = Math.max(maxW, 50);
-    console.log(d("  ┌" + "─".repeat(boxW) + "┐"));
+    console.log(d("  \u250c" + "\u2500".repeat(boxW) + "\u2510"));
     for (const line of infoLines) {
-        const pad = boxW - line.raw.length - 4; // 4 = " ★ " visible width
-        console.log(d("  │") + line.colored + " ".repeat(Math.max(1, pad)) + d("│"));
+        const pad = boxW - line.raw.length - 4;
+        console.log(d("  \u2502") + line.colored + " ".repeat(Math.max(1, pad)) + d("\u2502"));
     }
-    console.log(d("  └" + "─".repeat(boxW) + "┘"));
+    console.log(d("  \u2514" + "\u2500".repeat(boxW) + "\u2518"));
     console.log();
-    // Tools & commands
-    console.log(d("  Tools   ") +
-        c("read") + d(" · ") + c("write") + d(" · ") + c("edit") + d(" · ") + c("bash") + d(" · ") +
-        c("grep") + d(" · ") + c("glob") + d(" · ") + c("ls") + d(" · ") + c("git"));
-    console.log(d("  Agents  ") +
-        chalk.hex("#06b6d4")("code") + d(" · ") +
-        chalk.hex("#ef4444")("debug") + d(" · ") +
-        chalk.hex("#f59e0b")("review") + d(" · ") +
-        chalk.hex("#10b981")("refactor") + d(" · ") +
-        chalk.hex("#d946ef")("architect") + d(" · ") +
-        chalk.hex("#3b82f6")("test"));
-    console.log(d("  Hilfe   ") +
-        w("/help") + d(" · ") + w("/features") + d(" · ") + w("/agents") + d(" · ") + w("/quit"));
+    const allAgents = getAllAgents();
+    const agentNames = Object.entries(allAgents).map(([id, a]) => chalk.hex(a.color)(id));
+    console.log(d("  Tools   ") + c("read") + d(" \u00b7 ") + c("write") + d(" \u00b7 ") + c("edit") + d(" \u00b7 ") + c("bash") + d(" \u00b7 ") + c("grep") + d(" \u00b7 ") + c("glob") + d(" \u00b7 ") + c("ls") + d(" \u00b7 ") + c("git"));
+    console.log(d("  Agents  ") + agentNames.join(d(" \u00b7 ")));
+    console.log(d("  Hilfe   ") + w("/help") + d(" \u00b7 ") + w("/features") + d(" \u00b7 ") + w("/agents") + d(" \u00b7 ") + w("/agent:create") + d(" \u00b7 ") + w("/quit"));
     console.log();
-    console.log(d("  ─────────────────────────────────────────────────────────"));
+    // Show pending todos
+    const todoStats = getTodoStats();
+    if (todoStats.open > 0) {
+        console.log(d("  ") + chalk.hex(theme.warning)(`  ${todoStats.open} offene Aufgabe(n)`) + d(" \u2014 /todo list"));
+    }
+    // Show memory count
+    const memCount = loadMemories().length;
+    if (memCount > 0) {
+        console.log(d("  ") + chalk.hex(theme.info)(`  ${memCount} Notiz(en) gespeichert`) + d(" \u2014 /memory list"));
+    }
+    console.log(d("  " + "\u2500".repeat(60)));
     console.log();
 }
-function printToolResult(tool, result, success) {
-    const icon = success ? chalk.green("✓") : chalk.red("✗");
-    const header = chalk.yellow(`[${tool}]`);
+function printToolResult(tool, result, success, diff) {
+    const icon = success ? chalk.hex(t().success)("\u2713") : chalk.hex(t().error)("\u2717");
+    const header = chalk.hex(t().warning)(`[${tool}]`);
     console.log(`\n  ${icon} ${header}`);
-    const lines = result.split("\n").slice(0, 30);
-    for (const line of lines) {
-        console.log(chalk.gray(`  ${line}`));
+    // Show colored diff for edit operations (like Claude Code: red = old, blue = new)
+    if (diff && tool === "edit") {
+        console.log(chalk.gray(`  ${result}`));
+        console.log();
+        console.log(chalk.hex(t().dim)(`  ${diff.filePath}:`));
+        const oldLines = diff.oldStr.split("\n");
+        const newLines = diff.newStr.split("\n");
+        const maxDiffLines = 40;
+        // Show removed lines in red
+        const oldShow = oldLines.slice(0, maxDiffLines);
+        for (const line of oldShow) {
+            console.log(chalk.red(`  - ${line}`));
+        }
+        if (oldLines.length > maxDiffLines)
+            console.log(chalk.red(`  ... (+${oldLines.length - maxDiffLines} weitere)`));
+        // Show added lines in blue
+        const newShow = newLines.slice(0, maxDiffLines);
+        for (const line of newShow) {
+            console.log(chalk.blueBright(`  + ${line}`));
+        }
+        if (newLines.length > maxDiffLines)
+            console.log(chalk.blueBright(`  ... (+${newLines.length - maxDiffLines} weitere)`));
     }
-    if (result.split("\n").length > 30) {
-        console.log(chalk.gray(`  ...(${result.split("\n").length - 30} weitere Zeilen)`));
+    else {
+        const lines = result.split("\n").slice(0, 30);
+        for (const line of lines)
+            console.log(chalk.gray(`  ${line}`));
+        if (result.split("\n").length > 30)
+            console.log(chalk.gray(`  ...(${result.split("\n").length - 30} weitere Zeilen)`));
     }
+    process.stdout.write("\x1b[0m"); // Reset ANSI after tool output
     console.log();
 }
+// ─── readline question helper ────────────────────────────
+function askQuestion(promptRl, question) {
+    return new Promise((resolve) => {
+        promptRl.question(question, (answer) => resolve(answer));
+    });
+}
+// ─── Print Help ──────────────────────────────────────────
 function printHelp() {
-    console.log(chalk.cyan("\n  Morningstar CLI - Befehle:\n"));
-    console.log(chalk.white("  /help       ") + chalk.gray("Diese Hilfe anzeigen"));
-    console.log(chalk.white("  /features   ") + chalk.gray("Alle Features anzeigen"));
-    console.log(chalk.white("  /agents     ") + chalk.gray("Verfuegbare Agenten anzeigen"));
-    console.log(chalk.white("  /agent:<id> ") + chalk.gray("Agent aktivieren (code, debug, review, refactor, architect, test)"));
-    console.log(chalk.white("  /agent:off  ") + chalk.gray("Agent deaktivieren"));
-    console.log(chalk.white("  /clear      ") + chalk.gray("Konversation zuruecksetzen"));
-    console.log(chalk.white("  /model <id> ") + chalk.gray("Model wechseln (deepseek-reasoner, deepseek-chat)"));
-    console.log(chalk.white("  /context    ") + chalk.gray("Projekt-Kontext anzeigen"));
-    console.log(chalk.white("  /cost       ") + chalk.gray("Geschaetzte Token-Nutzung"));
-    console.log(chalk.white("  /compact    ") + chalk.gray("Konversation komprimieren"));
-    console.log(chalk.white("  /quit       ") + chalk.gray("Beenden\n"));
+    const d = chalk.hex(t().dim);
+    const h = chalk.hex(t().primary).bold;
+    const w = chalk.white;
+    console.log(chalk.hex(t().info)("\n  Morningstar CLI - Alle Befehle:\n"));
+    console.log(h("  Allgemein"));
+    console.log(w("  /help              ") + d("Diese Hilfe anzeigen"));
+    console.log(w("  /features          ") + d("Alle Features anzeigen"));
+    console.log(w("  /clear             ") + d("Konversation zuruecksetzen"));
+    console.log(w("  /compact           ") + d("Konversation komprimieren"));
+    console.log(w("  /quit              ") + d("Beenden"));
+    console.log();
+    console.log(h("  AI & Model"));
+    console.log(w("  /model <id>        ") + d("Model wechseln (deepseek-reasoner, deepseek-chat)"));
+    console.log(w("  /context           ") + d("Projekt-Kontext anzeigen"));
+    console.log(w("  /cost              ") + d("Token-Nutzung anzeigen"));
+    console.log(w("  /stats             ") + d("Session-Statistiken"));
+    console.log(w("  /plan              ") + d("Plan-Modus an/aus (denken vor handeln)"));
+    console.log();
+    console.log(h("  Agenten"));
+    console.log(w("  /agents            ") + d("Verfuegbare Agenten anzeigen"));
+    console.log(w("  /agent:<id>        ") + d("Agent aktivieren"));
+    console.log(w("  /agent:off         ") + d("Agent deaktivieren"));
+    console.log(w("  /agent:create      ") + d("Neuen Agent erstellen"));
+    console.log(w("  /agent:edit <id>   ") + d("Custom Agent bearbeiten"));
+    console.log(w("  /agent:delete <id> ") + d("Custom Agent loeschen"));
+    console.log(w("  /agent:show <id>   ") + d("Agent-Details anzeigen"));
+    console.log(w("  /agent:list        ") + d("Alle Agenten auflisten"));
+    console.log(w("  /agent:export <id> ") + d("Agent als JSON exportieren"));
+    console.log(w("  /agent:import      ") + d("Agent aus JSON importieren"));
+    console.log();
+    console.log(h("  Notizen & Aufgaben"));
+    console.log(w("  /memory add <text> ") + d("Notiz speichern"));
+    console.log(w("  /memory list       ") + d("Alle Notizen anzeigen"));
+    console.log(w("  /memory search <q> ") + d("Notizen durchsuchen"));
+    console.log(w("  /memory remove <n> ") + d("Notiz loeschen"));
+    console.log(w("  /memory clear      ") + d("Alle Notizen loeschen"));
+    console.log(w("  /todo add <text>   ") + d("Aufgabe hinzufuegen"));
+    console.log(w("  /todo list         ") + d("Aufgaben anzeigen"));
+    console.log(w("  /todo done <id>    ") + d("Aufgabe als erledigt markieren"));
+    console.log(w("  /todo remove <id>  ") + d("Aufgabe loeschen"));
+    console.log(w("  /todo clear        ") + d("Erledigte Aufgaben loeschen"));
+    console.log();
+    console.log(h("  Git"));
+    console.log(w("  /diff              ") + d("Git diff anzeigen"));
+    console.log(w("  /diff staged       ") + d("Staged changes anzeigen"));
+    console.log(w("  /commit            ") + d("Smart Commit (analysiert Aenderungen)"));
+    console.log(w("  /log               ") + d("Git log anzeigen"));
+    console.log(w("  /branch            ") + d("Branches anzeigen"));
+    console.log(w("  /status            ") + d("Git status"));
+    console.log();
+    console.log(h("  Dateien & Projekt"));
+    console.log(w("  /init              ") + d("MORNINGSTAR.md Projektnotiz erstellen"));
+    console.log(w("  /undo              ") + d("Letzte Dateiaenderung rueckgaengig"));
+    console.log(w("  /undo list         ") + d("Undo-Stack anzeigen"));
+    console.log(w("  /search <query>    ") + d("Im Projekt suchen (grep)"));
+    console.log();
+    console.log(h("  History & Sessions"));
+    console.log(w("  /history save <n>  ") + d("Konversation speichern"));
+    console.log(w("  /history list      ") + d("Gespeicherte Sessions"));
+    console.log(w("  /history load <id> ") + d("Session laden"));
+    console.log(w("  /history delete <id>") + d(" Session loeschen"));
+    console.log();
+    console.log(h("  Darstellung"));
+    console.log(w("  /theme             ") + d("Theme anzeigen/wechseln"));
+    console.log(w("  /theme <name>      ") + d("Theme setzen (default, ocean, hacker, sunset, nord, rose)"));
+    console.log(w("  /config            ") + d("Konfiguration anzeigen"));
+    console.log(w("  /config set <k> <v>") + d(" Einstellung aendern"));
+    console.log(w("  /doctor            ") + d("Setup diagnostizieren"));
+    console.log();
 }
+// ─── Print Features ──────────────────────────────────────
 function printFeatures() {
-    console.log(chalk.magenta.bold("\n  " + STAR + " Morningstar AI — Alle Features\n"));
-    console.log(chalk.cyan.bold("  AI-Backend"));
-    console.log(chalk.gray("  - DeepSeek R1 (Reasoning) — denkt Schritt fuer Schritt"));
-    console.log(chalk.gray("  - DeepSeek Chat — schnelle Antworten"));
-    console.log(chalk.gray("  - Streaming — Antworten erscheinen live Token fuer Token"));
-    console.log(chalk.gray("  - Multi-Turn — KI fuehrt Tools aus und reagiert auf Ergebnisse (bis 5 Runden)"));
+    const theme = t();
+    const d = chalk.hex(theme.dim);
+    const h = chalk.hex(theme.info).bold;
+    console.log(chalk.hex(theme.primary).bold("\n  " + STAR() + " Morningstar AI \u2014 Alle Features\n"));
+    h("  AI-Backend");
+    console.log(h("  AI-Backend"));
+    console.log(d("  - DeepSeek R1 (Reasoning) \u2014 denkt Schritt fuer Schritt"));
+    console.log(d("  - DeepSeek Chat \u2014 schnelle Antworten"));
+    console.log(d("  - Streaming \u2014 live Token fuer Token"));
+    console.log(d("  - Multi-Turn \u2014 bis 5 Tool-Runden automatisch"));
+    console.log(d("  - Plan-Modus \u2014 denken vor handeln"));
     console.log();
-    console.log(chalk.cyan.bold("  Tools (automatisch verfuegbar)"));
-    console.log(chalk.white("  read     ") + chalk.gray("Dateien lesen mit Zeilennummern"));
-    console.log(chalk.white("  write    ") + chalk.gray("Dateien schreiben/erstellen (inkl. Ordner)"));
-    console.log(chalk.white("  edit     ") + chalk.gray("Text in Dateien finden & ersetzen"));
-    console.log(chalk.white("  delete   ") + chalk.gray("Dateien loeschen"));
-    console.log(chalk.white("  bash     ") + chalk.gray("Shell-Befehle ausfuehren (30s Timeout)"));
-    console.log(chalk.white("  grep     ") + chalk.gray("In Dateien nach Mustern suchen"));
-    console.log(chalk.white("  glob     ") + chalk.gray("Dateien nach Pattern finden (z.B. **/*.ts)"));
-    console.log(chalk.white("  ls       ") + chalk.gray("Verzeichnis auflisten mit Groessen"));
-    console.log(chalk.white("  git      ") + chalk.gray("Git Status + letzte 5 Commits anzeigen"));
+    console.log(h("  Tools (9 verfuegbar)"));
+    console.log(chalk.white("  read     ") + d("Dateien lesen mit Zeilennummern"));
+    console.log(chalk.white("  write    ") + d("Dateien schreiben/erstellen (mit Undo)"));
+    console.log(chalk.white("  edit     ") + d("Text ersetzen (mit Undo)"));
+    console.log(chalk.white("  delete   ") + d("Dateien loeschen (mit Undo)"));
+    console.log(chalk.white("  bash     ") + d("Shell-Befehle ausfuehren"));
+    console.log(chalk.white("  grep     ") + d("In Dateien suchen"));
+    console.log(chalk.white("  glob     ") + d("Dateien nach Pattern finden"));
+    console.log(chalk.white("  ls       ") + d("Verzeichnis auflisten"));
+    console.log(chalk.white("  git      ") + d("Git Status + Commits"));
     console.log();
-    console.log(chalk.cyan.bold("  Agenten (spezialisierte KI-Modi)"));
-    console.log(chalk.hex("#06b6d4")("  /agent:code      ") + chalk.gray("Code schreiben, Features implementieren"));
-    console.log(chalk.hex("#ef4444")("  /agent:debug     ") + chalk.gray("Bugs finden, Root Cause Analyse"));
-    console.log(chalk.hex("#f59e0b")("  /agent:review    ") + chalk.gray("Code Review, Security, Performance"));
-    console.log(chalk.hex("#10b981")("  /agent:refactor  ") + chalk.gray("Code-Refactoring, Cleanup"));
-    console.log(chalk.hex("#d946ef")("  /agent:architect ") + chalk.gray("System Design, Architektur-Planung"));
-    console.log(chalk.hex("#3b82f6")("  /agent:test      ") + chalk.gray("Tests schreiben, Coverage erhoehen"));
+    console.log(h("  Agenten"));
+    const allAgents = getAllAgents();
+    for (const [id, a] of Object.entries(allAgents)) {
+        const tag = isBuiltinAgent(id) ? d("[built-in]") : chalk.hex(theme.secondary)("[custom]");
+        console.log(chalk.hex(a.color)(`  /agent:${id.padEnd(12)}`) + tag + " " + d(a.description));
+    }
     console.log();
-    console.log(chalk.cyan.bold("  Projekt-Erkennung (automatisch)"));
-    console.log(chalk.gray("  - Sprache: TypeScript, JavaScript, Python, Go, Rust, Java"));
-    console.log(chalk.gray("  - Framework: Next.js, React, Vue, Svelte, Express, Django, FastAPI, Flask"));
-    console.log(chalk.gray("  - Git Branch wird erkannt"));
-    console.log(chalk.gray("  - Dateistruktur wird dem AI-Kontext hinzugefuegt"));
+    console.log(h("  Custom Agent System"));
+    console.log(d("  - Eigene Agenten erstellen, bearbeiten, loeschen"));
+    console.log(d("  - Export/Import als JSON zum Teilen"));
+    console.log(d("  - Persistent in ~/.morningstar/agents.json"));
     console.log();
-    console.log(chalk.cyan.bold("  Beispiele"));
-    console.log(chalk.gray("  > Analysiere dieses Projekt und finde Probleme"));
-    console.log(chalk.gray("  > Schreibe eine REST API mit Authentication"));
-    console.log(chalk.gray("  > Erklaere mir src/app/page.tsx"));
-    console.log(chalk.gray("  > Finde alle TODO Kommentare im Projekt"));
-    console.log(chalk.gray("  > /agent:debug Warum crasht die App beim Login?"));
-    console.log(chalk.gray("  > /agent:code Fuege Dark Mode hinzu"));
+    console.log(h("  Memory System"));
+    console.log(d("  - Notizen persistent speichern (/memory add)"));
+    console.log(d("  - Werden automatisch in AI-Kontext injiziert"));
+    console.log(d("  - Durchsuchbar (/memory search)"));
     console.log();
+    console.log(h("  Task Manager"));
+    console.log(d("  - Aufgaben mit Prioritaeten (/todo add)"));
+    console.log(d("  - Persistent in ~/.morningstar/todo.json"));
+    console.log();
+    console.log(h("  Git Integration"));
+    console.log(d("  - /diff, /diff staged, /commit, /log, /branch, /status"));
+    console.log(d("  - Smart Commit analysiert Aenderungen"));
+    console.log();
+    console.log(h("  Undo System"));
+    console.log(d("  - Jede Dateiaenderung (write/edit/delete) wird getrackt"));
+    console.log(d("  - /undo macht letzte Aenderung rueckgaengig"));
+    console.log(d("  - Stack mit bis zu 50 Aenderungen"));
+    console.log();
+    console.log(h("  Session History"));
+    console.log(d("  - Konversationen speichern und laden"));
+    console.log(d("  - Persistent in ~/.morningstar/history/"));
+    console.log();
+    console.log(h("  Themes"));
+    const themes = listThemes();
+    console.log(d("  - " + themes.map(t => t.name + (t.active ? " *" : "")).join(", ")));
+    console.log();
+    console.log(h("  Projekt-Erkennung"));
+    console.log(d("  - TypeScript, JavaScript, Python, Go, Rust, Java"));
+    console.log(d("  - Next.js, React, Vue, Svelte, Express, Django, FastAPI"));
+    console.log(d("  - Git Branch, Dateistruktur automatisch erkannt"));
+    console.log();
+}
+// ─── Color Choices for Agent Creation ────────────────────
+const COLOR_CHOICES = [
+    { label: "Rot", hex: "#ef4444" }, { label: "Orange", hex: "#f97316" },
+    { label: "Gelb", hex: "#fbbf24" }, { label: "Gruen", hex: "#10b981" },
+    { label: "Cyan", hex: "#06b6d4" }, { label: "Blau", hex: "#3b82f6" },
+    { label: "Lila", hex: "#a855f7" }, { label: "Pink", hex: "#ec4899" },
+];
+// ─── Interactive Agent Creation Wizard ───────────────────
+async function agentCreateWizard() {
+    console.log(chalk.hex(t().secondary).bold("\n  Neuen Agent erstellen:\n"));
+    const wizardRl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const id = (await askQuestion(wizardRl, chalk.gray("  ID (z.B. security): "))).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+        if (!id) {
+            console.log(chalk.hex(t().error)("\n  Keine gueltige ID. Abbruch.\n"));
+            wizardRl.close();
+            return;
+        }
+        if (isBuiltinAgent(id)) {
+            console.log(chalk.hex(t().error)(`\n  "${id}" ist ein Built-in Agent.\n`));
+            wizardRl.close();
+            return;
+        }
+        if (getAllAgents()[id]) {
+            console.log(chalk.hex(t().error)(`\n  Agent "${id}" existiert bereits. Nutze /agent:edit ${id}\n`));
+            wizardRl.close();
+            return;
+        }
+        const name = (await askQuestion(wizardRl, chalk.gray("  Name: "))).trim();
+        if (!name) {
+            console.log(chalk.hex(t().error)("\n  Kein Name. Abbruch.\n"));
+            wizardRl.close();
+            return;
+        }
+        const description = (await askQuestion(wizardRl, chalk.gray("  Beschreibung: "))).trim();
+        console.log(chalk.gray("\n  Farbe waehlen:"));
+        for (let i = 0; i < COLOR_CHOICES.length; i++)
+            console.log(chalk.hex(COLOR_CHOICES[i].hex)(`  ${i + 1}. ${COLOR_CHOICES[i].label} (${COLOR_CHOICES[i].hex})`));
+        console.log(chalk.gray("  9. Eigene (#hex eingeben)"));
+        const colorInput = (await askQuestion(wizardRl, chalk.gray("\n  Farbe (1-9): "))).trim();
+        const colorNum = parseInt(colorInput, 10);
+        let color = "#a855f7";
+        if (colorNum >= 1 && colorNum <= 8)
+            color = COLOR_CHOICES[colorNum - 1].hex;
+        else if (colorNum === 9 || colorInput.startsWith("#")) {
+            const hexInput = colorInput.startsWith("#") ? colorInput : (await askQuestion(wizardRl, chalk.gray("  Hex-Farbe: "))).trim();
+            if (/^#[0-9a-fA-F]{6}$/.test(hexInput))
+                color = hexInput;
+        }
+        console.log(chalk.gray("\n  System Prompt (mehrzeilig, leere Zeile zum Beenden):"));
+        const promptLines = [];
+        while (true) {
+            const line = await askQuestion(wizardRl, chalk.gray("  > "));
+            if (line === "")
+                break;
+            promptLines.push(line);
+        }
+        const sysPrompt = promptLines.join("\n");
+        if (!sysPrompt.trim()) {
+            console.log(chalk.hex(t().error)("\n  Kein System Prompt. Abbruch.\n"));
+            wizardRl.close();
+            return;
+        }
+        wizardRl.close();
+        const result = createAgent(id, { name, description, systemPrompt: sysPrompt, color });
+        if (result.success) {
+            console.log(chalk.hex(t().success)(`\n  \u2713 Agent "${id}" erstellt! Aktiviere mit /agent:${id}\n`));
+            refreshSlashCommands();
+        }
+        else
+            console.log(chalk.hex(t().error)(`\n  Fehler: ${result.error}\n`));
+    }
+    catch {
+        wizardRl.close();
+        console.log(chalk.hex(t().error)("\n  Abbruch.\n"));
+    }
+}
+// ─── Interactive Agent Edit ──────────────────────────────
+async function agentEditWizard(agentId) {
+    if (isBuiltinAgent(agentId)) {
+        console.log(chalk.hex(t().error)(`\n  "${agentId}" ist ein Built-in Agent.\n`));
+        return;
+    }
+    const agent = getAllAgents()[agentId];
+    if (!agent) {
+        console.log(chalk.hex(t().error)(`\n  Agent "${agentId}" nicht gefunden.\n`));
+        return;
+    }
+    console.log(chalk.hex(t().secondary).bold(`\n  Agent "${agentId}" bearbeiten (Enter = beibehalten):\n`));
+    const wizardRl = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const newName = (await askQuestion(wizardRl, chalk.gray(`  Name [${agent.name}]: `))).trim() || agent.name;
+        const newDesc = (await askQuestion(wizardRl, chalk.gray(`  Beschreibung [${agent.description}]: `))).trim() || agent.description;
+        console.log(chalk.gray("  Aktuelle Farbe: ") + chalk.hex(agent.color)(agent.color));
+        const colorInput = (await askQuestion(wizardRl, chalk.gray("  Neue Farbe (#hex oder Enter): "))).trim();
+        const newColor = /^#[0-9a-fA-F]{6}$/.test(colorInput) ? colorInput : agent.color;
+        console.log(chalk.gray("\n  Aktueller System Prompt:"));
+        for (const line of agent.systemPrompt.split("\n").slice(0, 5))
+            console.log(chalk.hex(t().dim)(`    ${line}`));
+        if (agent.systemPrompt.split("\n").length > 5)
+            console.log(chalk.hex(t().dim)(`    ...(${agent.systemPrompt.split("\n").length - 5} weitere Zeilen)`));
+        const editChoice = (await askQuestion(wizardRl, chalk.gray("\n  System Prompt aendern? (j/n): "))).trim().toLowerCase();
+        let newSysPrompt = agent.systemPrompt;
+        if (editChoice === "j" || editChoice === "ja" || editChoice === "y") {
+            console.log(chalk.gray("  Neuer System Prompt (mehrzeilig, leere Zeile zum Beenden):"));
+            const lines = [];
+            while (true) {
+                const line = await askQuestion(wizardRl, chalk.gray("  > "));
+                if (line === "")
+                    break;
+                lines.push(line);
+            }
+            if (lines.length > 0)
+                newSysPrompt = lines.join("\n");
+        }
+        wizardRl.close();
+        const result = editAgent(agentId, { name: newName, description: newDesc, color: newColor, systemPrompt: newSysPrompt });
+        if (result.success) {
+            console.log(chalk.hex(t().success)(`\n  \u2713 Agent "${agentId}" aktualisiert!\n`));
+            refreshSlashCommands();
+        }
+        else
+            console.log(chalk.hex(t().error)(`\n  Fehler: ${result.error}\n`));
+    }
+    catch {
+        wizardRl.close();
+        console.log(chalk.hex(t().error)("\n  Abbruch.\n"));
+    }
+}
+// ─── Agent Delete ────────────────────────────────────────
+async function agentDeleteConfirm(agentId) {
+    if (isBuiltinAgent(agentId)) {
+        console.log(chalk.hex(t().error)(`\n  "${agentId}" ist ein Built-in Agent.\n`));
+        return;
+    }
+    const agent = getAllAgents()[agentId];
+    if (!agent) {
+        console.log(chalk.hex(t().error)(`\n  Agent "${agentId}" nicht gefunden.\n`));
+        return;
+    }
+    const confirmRl = createInterface({ input: process.stdin, output: process.stdout });
+    const answer = await askQuestion(confirmRl, chalk.hex(t().warning)(`  "${agentId}" (${agent.name}) loeschen? (j/n): `));
+    confirmRl.close();
+    if (answer.trim().toLowerCase() === "j" || answer.trim().toLowerCase() === "ja" || answer.trim().toLowerCase() === "y") {
+        const result = deleteAgent(agentId);
+        if (result.success) {
+            if (activeAgent === agentId) {
+                activeAgent = null;
+                messages[0] = { role: "system", content: getFullSystemPrompt() };
+            }
+            console.log(chalk.hex(t().success)(`\n  \u2713 Agent "${agentId}" geloescht.\n`));
+            refreshSlashCommands();
+        }
+        else
+            console.log(chalk.hex(t().error)(`\n  Fehler: ${result.error}\n`));
+    }
+    else
+        console.log(chalk.gray("\n  Abbruch.\n"));
+}
+// ─── Agent Show ──────────────────────────────────────────
+function agentShow(agentId) {
+    const agent = getAllAgents()[agentId];
+    if (!agent) {
+        console.log(chalk.hex(t().error)(`\n  Agent "${agentId}" nicht gefunden.\n`));
+        return;
+    }
+    const tag = isBuiltinAgent(agentId) ? chalk.gray("[built-in]") : chalk.hex(t().secondary)("[custom]");
+    console.log(chalk.hex(agent.color).bold(`\n  ${agent.name}`) + " " + tag);
+    console.log(chalk.gray("  ID:           ") + chalk.white(agentId));
+    console.log(chalk.gray("  Beschreibung: ") + chalk.white(agent.description));
+    console.log(chalk.gray("  Farbe:        ") + chalk.hex(agent.color)(agent.color));
+    console.log(chalk.gray("\n  System Prompt:"));
+    console.log(chalk.gray("  " + "\u2500".repeat(50)));
+    for (const line of agent.systemPrompt.split("\n"))
+        console.log(chalk.white(`  ${line}`));
+    console.log(chalk.gray("  " + "\u2500".repeat(50)));
+    console.log();
+}
+// ─── Agent Export ────────────────────────────────────────
+function agentExport(agentId) {
+    const agent = getAllAgents()[agentId];
+    if (!agent) {
+        console.log(chalk.hex(t().error)(`\n  Agent "${agentId}" nicht gefunden.\n`));
+        return;
+    }
+    console.log(chalk.hex(t().success)(`\n  Agent "${agentId}" als JSON:\n`));
+    console.log(chalk.white(JSON.stringify({ [agentId]: { name: agent.name, description: agent.description, systemPrompt: agent.systemPrompt, color: agent.color } }, null, 2)));
+    console.log(chalk.gray("\n  Kopiere und nutze /agent:import\n"));
+}
+// ─── Agent Import ────────────────────────────────────────
+async function agentImport() {
+    console.log(chalk.hex(t().secondary).bold("\n  Agent aus JSON importieren:\n"));
+    console.log(chalk.gray("  JSON eingeben (mehrzeilig, leere Zeile zum Beenden):"));
+    const importRl = createInterface({ input: process.stdin, output: process.stdout });
+    const lines = [];
+    try {
+        while (true) {
+            const line = await askQuestion(importRl, chalk.gray("  > "));
+            if (line === "")
+                break;
+            lines.push(line);
+        }
+        importRl.close();
+        const jsonStr = lines.join("\n").trim();
+        if (!jsonStr) {
+            console.log(chalk.hex(t().error)("\n  Keine Eingabe.\n"));
+            return;
+        }
+        let parsed;
+        try {
+            parsed = JSON.parse(jsonStr);
+        }
+        catch {
+            console.log(chalk.hex(t().error)("\n  Ungueltiges JSON.\n"));
+            return;
+        }
+        let imported = 0;
+        for (const [id, data] of Object.entries(parsed)) {
+            const a = data;
+            if (!a || typeof a.name !== "string" || typeof a.systemPrompt !== "string") {
+                console.log(chalk.hex(t().warning)(`  Ueberspringe "${id}": Ungueltiges Format.`));
+                continue;
+            }
+            if (isBuiltinAgent(id)) {
+                console.log(chalk.hex(t().warning)(`  Ueberspringe "${id}": Built-in.`));
+                continue;
+            }
+            const result = createAgent(id, { name: a.name, description: a.description || "", systemPrompt: a.systemPrompt, color: a.color || "#a855f7" });
+            if (result.success) {
+                console.log(chalk.hex(t().success)(`  \u2713 "${id}" importiert.`));
+                imported++;
+            }
+            else {
+                const er = editAgent(id, { name: a.name, description: a.description || "", systemPrompt: a.systemPrompt, color: a.color || "#a855f7" });
+                if (er.success) {
+                    console.log(chalk.hex(t().success)(`  \u2713 "${id}" aktualisiert.`));
+                    imported++;
+                }
+            }
+        }
+        if (imported > 0) {
+            console.log(chalk.hex(t().success)(`\n  ${imported} Agent(en) importiert!\n`));
+            refreshSlashCommands();
+        }
+        else
+            console.log(chalk.hex(t().warning)("\n  Keine Agents importiert.\n"));
+    }
+    catch {
+        importRl.close();
+        console.log(chalk.hex(t().error)("\n  Abbruch.\n"));
+    }
+}
+// ─── Git Helpers ─────────────────────────────────────────
+function runGit(cmd) {
+    try {
+        return execSync(cmd, { cwd, encoding: "utf-8", timeout: 10000, maxBuffer: 1024 * 512 }).trim();
+    }
+    catch (e) {
+        return `Fehler: ${e.message}`;
+    }
 }
 // ─── Slash Commands ──────────────────────────────────────
 function handleSlashCommand(input) {
     const parts = input.trim().split(/\s+/);
     const cmd = parts[0].toLowerCase();
+    const arg = parts.slice(1).join(" ");
     switch (cmd) {
         case "/help":
             printHelp();
@@ -288,26 +695,29 @@ function handleSlashCommand(input) {
         case "/features":
             printFeatures();
             return true;
+        // ── Clear ──
         case "/clear":
-            messages.length = 1; // keep system prompt
+            messages.length = 1;
+            messages[0] = { role: "system", content: getFullSystemPrompt() };
             totalTokensEstimate = 0;
-            console.log(chalk.green("\n  Konversation zurueckgesetzt.\n"));
+            clearUndoStack();
+            console.log(chalk.hex(t().success)("\n  Konversation zurueckgesetzt.\n"));
             return true;
-        case "/model": {
-            const newModel = parts[1];
-            if (newModel) {
-                config.model = newModel;
-                saveConfig({ model: newModel });
-                console.log(chalk.green(`\n  Model gewechselt: ${newModel}\n`));
+        // ── Model ──
+        case "/model":
+            if (arg) {
+                config.model = arg;
+                saveConfig({ model: arg });
+                console.log(chalk.hex(t().success)(`\n  Model: ${arg}\n`));
             }
             else {
-                console.log(chalk.cyan(`\n  Aktuelles Model: ${config.model}`));
+                console.log(chalk.hex(t().info)(`\n  Model: ${config.model}`));
                 console.log(chalk.gray("  Verfuegbar: deepseek-reasoner, deepseek-chat\n"));
             }
             return true;
-        }
+        // ── Context ──
         case "/context":
-            console.log(chalk.cyan("\n  Projekt-Kontext:"));
+            console.log(chalk.hex(t().info)("\n  Projekt-Kontext:"));
             console.log(chalk.gray(`  CWD: ${ctx.cwd}`));
             console.log(chalk.gray(`  Name: ${ctx.projectName}`));
             console.log(chalk.gray(`  Sprache: ${ctx.language || "unbekannt"}`));
@@ -315,10 +725,12 @@ function handleSlashCommand(input) {
             console.log(chalk.gray(`  Git: ${ctx.hasGit ? ctx.gitBranch || "ja" : "nein"}`));
             console.log(chalk.gray(`  Dateien: ${ctx.files.length}\n`));
             return true;
+        // ── Cost ──
         case "/cost":
-            console.log(chalk.cyan(`\n  Messages: ${messages.length}`));
-            console.log(chalk.gray(`  Geschaetzte Tokens: ~${totalTokensEstimate}\n`));
+            console.log(chalk.hex(t().info)(`\n  Messages: ${messages.length}`));
+            console.log(chalk.gray(`  Geschaetzte Tokens: ~${Math.round(totalTokensEstimate)}\n`));
             return true;
+        // ── Compact ──
         case "/compact": {
             if (messages.length <= 3) {
                 console.log(chalk.gray("\n  Nichts zu komprimieren.\n"));
@@ -327,93 +739,697 @@ function handleSlashCommand(input) {
             const keep = messages.length > 6 ? messages.slice(-4) : messages.slice(-2);
             messages.length = 1;
             messages.push(...keep);
-            console.log(chalk.green(`\n  Konversation komprimiert. ${messages.length} Messages behalten.\n`));
+            console.log(chalk.hex(t().success)(`\n  Komprimiert. ${messages.length} Messages behalten.\n`));
             return true;
         }
-        case "/agents":
-            console.log(chalk.cyan("\n  Verfuegbare Agenten:\n"));
-            console.log(listAgents());
-            if (activeAgent)
-                console.log(chalk.yellow(`\n  Aktiv: ${AGENTS[activeAgent]?.name || activeAgent}`));
-            console.log(chalk.gray("\n  Nutze /agent:name oder /agent:off zum Deaktivieren\n"));
+        // ── Stats ──
+        case "/stats": {
+            const elapsed = Math.round((Date.now() - sessionStart) / 1000);
+            const mins = Math.floor(elapsed / 60);
+            const secs = elapsed % 60;
+            console.log(chalk.hex(t().info)("\n  Session-Statistiken:\n"));
+            console.log(chalk.gray(`  Laufzeit:        ${mins}m ${secs}s`));
+            console.log(chalk.gray(`  Messages:        ${messages.length}`));
+            console.log(chalk.gray(`  Tokens (est.):   ~${Math.round(totalTokensEstimate)}`));
+            console.log(chalk.gray(`  Tool-Aufrufe:    ${toolStats.calls}`));
+            if (Object.keys(toolStats.byTool).length > 0) {
+                console.log(chalk.gray("  Tool-Details:    " + Object.entries(toolStats.byTool).map(([k, v]) => `${k}:${v}`).join(", ")));
+            }
+            console.log(chalk.gray(`  Dateien gelesen: ${toolStats.filesRead}`));
+            console.log(chalk.gray(`  Dateien geschrieben: ${toolStats.filesWritten}`));
+            console.log(chalk.gray(`  Dateien bearbeitet:  ${toolStats.filesEdited}`));
+            console.log(chalk.gray(`  Dateien geloescht:   ${toolStats.filesDeleted}`));
+            console.log(chalk.gray(`  Bash-Befehle:    ${toolStats.bashCommands}`));
+            console.log(chalk.gray(`  Undo-Stack:      ${getUndoStackSize()} Eintraege`));
+            console.log(chalk.gray(`  Model:           ${config.model}`));
+            console.log(chalk.gray(`  Agent:           ${activeAgent || "keiner"}`));
+            console.log(chalk.gray(`  Plan-Modus:      ${planMode ? "AN" : "AUS"}`));
+            console.log();
             return true;
+        }
+        // ── Plan Mode ──
+        case "/plan":
+            planMode = !planMode;
+            if (planMode) {
+                console.log(chalk.hex(t().warning)("\n  Plan-Modus AN \u2014 KI wird erst planen, dann handeln."));
+                console.log(chalk.gray("  Die KI wird zuerst einen Plan erstellen und auf Bestaetigung warten.\n"));
+            }
+            else {
+                console.log(chalk.hex(t().success)("\n  Plan-Modus AUS \u2014 KI handelt direkt.\n"));
+            }
+            return true;
+        // ── Agents ──
+        case "/agents":
+        case "/agent:list": {
+            const allAgents = getAllAgents();
+            const custom = loadCustomAgents();
+            const customCount = Object.keys(custom).length;
+            console.log(chalk.hex(t().info)("\n  Built-in Agenten:\n"));
+            console.log(listAgents(AGENTS));
+            if (customCount > 0) {
+                console.log(chalk.hex(t().secondary)("\n  Custom Agenten:\n"));
+                console.log(listAgents(allAgents, true));
+            }
+            else {
+                console.log(chalk.gray("\n  Keine Custom Agents vorhanden."));
+                console.log(chalk.gray("  Erstelle deinen ersten mit /agent:create\n"));
+            }
+            if (activeAgent) {
+                const a = allAgents[activeAgent];
+                console.log(chalk.hex(t().warning)(`  Aktiv: ${a?.name || activeAgent}`));
+            }
+            console.log(chalk.gray("\n  /agent:<id> zum Aktivieren \u00b7 /agent:off zum Deaktivieren\n"));
+            return true;
+        }
+        case "/agent:create": return agentCreateWizard();
+        case "/agent:import": return agentImport();
+        // ── Memory ──
+        case "/memory": {
+            const subCmd = parts[1]?.toLowerCase();
+            const memArg = parts.slice(2).join(" ");
+            if (!subCmd || subCmd === "list") {
+                const mems = loadMemories();
+                if (mems.length === 0) {
+                    console.log(chalk.gray("\n  Keine Notizen gespeichert. Nutze /memory add <text>\n"));
+                    return true;
+                }
+                console.log(chalk.hex(t().info)("\n  Gespeicherte Notizen:\n"));
+                for (const m of mems) {
+                    const tags = m.tags.length > 0 ? chalk.hex(t().secondary)(` [${m.tags.join(", ")}]`) : "";
+                    console.log(chalk.gray(`  #${m.id}  `) + chalk.white(m.text) + tags);
+                }
+                console.log();
+                return true;
+            }
+            if (subCmd === "add") {
+                if (!memArg) {
+                    console.log(chalk.hex(t().error)("\n  Nutzung: /memory add <text> [#tag1 #tag2]\n"));
+                    return true;
+                }
+                const tags = memArg.match(/#\w+/g)?.map(t => t.slice(1)) || [];
+                const text = memArg.replace(/#\w+/g, "").trim();
+                const entry = addMemory(text, tags);
+                // Update system prompt with new memory
+                messages[0] = { role: "system", content: activeAgent ? getAgentPrompt(activeAgent, getFullSystemPrompt(), getAllAgents()) : getFullSystemPrompt() };
+                console.log(chalk.hex(t().success)(`\n  \u2713 Notiz #${entry.id} gespeichert.\n`));
+                return true;
+            }
+            if (subCmd === "search") {
+                if (!memArg) {
+                    console.log(chalk.hex(t().error)("\n  Nutzung: /memory search <query>\n"));
+                    return true;
+                }
+                const results = searchMemories(memArg);
+                if (results.length === 0) {
+                    console.log(chalk.gray(`\n  Keine Treffer fuer "${memArg}".\n`));
+                    return true;
+                }
+                console.log(chalk.hex(t().info)(`\n  Treffer fuer "${memArg}":\n`));
+                for (const m of results)
+                    console.log(chalk.gray(`  #${m.id}  `) + chalk.white(m.text));
+                console.log();
+                return true;
+            }
+            if (subCmd === "remove" || subCmd === "delete") {
+                const id = parseInt(memArg, 10);
+                if (isNaN(id)) {
+                    console.log(chalk.hex(t().error)("\n  Nutzung: /memory remove <id>\n"));
+                    return true;
+                }
+                if (removeMemory(id)) {
+                    console.log(chalk.hex(t().success)(`\n  \u2713 Notiz #${id} geloescht.\n`));
+                    messages[0] = { role: "system", content: activeAgent ? getAgentPrompt(activeAgent, getFullSystemPrompt(), getAllAgents()) : getFullSystemPrompt() };
+                }
+                else
+                    console.log(chalk.hex(t().error)(`\n  Notiz #${id} nicht gefunden.\n`));
+                return true;
+            }
+            if (subCmd === "clear") {
+                const count = clearMemories();
+                messages[0] = { role: "system", content: activeAgent ? getAgentPrompt(activeAgent, getFullSystemPrompt(), getAllAgents()) : getFullSystemPrompt() };
+                console.log(chalk.hex(t().success)(`\n  \u2713 ${count} Notiz(en) geloescht.\n`));
+                return true;
+            }
+            console.log(chalk.hex(t().error)("\n  Nutzung: /memory add|list|search|remove|clear\n"));
+            return true;
+        }
+        // ── Todo ──
+        case "/todo": {
+            const subCmd = parts[1]?.toLowerCase();
+            const todoArg = parts.slice(2).join(" ");
+            if (!subCmd || subCmd === "list") {
+                const todos = loadTodos();
+                if (todos.length === 0) {
+                    console.log(chalk.gray("\n  Keine Aufgaben. Nutze /todo add <text>\n"));
+                    return true;
+                }
+                console.log(chalk.hex(t().info)("\n  Aufgaben:\n"));
+                for (const td of todos) {
+                    const check = td.done ? chalk.hex(t().success)("\u2713") : chalk.hex(t().dim)("\u25cb");
+                    const prio = td.priority === "high" ? chalk.hex(t().error)(" !!") : td.priority === "low" ? chalk.hex(t().dim)(" \u2193") : "";
+                    const text = td.done ? chalk.strikethrough.hex(t().dim)(td.text) : chalk.white(td.text);
+                    console.log(`  ${check} ${chalk.gray("#" + td.id)} ${text}${prio}`);
+                }
+                const stats = getTodoStats();
+                console.log(chalk.gray(`\n  ${stats.done}/${stats.total} erledigt${stats.high > 0 ? `, ${stats.high} wichtig` : ""}\n`));
+                return true;
+            }
+            if (subCmd === "add") {
+                if (!todoArg) {
+                    console.log(chalk.hex(t().error)("\n  Nutzung: /todo add <text> [!high|!low]\n"));
+                    return true;
+                }
+                let priority = "normal";
+                let text = todoArg;
+                if (todoArg.includes("!high")) {
+                    priority = "high";
+                    text = todoArg.replace("!high", "").trim();
+                }
+                else if (todoArg.includes("!low")) {
+                    priority = "low";
+                    text = todoArg.replace("!low", "").trim();
+                }
+                const item = addTodo(text, priority);
+                console.log(chalk.hex(t().success)(`\n  \u2713 Aufgabe #${item.id} hinzugefuegt.\n`));
+                return true;
+            }
+            if (subCmd === "done" || subCmd === "toggle") {
+                const id = parseInt(todoArg, 10);
+                if (isNaN(id)) {
+                    console.log(chalk.hex(t().error)("\n  Nutzung: /todo done <id>\n"));
+                    return true;
+                }
+                const item = toggleTodo(id);
+                if (item)
+                    console.log(chalk.hex(t().success)(`\n  \u2713 #${id} ${item.done ? "erledigt" : "wieder offen"}.\n`));
+                else
+                    console.log(chalk.hex(t().error)(`\n  Aufgabe #${id} nicht gefunden.\n`));
+                return true;
+            }
+            if (subCmd === "remove" || subCmd === "delete") {
+                const id = parseInt(todoArg, 10);
+                if (isNaN(id)) {
+                    console.log(chalk.hex(t().error)("\n  Nutzung: /todo remove <id>\n"));
+                    return true;
+                }
+                if (removeTodo(id))
+                    console.log(chalk.hex(t().success)(`\n  \u2713 Aufgabe #${id} geloescht.\n`));
+                else
+                    console.log(chalk.hex(t().error)(`\n  Aufgabe #${id} nicht gefunden.\n`));
+                return true;
+            }
+            if (subCmd === "clear") {
+                if (todoArg === "all") {
+                    const c = clearAllTodos();
+                    console.log(chalk.hex(t().success)(`\n  \u2713 ${c} Aufgabe(n) geloescht.\n`));
+                }
+                else {
+                    const c = clearDoneTodos();
+                    console.log(chalk.hex(t().success)(`\n  \u2713 ${c} erledigte Aufgabe(n) entfernt.\n`));
+                }
+                return true;
+            }
+            console.log(chalk.hex(t().error)("\n  Nutzung: /todo add|list|done|remove|clear\n"));
+            return true;
+        }
+        // ── Git Commands ──
+        case "/diff":
+            if (arg === "staged") {
+                const d = runGit("git diff --cached");
+                console.log(d ? chalk.white(`\n${d}\n`) : chalk.gray("\n  Keine staged Aenderungen.\n"));
+            }
+            else {
+                const d = runGit("git diff");
+                console.log(d ? chalk.white(`\n${d}\n`) : chalk.gray("\n  Keine Aenderungen.\n"));
+            }
+            return true;
+        case "/status": {
+            const s = runGit("git status");
+            console.log(chalk.white(`\n${s}\n`));
+            return true;
+        }
+        case "/log": {
+            const count = arg ? parseInt(arg, 10) || 10 : 10;
+            const l = runGit(`git log --oneline -${count}`);
+            console.log(chalk.white(`\n${l}\n`));
+            return true;
+        }
+        case "/branch": {
+            const b = runGit("git branch -a");
+            console.log(chalk.white(`\n${b}\n`));
+            return true;
+        }
+        case "/commit": {
+            const status = runGit("git status --short");
+            if (!status || status.startsWith("Fehler")) {
+                console.log(chalk.gray("\n  Keine Aenderungen zum Committen.\n"));
+                return true;
+            }
+            console.log(chalk.hex(t().info)("\n  Aenderungen:"));
+            console.log(chalk.white(`${status}\n`));
+            const commitRl = createInterface({ input: process.stdin, output: process.stdout });
+            return (async () => {
+                const msg = (await askQuestion(commitRl, chalk.gray("  Commit-Message: "))).trim();
+                commitRl.close();
+                if (!msg) {
+                    console.log(chalk.gray("\n  Abbruch.\n"));
+                    return;
+                }
+                const stageAll = (await (async () => { const rl2 = createInterface({ input: process.stdin, output: process.stdout }); const a = await askQuestion(rl2, chalk.gray("  Alle Dateien stagen? (j/n): ")); rl2.close(); return a; })()).trim().toLowerCase();
+                if (stageAll === "j" || stageAll === "ja" || stageAll === "y")
+                    runGit("git add -A");
+                const result = runGit(`git commit -m "${msg.replace(/"/g, '\\"')}"`);
+                console.log(chalk.hex(t().success)(`\n  ${result}\n`));
+            })();
+        }
+        // ── Init ──
+        case "/init": {
+            const mdPath = join(cwd, "MORNINGSTAR.md");
+            if (existsSync(mdPath)) {
+                console.log(chalk.hex(t().warning)("\n  MORNINGSTAR.md existiert bereits.\n"));
+                return true;
+            }
+            const content = `# ${ctx.projectName}\n\n## Projekt-Notizen\n\n- Sprache: ${ctx.language || "unbekannt"}\n- Framework: ${ctx.framework || "keins"}\n- Erstellt: ${new Date().toISOString().split("T")[0]}\n\n## Konventionen\n\n- \n\n## Wichtige Dateien\n\n- \n\n## TODOs\n\n- [ ] \n`;
+            writeFileSync(mdPath, content, "utf-8");
+            console.log(chalk.hex(t().success)("\n  \u2713 MORNINGSTAR.md erstellt!\n"));
+            return true;
+        }
+        // ── Undo ──
+        case "/undo": {
+            if (arg === "list") {
+                const stack = getUndoStack();
+                if (stack.length === 0) {
+                    console.log(chalk.gray("\n  Undo-Stack ist leer.\n"));
+                    return true;
+                }
+                console.log(chalk.hex(t().info)("\n  Undo-Stack:\n"));
+                for (let i = stack.length - 1; i >= 0; i--) {
+                    const c = stack[i];
+                    const marker = i === stack.length - 1 ? chalk.hex(t().accent)("\u2192 ") : "  ";
+                    console.log(`${marker}${chalk.gray(`[${c.type}]`)} ${chalk.white(c.description)} ${chalk.hex(t().dim)(c.timestamp.split("T")[1]?.slice(0, 8) || "")}`);
+                }
+                console.log();
+                return true;
+            }
+            const result = undoLastChange();
+            if (result.success)
+                console.log(chalk.hex(t().success)(`\n  \u2713 ${result.message}\n`));
+            else
+                console.log(chalk.hex(t().error)(`\n  ${result.message}\n`));
+            return true;
+        }
+        // ── Search ──
+        case "/search": {
+            if (!arg) {
+                console.log(chalk.hex(t().error)("\n  Nutzung: /search <query>\n"));
+                return true;
+            }
+            try {
+                const results = execSync(`grep -rn "${arg.replace(/"/g, '\\"')}" . --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.py" --include="*.go" --include="*.rs" --include="*.java" --include="*.css" --include="*.json" --include="*.md" 2>/dev/null | head -30`, { cwd, encoding: "utf-8", timeout: 10000, maxBuffer: 1024 * 512 }).trim();
+                if (results) {
+                    console.log(chalk.hex(t().info)(`\n  Treffer fuer "${arg}":\n`));
+                    console.log(chalk.white(results));
+                    console.log();
+                }
+                else
+                    console.log(chalk.gray(`\n  Keine Treffer fuer "${arg}".\n`));
+            }
+            catch {
+                console.log(chalk.gray(`\n  Keine Treffer fuer "${arg}".\n`));
+            }
+            return true;
+        }
+        // ── History ──
+        case "/history": {
+            const subCmd = parts[1]?.toLowerCase();
+            if (!subCmd || subCmd === "list") {
+                const convs = listConversations();
+                if (convs.length === 0) {
+                    console.log(chalk.gray("\n  Keine gespeicherten Sessions. Nutze /history save <name>\n"));
+                    return true;
+                }
+                console.log(chalk.hex(t().info)("\n  Gespeicherte Sessions:\n"));
+                for (const c of convs.slice(0, 20)) {
+                    const date = c.savedAt.split("T")[0];
+                    console.log(chalk.gray(`  ${c.id}  `) + chalk.white(c.name) + chalk.gray(` (${c.messageCount} msgs, ${date}, ${c.project})`));
+                }
+                console.log(chalk.gray("\n  /history load <id> zum Laden\n"));
+                return true;
+            }
+            if (subCmd === "save") {
+                const name = parts.slice(2).join(" ") || `Session ${new Date().toLocaleString("de-DE")}`;
+                const conv = saveConversation(name, messages, config.model, ctx.projectName);
+                console.log(chalk.hex(t().success)(`\n  \u2713 Session gespeichert: ${conv.id} "${name}"\n`));
+                return true;
+            }
+            if (subCmd === "load") {
+                const id = parts[2];
+                if (!id) {
+                    console.log(chalk.hex(t().error)("\n  Nutzung: /history load <id>\n"));
+                    return true;
+                }
+                const conv = loadConversation(id);
+                if (!conv) {
+                    console.log(chalk.hex(t().error)(`\n  Session "${id}" nicht gefunden.\n`));
+                    return true;
+                }
+                messages.length = 0;
+                messages.push(...conv.messages);
+                console.log(chalk.hex(t().success)(`\n  \u2713 Session "${conv.name}" geladen (${conv.messageCount} messages).\n`));
+                return true;
+            }
+            if (subCmd === "delete") {
+                const id = parts[2];
+                if (!id) {
+                    console.log(chalk.hex(t().error)("\n  Nutzung: /history delete <id>\n"));
+                    return true;
+                }
+                if (deleteConversation(id))
+                    console.log(chalk.hex(t().success)(`\n  \u2713 Session "${id}" geloescht.\n`));
+                else
+                    console.log(chalk.hex(t().error)(`\n  Session "${id}" nicht gefunden.\n`));
+                return true;
+            }
+            console.log(chalk.hex(t().error)("\n  Nutzung: /history save|list|load|delete\n"));
+            return true;
+        }
+        // ── Theme ──
+        case "/theme": {
+            if (!arg) {
+                const themes = listThemes();
+                console.log(chalk.hex(t().info)("\n  Verfuegbare Themes:\n"));
+                for (const th of themes) {
+                    const active = th.active ? chalk.hex(t().accent)(" \u2605 aktiv") : "";
+                    const preview = THEMES[th.id];
+                    console.log("  " + chalk.hex(preview.primary)(`\u2588\u2588`) + chalk.hex(preview.secondary)(`\u2588\u2588`) + chalk.hex(preview.accent)(`\u2588\u2588`) + chalk.hex(preview.info)(`\u2588\u2588`) + " " + chalk.white(th.name) + active);
+                }
+                console.log(chalk.gray("\n  /theme <name> zum Wechseln\n"));
+                return true;
+            }
+            if (setTheme(arg)) {
+                console.log(chalk.hex(getTheme().success)(`\n  \u2713 Theme: ${getTheme().name}\n`));
+                saveConfig({ theme: arg });
+            }
+            else {
+                console.log(chalk.hex(t().error)(`\n  Theme "${arg}" nicht gefunden.`));
+                console.log(chalk.gray("  Verfuegbar: " + Object.keys(THEMES).join(", ") + "\n"));
+            }
+            return true;
+        }
+        // ── Config ──
+        case "/config": {
+            if (parts[1]?.toLowerCase() === "set" && parts[2]) {
+                const key = parts[2];
+                const val = parts.slice(3).join(" ");
+                if (!val) {
+                    console.log(chalk.hex(t().error)("\n  Nutzung: /config set <key> <value>\n"));
+                    return true;
+                }
+                const validKeys = ["apiKey", "model", "baseUrl", "maxTokens", "temperature", "theme"];
+                if (!validKeys.includes(key)) {
+                    console.log(chalk.hex(t().error)(`\n  Ungueltig. Verfuegbar: ${validKeys.join(", ")}\n`));
+                    return true;
+                }
+                if (key === "maxTokens")
+                    config[key] = parseInt(val, 10);
+                else if (key === "temperature")
+                    config[key] = parseFloat(val);
+                else if (key === "theme") {
+                    setTheme(val);
+                }
+                else
+                    config[key] = val;
+                saveConfig({ [key]: config[key] });
+                console.log(chalk.hex(t().success)(`\n  \u2713 ${key} = ${val}\n`));
+                return true;
+            }
+            console.log(chalk.hex(t().info)("\n  Konfiguration:\n"));
+            console.log(chalk.gray("  apiKey:      ") + chalk.white(config.apiKey.slice(0, 8) + "..." + config.apiKey.slice(-4)));
+            console.log(chalk.gray("  model:       ") + chalk.white(config.model));
+            console.log(chalk.gray("  baseUrl:     ") + chalk.white(config.baseUrl));
+            console.log(chalk.gray("  maxTokens:   ") + chalk.white(String(config.maxTokens)));
+            console.log(chalk.gray("  temperature: ") + chalk.white(String(config.temperature)));
+            console.log(chalk.gray("  theme:       ") + chalk.white(getThemeId()));
+            console.log(chalk.gray("  configDir:   ") + chalk.white(CONFIG_DIR));
+            console.log(chalk.gray("\n  /config set <key> <value> zum Aendern\n"));
+            return true;
+        }
+        // ── Doctor ──
+        case "/doctor": {
+            console.log(chalk.hex(t().info)("\n  Morningstar Diagnose:\n"));
+            const checks = [];
+            // Node version
+            const nodeV = process.version;
+            checks.push({ name: "Node.js", ok: parseInt(nodeV.slice(1)) >= 18, detail: nodeV });
+            // API Key
+            checks.push({ name: "API Key", ok: !!config.apiKey, detail: config.apiKey ? "gesetzt (" + config.apiKey.slice(0, 8) + "...)" : "FEHLT" });
+            // Config dir
+            checks.push({ name: "Config Dir", ok: existsSync(CONFIG_DIR), detail: CONFIG_DIR });
+            // Git
+            let gitOk = false;
+            try {
+                execSync("git --version", { encoding: "utf-8", timeout: 3000 });
+                gitOk = true;
+            }
+            catch { }
+            checks.push({ name: "Git", ok: gitOk, detail: gitOk ? "installiert" : "nicht gefunden" });
+            // Git repo
+            checks.push({ name: "Git Repo", ok: ctx.hasGit, detail: ctx.hasGit ? `Branch: ${ctx.gitBranch}` : "kein .git Verzeichnis" });
+            // Project
+            checks.push({ name: "Projekt", ok: !!ctx.language, detail: ctx.language ? `${ctx.language}${ctx.framework ? " / " + ctx.framework : ""}` : "nicht erkannt" });
+            // TypeScript
+            let tsOk = false;
+            try {
+                execSync("npx tsc --version", { cwd, encoding: "utf-8", timeout: 5000 });
+                tsOk = true;
+            }
+            catch { }
+            checks.push({ name: "TypeScript", ok: tsOk, detail: tsOk ? "verfuegbar" : "nicht gefunden" });
+            // Memory
+            const memCount = loadMemories().length;
+            checks.push({ name: "Notizen", ok: true, detail: `${memCount} gespeichert` });
+            // Custom agents
+            const customCount = Object.keys(loadCustomAgents()).length;
+            checks.push({ name: "Custom Agents", ok: true, detail: `${customCount} erstellt` });
+            for (const c of checks) {
+                const icon = c.ok ? chalk.hex(t().success)("\u2713") : chalk.hex(t().error)("\u2717");
+                console.log(`  ${icon} ${chalk.white(c.name.padEnd(15))} ${chalk.gray(c.detail)}`);
+            }
+            console.log();
+            return true;
+        }
+        // ── Quit ──
         case "/quit":
         case "/exit":
         case "/q":
-            console.log(chalk.magenta("\n  " + STAR + " Bis bald!\n"));
+            console.log(chalk.hex(t().star)("\n  " + STAR() + " Bis bald!\n"));
             process.exit(0);
         default:
-            // Agent activation: /agent:code, /agent:debug etc.
+            // Agent management: /agent:edit, /agent:delete, /agent:show, /agent:export
+            if (cmd === "/agent:edit") {
+                const targetId = parts[1];
+                if (!targetId) {
+                    const custom = loadCustomAgents();
+                    const ids = Object.keys(custom);
+                    if (ids.length === 0)
+                        console.log(chalk.gray("\n  Keine Custom Agents vorhanden. Erstelle einen mit /agent:create\n"));
+                    else {
+                        console.log(chalk.hex(t().info)("\n  Nutzung: /agent:edit <id>"));
+                        console.log(chalk.gray("  Custom Agents: " + ids.join(", ") + "\n"));
+                    }
+                    return true;
+                }
+                return agentEditWizard(targetId);
+            }
+            if (cmd === "/agent:delete") {
+                const targetId = parts[1];
+                if (!targetId) {
+                    const custom = loadCustomAgents();
+                    const ids = Object.keys(custom);
+                    if (ids.length === 0)
+                        console.log(chalk.gray("\n  Keine Custom Agents. Nichts zu loeschen.\n"));
+                    else {
+                        console.log(chalk.hex(t().info)("\n  Nutzung: /agent:delete <id>"));
+                        console.log(chalk.gray("  Custom Agents: " + ids.join(", ") + "\n"));
+                    }
+                    return true;
+                }
+                return agentDeleteConfirm(targetId);
+            }
+            if (cmd === "/agent:show") {
+                const targetId = parts[1];
+                if (!targetId) {
+                    console.log(chalk.hex(t().info)("\n  Nutzung: /agent:show <id>"));
+                    console.log(chalk.gray("  Verfuegbar: " + Object.keys(getAllAgents()).join(", ") + "\n"));
+                    return true;
+                }
+                agentShow(targetId);
+                return true;
+            }
+            if (cmd === "/agent:export") {
+                const targetId = parts[1];
+                if (!targetId) {
+                    console.log(chalk.hex(t().info)("\n  Nutzung: /agent:export <id>"));
+                    console.log(chalk.gray("  Verfuegbar: " + Object.keys(getAllAgents()).join(", ") + "\n"));
+                    return true;
+                }
+                agentExport(targetId);
+                return true;
+            }
+            // Agent activation
             if (cmd.startsWith("/agent:")) {
                 const agentId = cmd.slice(7);
                 if (agentId === "off" || agentId === "none") {
+                    if (!activeAgent) {
+                        console.log(chalk.gray("\n  Kein Agent aktiv. Nichts zu deaktivieren.\n"));
+                        return true;
+                    }
                     activeAgent = null;
-                    messages[0] = { role: "system", content: systemPrompt };
-                    console.log(chalk.green("\n  Agent deaktiviert. Standard-Modus.\n"));
+                    messages[0] = { role: "system", content: getFullSystemPrompt() };
+                    console.log(chalk.hex(t().success)("\n  Agent deaktiviert. Standard-Modus.\n"));
                     return true;
                 }
-                if (AGENTS[agentId]) {
+                const allAgents = getAllAgents();
+                if (allAgents[agentId]) {
                     activeAgent = agentId;
-                    const agentPrompt = getAgentPrompt(agentId, systemPrompt);
-                    messages[0] = { role: "system", content: agentPrompt };
-                    const agent = AGENTS[agentId];
-                    console.log(chalk.hex(agent.color === "cyan" ? "#06b6d4" : agent.color === "red" ? "#ef4444" : agent.color === "yellow" ? "#f59e0b" : agent.color === "green" ? "#10b981" : agent.color === "magenta" ? "#d946ef" : "#3b82f6")(`\n  ${STAR} ${agent.name} aktiviert`));
+                    messages[0] = { role: "system", content: getAgentPrompt(agentId, getFullSystemPrompt(), allAgents) };
+                    const agent = allAgents[agentId];
+                    console.log(chalk.hex(agent.color)(`\n  ${STAR()} ${agent.name} aktiviert`));
                     console.log(chalk.gray(`  ${agent.description}\n`));
                     return true;
                 }
-                console.log(chalk.red(`\n  Unbekannter Agent: ${agentId}`));
-                console.log(chalk.gray("  Verfuegbar: " + Object.keys(AGENTS).join(", ") + "\n"));
+                console.log(chalk.hex(t().error)(`\n  Unbekannter Agent: ${agentId}`));
+                console.log(chalk.gray("  Verfuegbar: " + Object.keys(allAgents).join(", ")));
+                console.log(chalk.gray("  /agent:create zum Erstellen\n"));
                 return true;
             }
             return false;
     }
 }
-// ─── Stream AI with abort support ────────────────────────
+// ─── Stream AI ───────────────────────────────────────────
 async function streamAI(msgs, cfg, signal) {
     let full = "";
-    let firstToken = true;
-    const spinner = ora({ text: chalk.gray("Denkt nach..."), spinner: "dots" }).start();
+    let firstContentToken = true;
+    let firstReasoningToken = true;
+    let isInReasoning = false;
+    let reasoningLines = 0;
+    let reasoningColPos = 0; // current column position in reasoning line
+    const MAX_PLAN_LINES = 20; // compact — show max 20 lines
+    const MAX_LINE_WIDTH = 68; // wrap long lines
+    const planStart = Date.now();
+    const spinner = ora({ text: chalk.gray("Denkt nach..."), spinner: "dots", stream: process.stderr }).start();
+    // Helper: start a new plan line
+    function planNewLine() {
+        reasoningLines++;
+        reasoningColPos = 0;
+        if (reasoningLines <= MAX_PLAN_LINES) {
+            process.stdout.write("\n" + chalk.hex(t().dim)("  │ "));
+        }
+    }
+    // Helper: write a single char inside the plan box
+    function planChar(ch) {
+        if (reasoningLines > MAX_PLAN_LINES)
+            return;
+        if (reasoningColPos >= MAX_LINE_WIDTH) {
+            planNewLine(); // auto-wrap
+        }
+        process.stdout.write(chalk.hex(t().dim)(ch));
+        reasoningColPos++;
+    }
+    // Helper: close the plan box
+    function closePlanBox() {
+        if (!isInReasoning)
+            return;
+        const elapsed = ((Date.now() - planStart) / 1000).toFixed(1);
+        if (reasoningLines > MAX_PLAN_LINES) {
+            process.stdout.write("\n" + chalk.hex(t().dim)(`  │  ... (+${reasoningLines - MAX_PLAN_LINES} Zeilen)`));
+        }
+        process.stdout.write("\n" + chalk.hex(t().dim)("  └─── ") + chalk.hex(t().dim)(`${elapsed}s`) + chalk.hex(t().dim)(" ───────────────────────────────────────") + "\n");
+        isInReasoning = false;
+    }
     try {
         for await (const token of streamChat(msgs, cfg, signal)) {
             if (signal.aborted)
                 break;
-            if (firstToken) {
-                spinner.stop();
-                process.stdout.write("\n  " + chalk.magenta(STAR + " "));
-                firstToken = false;
+            if (token.type === "reasoning") {
+                // ── Plan/Thinking Phase ──
+                if (firstReasoningToken) {
+                    spinner.stop();
+                    process.stdout.write("\n" + chalk.hex(t().dim)("  ┌─ ") + chalk.hex(t().accent).bold("Plan") + chalk.hex(t().dim)(" ──────────────────────────────────────"));
+                    process.stdout.write("\n" + chalk.hex(t().dim)("  │ "));
+                    firstReasoningToken = false;
+                    isInReasoning = true;
+                    reasoningLines = 1;
+                    reasoningColPos = 0;
+                }
+                // Stream reasoning text, char by char with word-wrap
+                for (const ch of token.text) {
+                    if (ch === "\n") {
+                        planNewLine();
+                    }
+                    else {
+                        planChar(ch);
+                    }
+                }
             }
-            process.stdout.write(token);
-            full += token;
+            else {
+                // ── Content Phase ──
+                closePlanBox();
+                if (firstContentToken) {
+                    if (firstReasoningToken)
+                        spinner.stop(); // No reasoning happened
+                    process.stdout.write("\n  " + chalk.hex(t().star)(STAR() + " "));
+                    firstContentToken = false;
+                }
+                process.stdout.write(token.text);
+                full += token.text;
+            }
         }
     }
     catch (err) {
         spinner.stop();
         if (signal.aborted) {
-            console.log(chalk.yellow("\n\n  Abgebrochen.\n"));
+            console.log(chalk.hex(t().warning)("\n\n  Abgebrochen.\n"));
             return full;
         }
         throw err;
     }
-    if (firstToken)
+    // Close plan box if reasoning ended without content
+    closePlanBox();
+    if (firstContentToken && firstReasoningToken)
         spinner.stop();
-    if (full)
-        console.log("\n");
+    if (full) {
+        process.stdout.write("\x1b[0m\n\n");
+    }
     return full;
 }
 // ─── Main Chat Loop ──────────────────────────────────────
 async function processInput(input) {
     if (!input.trim())
         return;
-    if (input.startsWith("/") && handleSlashCommand(input))
-        return;
+    if (input.startsWith("/")) {
+        const result = handleSlashCommand(input);
+        if (result instanceof Promise) {
+            await result;
+            return;
+        }
+        if (result)
+            return;
+    }
     if (isProcessing) {
-        console.log(chalk.yellow("\n  Bitte warten, Anfrage wird noch verarbeitet...\n"));
+        // Queue the input for later processing instead of blocking
+        inputQueue.push(input);
+        console.log(chalk.hex(t().dim)(`\n  Eingabe vorgemerkt (${inputQueue.length} in Warteschlange)`));
         return;
     }
     isProcessing = true;
     currentAbort = new AbortController();
     const signal = currentAbort.signal;
-    messages.push({ role: "user", content: input });
+    // If plan mode, prefix the user message
+    const userContent = planMode
+        ? `[PLAN-MODUS] Erstelle zuerst einen detaillierten Plan bevor du handelst. Erklaere was du tun wuerdest und warte auf Bestaetigung.\n\n${input}`
+        : input;
+    messages.push({ role: "user", content: userContent });
     totalTokensEstimate += input.length / 3;
     try {
         const fullResponse = await streamAI(messages, config, signal);
@@ -423,25 +1439,20 @@ async function processInput(input) {
             return;
         }
         totalTokensEstimate += fullResponse.length / 3;
-        // Execute tool calls if not chat-only
         if (!chatOnly) {
             let toolResults = null;
             try {
                 toolResults = await executeToolCalls(fullResponse, cwd);
             }
             catch (toolErr) {
-                console.error(chalk.red(`\n  Tool-Fehler: ${toolErr.message}\n`));
+                console.error(chalk.hex(t().error)(`\n  Tool-Fehler: ${toolErr.message}\n`));
             }
             if (toolResults && toolResults.results.length > 0) {
-                for (const r of toolResults.results) {
-                    printToolResult(r.tool, r.result, r.success);
-                }
-                const toolFeedback = toolResults.results
-                    .map((r) => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`)
-                    .join("\n\n");
+                for (const r of toolResults.results)
+                    printToolResult(r.tool, r.result, r.success, r.diff);
+                const toolFeedback = toolResults.results.map((r) => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`).join("\n\n");
                 messages.push({ role: "assistant", content: fullResponse });
                 messages.push({ role: "user", content: `Tool-Ergebnisse:\n${toolFeedback}\n\nFahre fort basierend auf den Ergebnissen.` });
-                // Follow-up rounds (up to 5)
                 let depth = 0;
                 let currentResponse = "";
                 try {
@@ -449,7 +1460,7 @@ async function processInput(input) {
                 }
                 catch (err) {
                     if (!signal.aborted)
-                        console.error(chalk.red(`\n  Follow-up Fehler: ${err.message}\n`));
+                        console.error(chalk.hex(t().error)(`\n  Follow-up Fehler: ${err.message}\n`));
                 }
                 while (depth < 5 && currentResponse && !signal.aborted) {
                     let nested = null;
@@ -461,12 +1472,9 @@ async function processInput(input) {
                     }
                     if (!nested || nested.results.length === 0)
                         break;
-                    for (const r of nested.results) {
-                        printToolResult(r.tool, r.result, r.success);
-                    }
-                    const nestedFeedback = nested.results
-                        .map((r) => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`)
-                        .join("\n\n");
+                    for (const r of nested.results)
+                        printToolResult(r.tool, r.result, r.success, r.diff);
+                    const nestedFeedback = nested.results.map((r) => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`).join("\n\n");
                     messages.push({ role: "assistant", content: currentResponse });
                     messages.push({ role: "user", content: `Tool-Ergebnisse:\n${nestedFeedback}\n\nFahre fort.` });
                     try {
@@ -474,14 +1482,13 @@ async function processInput(input) {
                     }
                     catch (err) {
                         if (!signal.aborted)
-                            console.error(chalk.red(`\n  Runde ${depth + 1} Fehler: ${err.message}\n`));
+                            console.error(chalk.hex(t().error)(`\n  Runde ${depth + 1} Fehler: ${err.message}\n`));
                         break;
                     }
                     depth++;
                 }
-                if (currentResponse) {
+                if (currentResponse)
                     messages.push({ role: "assistant", content: currentResponse });
-                }
             }
             else {
                 messages.push({ role: "assistant", content: fullResponse });
@@ -492,160 +1499,169 @@ async function processInput(input) {
         }
     }
     catch (e) {
-        if (!signal.aborted) {
-            console.error(chalk.red(`\n  Fehler: ${e.message}\n`));
-        }
+        if (!signal.aborted)
+            console.error(chalk.hex(t().error)(`\n  Fehler: ${e.message}\n`));
     }
     finally {
         isProcessing = false;
         currentAbort = null;
+        lastProcessingEndTime = Date.now();
+        // Drain queued inputs, or restore prompt if queue empty
+        if (inputQueue.length > 0) {
+            drainInputQueue();
+        }
+        else {
+            restorePrompt();
+        }
     }
 }
-// ─── Global Error Handlers (prevent crashes) ────────────
+// ─── Input Queue Drain ───────────────────────────────────
+function drainInputQueue() {
+    if (inputQueue.length > 0 && !isProcessing) {
+        const next = inputQueue.shift();
+        console.log(chalk.hex(t().dim)(`\n  Verarbeite vorgemerkte Eingabe...`));
+        processInput(next).catch((err) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.error(chalk.hex(t().error)(`\n  Fehler: ${msg}\n`));
+            restorePrompt();
+        });
+    }
+}
+// ─── Global Error Handlers ──────────────────────────────
 process.on("uncaughtException", (err) => {
-    console.error(chalk.red(`\n  Unerwarteter Fehler: ${err.message}`));
-    console.error(chalk.gray("  Das Programm laeuft weiter. Tippe /help fuer Hilfe.\n"));
+    console.error(chalk.hex(t().error)(`\n  Unerwarteter Fehler: ${err.message}`));
+    console.error(chalk.gray("  Programm laeuft weiter. /help fuer Hilfe.\n"));
     isProcessing = false;
     currentAbort = null;
-    try {
-        rl.prompt();
-    }
-    catch { }
+    inputQueue.length = 0;
+    restorePrompt();
 });
 process.on("unhandledRejection", (reason) => {
     const msg = reason instanceof Error ? reason.message : String(reason);
-    console.error(chalk.red(`\n  Async Fehler: ${msg}`));
-    console.error(chalk.gray("  Das Programm laeuft weiter.\n"));
+    console.error(chalk.hex(t().error)(`\n  Async Fehler: ${msg}`));
+    console.error(chalk.gray("  Programm laeuft weiter.\n"));
     isProcessing = false;
     currentAbort = null;
-    try {
-        rl.prompt();
-    }
-    catch { }
+    inputQueue.length = 0;
+    restorePrompt();
 });
-// ─── SIGINT Handler (Ctrl+C) ────────────────────────────
+// ─── SIGINT Handler ──────────────────────────────────────
 process.on("SIGINT", () => {
     if (isProcessing && currentAbort) {
-        // Cancel current request
         currentAbort.abort();
         isProcessing = false;
         currentAbort = null;
-        console.log(chalk.yellow("\n\n  Abgebrochen. Bereit fuer neue Eingabe.\n"));
-        rl.prompt();
+        inputQueue.length = 0;
+        console.log(chalk.hex(t().warning)("\n\n  Abgebrochen.\n"));
+        restorePrompt();
     }
     else {
-        // Exit if not processing
-        console.log(chalk.magenta("\n\n  " + STAR + " Bis bald!\n"));
+        console.log(chalk.hex(t().star)("\n\n  " + STAR() + " Bis bald!\n"));
         process.exit(0);
     }
 });
 // ─── Start ───────────────────────────────────────────────
 printBanner();
 function getPrompt() {
-    if (activeAgent && AGENTS[activeAgent]) {
-        const c = AGENTS[activeAgent].color;
-        const hex = c === "cyan" ? "#06b6d4" : c === "red" ? "#ef4444" : c === "yellow" ? "#f59e0b" : c === "green" ? "#10b981" : c === "magenta" ? "#d946ef" : "#3b82f6";
-        return chalk.hex(hex).bold(`[${AGENTS[activeAgent].name}] > `);
+    if (activeAgent) {
+        const allAgents = getAllAgents();
+        const agent = allAgents[activeAgent];
+        if (agent)
+            return chalk.hex(agent.color).bold(`[${agent.name}] > `);
     }
-    return PROMPT;
+    if (planMode)
+        return chalk.hex(t().warning).bold("[Plan] > ");
+    return PROMPT();
 }
-// ─── Autocomplete (Claude Code style) ─────────────────────
+// ─── Autocomplete ────────────────────────────────────────
 import { emitKeypressEvents } from "node:readline";
-const SLASH_COMMANDS = [
-    { cmd: "/help", desc: "Alle Befehle anzeigen" },
-    { cmd: "/features", desc: "Alle Features anzeigen" },
-    { cmd: "/agents", desc: "Verfuegbare Agenten" },
-    { cmd: "/agent:code", desc: "Code Agent aktivieren" },
-    { cmd: "/agent:debug", desc: "Debug Agent aktivieren" },
-    { cmd: "/agent:review", desc: "Review Agent aktivieren" },
-    { cmd: "/agent:refactor", desc: "Refactor Agent aktivieren" },
-    { cmd: "/agent:architect", desc: "Architect Agent aktivieren" },
-    { cmd: "/agent:test", desc: "Test Agent aktivieren" },
-    { cmd: "/agent:off", desc: "Agent deaktivieren" },
-    { cmd: "/clear", desc: "Konversation zuruecksetzen" },
-    { cmd: "/model", desc: "Model anzeigen/wechseln" },
-    { cmd: "/model deepseek-reasoner", desc: "DeepSeek R1 (Thinking)" },
-    { cmd: "/model deepseek-chat", desc: "DeepSeek Chat (Schnell)" },
-    { cmd: "/context", desc: "Projekt-Kontext anzeigen" },
-    { cmd: "/cost", desc: "Token-Nutzung anzeigen" },
-    { cmd: "/compact", desc: "Konversation komprimieren" },
-    { cmd: "/quit", desc: "Beenden" },
-];
-// Tab completer for readline
+function buildSlashCommands() {
+    const cmds = [
+        { cmd: "/help", desc: "Alle Befehle" },
+        { cmd: "/features", desc: "Alle Features" },
+        { cmd: "/clear", desc: "Konversation zuruecksetzen" },
+        { cmd: "/compact", desc: "Komprimieren" },
+        { cmd: "/stats", desc: "Session-Statistiken" },
+        { cmd: "/plan", desc: "Plan-Modus an/aus" },
+        { cmd: "/agents", desc: "Agenten anzeigen" },
+        { cmd: "/agent:create", desc: "Neuen Agent erstellen" },
+        { cmd: "/agent:list", desc: "Alle Agenten" },
+        { cmd: "/agent:import", desc: "Agent importieren" },
+        { cmd: "/agent:off", desc: "Agent deaktivieren" },
+    ];
+    const allAgents = getAllAgents();
+    for (const [id, agent] of Object.entries(allAgents))
+        cmds.push({ cmd: `/agent:${id}`, desc: `${agent.name}` });
+    const custom = loadCustomAgents();
+    for (const [id, agent] of Object.entries(custom)) {
+        cmds.push({ cmd: `/agent:edit ${id}`, desc: `${agent.name} bearbeiten` });
+        cmds.push({ cmd: `/agent:delete ${id}`, desc: `${agent.name} loeschen` });
+    }
+    for (const [id, agent] of Object.entries(allAgents)) {
+        cmds.push({ cmd: `/agent:show ${id}`, desc: `${agent.name} Details` });
+        cmds.push({ cmd: `/agent:export ${id}`, desc: `${agent.name} Export` });
+    }
+    cmds.push({ cmd: "/memory add", desc: "Notiz speichern" }, { cmd: "/memory list", desc: "Notizen anzeigen" }, { cmd: "/memory search", desc: "Notizen suchen" }, { cmd: "/memory remove", desc: "Notiz loeschen" }, { cmd: "/memory clear", desc: "Alle Notizen loeschen" }, { cmd: "/todo add", desc: "Aufgabe hinzufuegen" }, { cmd: "/todo list", desc: "Aufgaben anzeigen" }, { cmd: "/todo done", desc: "Aufgabe erledigt" }, { cmd: "/todo remove", desc: "Aufgabe loeschen" }, { cmd: "/todo clear", desc: "Erledigte loeschen" }, { cmd: "/diff", desc: "Git diff" }, { cmd: "/diff staged", desc: "Staged changes" }, { cmd: "/commit", desc: "Smart Commit" }, { cmd: "/status", desc: "Git status" }, { cmd: "/log", desc: "Git log" }, { cmd: "/branch", desc: "Git branches" }, { cmd: "/init", desc: "MORNINGSTAR.md erstellen" }, { cmd: "/undo", desc: "Letzte Aenderung rueckgaengig" }, { cmd: "/undo list", desc: "Undo-Stack anzeigen" }, { cmd: "/search", desc: "Im Projekt suchen" }, { cmd: "/history save", desc: "Session speichern" }, { cmd: "/history list", desc: "Sessions anzeigen" }, { cmd: "/history load", desc: "Session laden" }, { cmd: "/history delete", desc: "Session loeschen" }, { cmd: "/theme", desc: "Theme wechseln" }, ...Object.keys(THEMES).map(id => ({ cmd: `/theme ${id}`, desc: `Theme: ${THEMES[id].name}` })), { cmd: "/config", desc: "Konfiguration" }, { cmd: "/config set", desc: "Einstellung aendern" }, { cmd: "/doctor", desc: "Setup diagnostizieren" }, { cmd: "/model", desc: "Model wechseln" }, { cmd: "/model deepseek-reasoner", desc: "R1 (Thinking)" }, { cmd: "/model deepseek-chat", desc: "Chat (Schnell)" }, { cmd: "/context", desc: "Projekt-Kontext" }, { cmd: "/cost", desc: "Token-Nutzung" }, { cmd: "/quit", desc: "Beenden" });
+    return cmds;
+}
+let SLASH_COMMANDS = buildSlashCommands();
+function refreshSlashCommands() { SLASH_COMMANDS = buildSlashCommands(); }
 function completer(line) {
     if (line.startsWith("/")) {
-        const hits = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(line)).map(c => c.cmd);
+        const hits = SLASH_COMMANDS.filter(c => c.cmd.startsWith(line)).map(c => c.cmd);
         return [hits.length ? hits : SLASH_COMMANDS.map(c => c.cmd), line];
     }
     return [[], line];
 }
-const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: PROMPT,
-    terminal: process.stdin.isTTY !== false,
-    completer,
-});
+const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: PROMPT(), terminal: process.stdin.isTTY !== false, completer });
 // ─── Live Autocomplete Suggestions ───────────────────────
-let suggestionsShown = 0; // number of suggestion lines currently rendered
-let selectedIdx = 0; // currently highlighted suggestion
+let suggestionsShown = 0;
+let selectedIdx = 0;
 function clearSuggestions() {
     if (suggestionsShown <= 0)
         return;
-    // Move cursor down to end of suggestions, then clear upward
+    for (let i = 0; i < suggestionsShown; i++)
+        process.stdout.write("\x1b[B");
     for (let i = 0; i < suggestionsShown; i++) {
-        process.stdout.write("\x1b[B"); // move down
-    }
-    for (let i = 0; i < suggestionsShown; i++) {
-        process.stdout.write("\x1b[A"); // move up
-        process.stdout.write("\x1b[2K"); // clear line
+        process.stdout.write("\x1b[A");
+        process.stdout.write("\x1b[2K");
     }
     suggestionsShown = 0;
 }
 function renderSuggestions(line) {
-    // Clear any previous suggestions
     clearSuggestions();
     if (!line.startsWith("/") || isProcessing)
         return;
-    const matches = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(line));
+    const matches = SLASH_COMMANDS.filter(c => c.cmd.startsWith(line));
     if (matches.length === 0 || (matches.length === 1 && matches[0].cmd === line))
         return;
-    // Clamp selection
     selectedIdx = Math.max(0, Math.min(selectedIdx, matches.length - 1));
-    // Save cursor, render below
-    process.stdout.write("\x1b[s"); // save cursor position
+    process.stdout.write("\x1b[s");
     const maxShow = Math.min(matches.length, 8);
     for (let i = 0; i < maxShow; i++) {
         const m = matches[i];
         process.stdout.write("\n");
-        if (i === selectedIdx) {
-            // Highlighted
+        if (i === selectedIdx)
             process.stdout.write(chalk.bgHex("#3b3b3b").hex("#22d3ee").bold(`  ${m.cmd}`) + chalk.bgHex("#3b3b3b").hex("#6b7280")(` ${m.desc}`) + "\x1b[K");
-        }
-        else {
+        else
             process.stdout.write(chalk.hex("#6b7280")(`  ${m.cmd}`) + chalk.hex("#4b5563")(` ${m.desc}`) + "\x1b[K");
-        }
     }
     if (matches.length > maxShow) {
         process.stdout.write("\n" + chalk.hex("#4b5563")(`  ... +${matches.length - maxShow} weitere`) + "\x1b[K");
         suggestionsShown = maxShow + 1;
     }
-    else {
+    else
         suggestionsShown = maxShow;
-    }
-    // Restore cursor position
     process.stdout.write("\x1b[u");
 }
-// Listen for keypress events to show live suggestions
 if (process.stdin.isTTY) {
     emitKeypressEvents(process.stdin, rl);
     process.stdin.on("keypress", (_ch, key) => {
         if (isProcessing)
             return;
-        // Get current line content from readline
         const line = rl.line || "";
         if (key?.name === "down" && suggestionsShown > 0) {
-            const matches = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(line));
+            const matches = SLASH_COMMANDS.filter(c => c.cmd.startsWith(line));
             selectedIdx = Math.min(selectedIdx + 1, Math.min(matches.length, 8) - 1);
             renderSuggestions(line);
             return;
@@ -655,44 +1671,35 @@ if (process.stdin.isTTY) {
             renderSuggestions(line);
             return;
         }
-        // Tab to accept highlighted suggestion
         if (key?.name === "tab" && suggestionsShown > 0 && line.startsWith("/")) {
-            const matches = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(line));
+            const matches = SLASH_COMMANDS.filter(c => c.cmd.startsWith(line));
             if (matches.length > 0 && matches[selectedIdx]) {
                 clearSuggestions();
                 const selected = matches[selectedIdx].cmd;
-                // Replace current line with selected command
                 rl.line = selected;
                 rl.cursor = selected.length;
-                // Redraw prompt with new content
                 process.stdout.write("\x1b[2K\r" + getPrompt() + selected);
                 selectedIdx = 0;
                 return;
             }
         }
-        // Enter clears suggestions
         if (key?.name === "return") {
             clearSuggestions();
             selectedIdx = 0;
             return;
         }
-        // Escape clears suggestions
         if (key?.name === "escape") {
             clearSuggestions();
             selectedIdx = 0;
             return;
         }
-        // Reset selection on new char
         selectedIdx = 0;
-        // Delay render to let readline update the line first
         setImmediate(() => {
             const currentLine = rl.line || "";
-            if (currentLine.startsWith("/")) {
+            if (currentLine.startsWith("/"))
                 renderSuggestions(currentLine);
-            }
-            else {
+            else
                 clearSuggestions();
-            }
         });
     });
 }
@@ -702,7 +1709,6 @@ let isMultiline = false;
 rl.on("line", async (line) => {
     clearSuggestions();
     selectedIdx = 0;
-    // Multiline support: end line with \ to continue
     if (line.endsWith("\\\\") || line.endsWith("\\")) {
         multilineBuffer += line.slice(0, -1) + "\n";
         isMultiline = true;
@@ -717,17 +1723,19 @@ rl.on("line", async (line) => {
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.error(chalk.red(`\n  Fehler: ${msg}`));
-        console.error(chalk.gray("  Tippe /help fuer Hilfe.\n"));
+        console.error(chalk.hex(t().error)(`\n  Fehler: ${msg}\n`));
+        restorePrompt();
     }
-    rl.setPrompt(getPrompt());
-    rl.prompt();
 });
-rl.on("close", () => {
-    clearSuggestions();
-    console.log(chalk.magenta("\n  " + STAR + " Bis bald!\n"));
-    process.exit(0);
-});
-// Keep process alive
-setInterval(() => { }, 1 << 30);
+rl.on("close", () => { clearSuggestions(); console.log(chalk.hex(t().star)("\n  " + STAR() + " Bis bald!\n")); process.exit(0); });
+// ─── Watchdog: auto-restore prompt if readline gets stuck ──
+setInterval(() => {
+    if (!isProcessing && lastProcessingEndTime > 0 && Date.now() - lastProcessingEndTime > 3000) {
+        lastProcessingEndTime = 0;
+        try {
+            restorePrompt();
+        }
+        catch { }
+    }
+}, 2000);
 //# sourceMappingURL=index.js.map

@@ -7,6 +7,7 @@ export interface ToolResult {
   tool: string;
   result: string;
   success: boolean;
+  diff?: { filePath: string; oldStr: string; newStr: string };
 }
 
 export interface ProjectContext {

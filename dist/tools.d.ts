@@ -1,4 +1,13 @@
 import type { ToolResult } from "./types.js";
+export declare const toolStats: {
+    calls: number;
+    byTool: Record<string, number>;
+    filesRead: number;
+    filesWritten: number;
+    filesEdited: number;
+    filesDeleted: number;
+    bashCommands: number;
+};
 export declare function readFile(filePath: string, cwd: string): ToolResult;
 export declare function writeFile(filePath: string, content: string, cwd: string): ToolResult;
 export declare function editFile(filePath: string, oldStr: string, newStr: string, cwd: string): ToolResult;

@@ -51,23 +51,48 @@ export async function* streamChat(messages, config, signal) {
                     // DeepSeek R1 uses reasoning_content for thinking, content for output
                     const token = choice.delta?.content || "";
                     const reasoning = choice.delta?.reasoning_content || "";
-                    // Skip reasoning tokens (internal thinking)
-                    if (reasoning && !token)
-                        continue;
+                    // Yield reasoning tokens as plan/thinking
+                    if (reasoning) {
+                        yield { type: "reasoning", text: reasoning };
+                    }
                     if (token) {
-                        // Filter out <think>...</think> blocks
-                        if (token.includes("<think>"))
+                        // Handle <think>...</think> blocks in content — show as reasoning
+                        if (token.includes("<think>")) {
                             insideThink = true;
-                        if (insideThink) {
-                            if (token.includes("</think>")) {
+                            const before = token.split("<think>")[0];
+                            if (before.trim())
+                                yield { type: "content", text: before };
+                            const afterTag = token.split("<think>").slice(1).join("<think>");
+                            if (afterTag.includes("</think>")) {
+                                const thinkContent = afterTag.split("</think>")[0];
+                                if (thinkContent.trim())
+                                    yield { type: "reasoning", text: thinkContent };
                                 insideThink = false;
-                                const after = token.split("</think>").pop() || "";
+                                const after = afterTag.split("</think>").slice(1).join("</think>");
                                 if (after.trim())
-                                    yield after;
+                                    yield { type: "content", text: after };
+                            }
+                            else if (afterTag.trim()) {
+                                yield { type: "reasoning", text: afterTag };
                             }
                             continue;
                         }
-                        yield token;
+                        if (insideThink) {
+                            if (token.includes("</think>")) {
+                                const thinkPart = token.split("</think>")[0];
+                                if (thinkPart.trim())
+                                    yield { type: "reasoning", text: thinkPart };
+                                insideThink = false;
+                                const after = token.split("</think>").slice(1).join("</think>");
+                                if (after.trim())
+                                    yield { type: "content", text: after };
+                            }
+                            else {
+                                yield { type: "reasoning", text: token };
+                            }
+                            continue;
+                        }
+                        yield { type: "content", text: token };
                     }
                 }
                 catch {
@@ -86,7 +111,8 @@ export async function* streamChat(messages, config, signal) {
 export async function chat(messages, config) {
     let full = "";
     for await (const token of streamChat(messages, config)) {
-        full += token;
+        if (token.type === "content")
+            full += token.text;
     }
     return full;
 }
