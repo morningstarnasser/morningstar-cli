@@ -72,6 +72,42 @@ function loadEnvFile(dir) {
     }
 }
 const saved = loadSavedConfig();
+// ─── Per-Provider API Key Storage ────────────────────────
+// Keys are stored as apiKeys: { openai: "sk-...", deepseek: "sk-...", ... }
+const savedApiKeys = saved.apiKeys || {};
+// Migrate legacy single apiKey to per-provider store
+if (saved.apiKey && typeof saved.apiKey === "string" && saved.apiKey !== "ollama") {
+    const legacyKey = saved.apiKey;
+    // Determine which provider this key belongs to (not ollama)
+    const keyProvider = saved.provider && saved.provider !== "ollama"
+        ? saved.provider
+        : (legacyKey.startsWith("sk-ant-") ? "anthropic"
+            : legacyKey.startsWith("sk-proj-") || legacyKey.startsWith("sk-org-") ? "openai"
+                : legacyKey.startsWith("gsk_") ? "groq"
+                    : "deepseek"); // default: DeepSeek (most common for morningstar)
+    if (!savedApiKeys[keyProvider]) {
+        savedApiKeys[keyProvider] = legacyKey;
+        saveConfig({ apiKeys: savedApiKeys });
+    }
+}
+function getStoredApiKey(provider) {
+    if (provider === "ollama")
+        return "ollama";
+    // 1. Per-provider stored key
+    if (savedApiKeys[provider])
+        return savedApiKeys[provider];
+    // 2. Environment variable
+    const envVar = getProviderApiKeyEnv(provider);
+    if (envVar && process.env[envVar])
+        return process.env[envVar];
+    return "";
+}
+function storeApiKey(provider, key) {
+    if (provider === "ollama" || !key || key === "ollama")
+        return;
+    savedApiKeys[provider] = key;
+    saveConfig({ apiKeys: savedApiKeys });
+}
 const DEFAULT_CONFIG = {
     apiKey: "",
     model: "deepseek-reasoner",
@@ -101,32 +137,38 @@ const config = {
     model: selectedModel,
     provider: selectedProvider,
     baseUrl: saved.baseUrl || getProviderBaseUrl(selectedProvider),
-    apiKey: opts.apiKey || resolveApiKey(selectedProvider, saved.apiKey || ""),
+    apiKey: opts.apiKey || getStoredApiKey(selectedProvider),
 };
 // ─── Interactive API Key Setup ───────────────────────────
 async function ensureApiKey() {
-    if (config.apiKey)
+    if (config.apiKey && config.apiKey !== "ollama")
         return;
     // Ollama and local providers don't need a key
     if (config.provider === "ollama") {
         config.apiKey = "ollama";
         return;
     }
+    // Try loading stored key for this provider
     const provName = config.provider || "deepseek";
+    const stored = getStoredApiKey(provName);
+    if (stored) {
+        config.apiKey = stored;
+        return;
+    }
     const envKey = getProviderApiKeyEnv(provName);
     console.log(chalk.yellow(`\n  Kein API Key fuer ${provName} gefunden!\n`));
     if (envKey)
         console.log(chalk.gray(`  Setze ${envKey} als Umgebungsvariable oder gib ihn hier ein.`));
-    console.log(chalk.gray("  Der Key wird in ~/.morningstar/config.json gespeichert.\n"));
+    console.log(chalk.gray("  Der Key wird dauerhaft gespeichert (pro Provider).\n"));
     const setupRl = createInterface({ input: process.stdin, output: process.stdout });
     return new Promise((resolve) => {
-        setupRl.question(chalk.cyan("  API Key eingeben: "), (answer) => {
+        setupRl.question(chalk.cyan(`  ${provName.toUpperCase()} API Key: `), (answer) => {
             setupRl.close();
             const key = answer.trim();
             if (key) {
                 config.apiKey = key;
-                saveConfig({ apiKey: key });
-                console.log(chalk.green("\n  API Key gespeichert!\n"));
+                storeApiKey(provName, key);
+                console.log(chalk.green(`\n  API Key fuer ${provName} gespeichert!\n`));
             }
             else {
                 console.log(chalk.red("\n  Kein Key eingegeben. Beende.\n"));
@@ -832,8 +874,8 @@ async function interactiveModelSelect() {
     console.log(h("\n  2. Serverless (Cloud)") + d(" — schnell, leistungsstark, API Key noetig"));
     const providers = listProviders().filter(p => p.name !== "ollama");
     for (const p of providers) {
+        const hasKey = !!getStoredApiKey(p.name);
         const envKey = getProviderApiKeyEnv(p.name);
-        const hasKey = envKey ? !!process.env[envKey] || (config.provider === p.name && !!config.apiKey) : false;
         const keyTag = p.name === "openrouter" ? d(" (alle Modelle)") :
             hasKey ? s(" [Key gesetzt]") : chalk.hex(theme.warning)(` [${envKey}]`);
         console.log(w(`\n     ${p.name.toUpperCase()}`) + keyTag);
@@ -898,17 +940,11 @@ async function interactiveModelSelect() {
     config.model = modelId;
     config.provider = prov;
     config.baseUrl = getProviderBaseUrl(prov);
-    const newKey = resolveApiKey(prov, config.apiKey);
-    if (newKey)
-        config.apiKey = newKey;
+    config.apiKey = getStoredApiKey(prov);
     saveConfig({ model: modelId, provider: prov, baseUrl: config.baseUrl });
     console.log(s(`\n  \u2713 Model: ${getModelDisplayName(modelId)} [${prov}]\n`));
     // If no valid key for cloud provider, prompt for key
     if (prov !== "ollama" && !config.apiKey) {
-        const envKey = getProviderApiKeyEnv(prov);
-        console.log(chalk.hex(theme.warning)(`  Kein API Key fuer ${prov}!`));
-        if (envKey)
-            console.log(d(`  Setze: export ${envKey}=DEIN_KEY\n`));
         await ensureApiKey();
     }
 }
@@ -944,21 +980,14 @@ function handleSlashCommand(input) {
         // ── Model ──
         case "/model":
             if (arg) {
-                config.model = arg;
                 const newProv = detectProvider(arg);
+                config.model = arg;
                 config.provider = newProv;
                 config.baseUrl = getProviderBaseUrl(newProv);
-                const newKey = resolveApiKey(newProv, config.apiKey);
-                if (newKey)
-                    config.apiKey = newKey;
+                config.apiKey = getStoredApiKey(newProv);
                 saveConfig({ model: arg, provider: newProv, baseUrl: config.baseUrl });
                 console.log(chalk.hex(t().success)(`\n  Model: ${getModelDisplayName(arg)} [${newProv}]\n`));
-                // If no valid key for cloud provider, prompt immediately
                 if (newProv !== "ollama" && !config.apiKey) {
-                    const envKey = getProviderApiKeyEnv(newProv);
-                    console.log(chalk.hex(t().warning)(`  Kein API Key fuer ${newProv}!`));
-                    if (envKey)
-                        console.log(chalk.gray(`  Setze: export ${envKey}=DEIN_KEY oder /config set apiKey DEIN_KEY\n`));
                     return ensureApiKey().then(() => { });
                 }
             }
@@ -1542,17 +1571,29 @@ function handleSlashCommand(input) {
                 else if (key === "theme") {
                     setTheme(val);
                 }
+                else if (key === "apiKey") {
+                    config.apiKey = val;
+                    storeApiKey(config.provider || detectProvider(config.model), val);
+                }
                 else
                     config[key] = val;
-                saveConfig({ [key]: config[key] });
+                if (key !== "apiKey")
+                    saveConfig({ [key]: config[key] });
                 console.log(chalk.hex(t().success)(`\n  \u2713 ${key} = ${val}\n`));
                 return true;
             }
             console.log(chalk.hex(t().info)("\n  Konfiguration:\n"));
-            console.log(chalk.gray("  apiKey:      ") + chalk.white(config.apiKey ? config.apiKey.slice(0, 8) + "..." + config.apiKey.slice(-4) : "(nicht gesetzt)"));
             console.log(chalk.gray("  provider:    ") + chalk.white(config.provider || detectProvider(config.model)));
             console.log(chalk.gray("  model:       ") + chalk.white(getModelDisplayName(config.model)));
             console.log(chalk.gray("  baseUrl:     ") + chalk.white(config.baseUrl));
+            console.log(chalk.gray("\n  API Keys (pro Provider):"));
+            const allProvs = ["deepseek", "openai", "anthropic", "google", "groq", "openrouter"];
+            for (const pv of allProvs) {
+                const k = getStoredApiKey(pv);
+                const tag = k ? chalk.green(k.slice(0, 8) + "..." + k.slice(-4)) : chalk.hex(t().dim)("(nicht gesetzt)");
+                const active = pv === (config.provider || detectProvider(config.model)) ? chalk.hex(t().accent)(" *") : "";
+                console.log(chalk.gray(`    ${pv.padEnd(12)}`), tag + active);
+            }
             console.log(chalk.gray("  maxTokens:   ") + chalk.white(String(config.maxTokens)));
             console.log(chalk.gray("  temperature: ") + chalk.white(String(config.temperature)));
             console.log(chalk.gray("  theme:       ") + chalk.white(getThemeId()));
