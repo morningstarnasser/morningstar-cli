@@ -217,8 +217,8 @@ function formatSize(bytes) {
 export async function executeToolCalls(response, cwd) {
     const results = [];
     let cleanResponse = response;
-    // Parse <tool> blocks: <tool:name>args</tool>
-    const toolRegex = /<tool:(\w+)>([\s\S]*?)<\/tool>/g;
+    // Parse <tool> blocks: <tool:name>args</tool> or <tool:name>args</tool:name>
+    const toolRegex = /<tool:(\w+)>([\s\S]*?)<\/tool(?::\w+)?>/g;
     let match;
     while ((match = toolRegex.exec(response)) !== null) {
         const [fullMatch, toolName, args] = match;
@@ -292,6 +292,9 @@ export async function executeToolCalls(response, cwd) {
             const trimmed = code.trim();
             if (!trimmed)
                 continue;
+            // Skip code blocks that contain tool tags (already handled above)
+            if (/<tool:\w+>/.test(trimmed))
+                continue;
             try {
                 const result = bash(trimmed, cwd);
                 results.push({ ...result, tool: "auto-bash" });
@@ -305,6 +308,9 @@ export async function executeToolCalls(response, cwd) {
             const [fullBlock, code] = cbMatch;
             const trimmed = code.trim();
             if (!trimmed)
+                continue;
+            // Skip code blocks that contain tool tags
+            if (/<tool:\w+>/.test(trimmed))
                 continue;
             // Write to temp file and execute (avoids shell escaping issues)
             const tmpFile = `/tmp/morningstar_auto_${Date.now()}.py`;
