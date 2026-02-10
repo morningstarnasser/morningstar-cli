@@ -2,7 +2,7 @@
 # ============================================================================
 # Morningstar-14B-Code — One-Click Build Script
 # Erstellt das Morningstar Model fuer Ollama
-# Developed by: Mr.Morningstar (Alinasser AI Lab)
+# Developed by: Ali Nasser (github.com/morningstarnasser)
 # ============================================================================
 set -e
 
@@ -21,7 +21,7 @@ echo ""
 echo -e "${CYAN}${BOLD}"
 echo "  ╔══════════════════════════════════════════════════╗"
 echo "  ║       MORNINGSTAR-14B-CODE  — Model Builder     ║"
-echo "  ║       by Mr.Morningstar (Alinasser AI Lab)      ║"
+echo "  ║       by Ali Nasser (github.com/morningstarnasser)      ║"
 echo "  ╚══════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
