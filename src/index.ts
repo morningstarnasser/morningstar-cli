@@ -1831,23 +1831,24 @@ function buildSlashCommands(): SlashCmd[] {
     { cmd: "/score", desc: "Projekt-Score" },
     { cmd: "/roast", desc: "Code Roast" },
     { cmd: "/map", desc: "Codebase Map" },
-    { cmd: "/model deepseek-reasoner", desc: "DeepSeek R1 (Thinking)" },
-    { cmd: "/model deepseek-chat", desc: "DeepSeek Chat" },
-    { cmd: "/model gpt-4o", desc: "GPT-4o" },
-    { cmd: "/model gpt-4o-mini", desc: "GPT-4o Mini" },
-    { cmd: "/model o3-mini", desc: "OpenAI o3 Mini" },
-    { cmd: "/model claude-sonnet-4-20250514", desc: "Claude Sonnet 4" },
-    { cmd: "/model claude-opus-4-20250514", desc: "Claude Opus 4" },
-    { cmd: "/model gemini-2.0-flash", desc: "Gemini 2.0 Flash" },
-    { cmd: "/model gemini-2.0-pro", desc: "Gemini 2.0 Pro" },
-    { cmd: "/model llama3", desc: "Llama 3 (Ollama)" },
-    { cmd: "/model llama-3.3-70b-versatile", desc: "Llama 3.3 70B (Groq)" },
-    { cmd: "/model mixtral-8x7b-32768", desc: "Mixtral 8x7B (Groq)" },
+    // Dynamic: all models from all providers
+    ...listProviders().flatMap(p =>
+      p.models.filter(m => !m.startsWith("(")).map(m => ({
+        cmd: `/model ${m}`,
+        desc: `${getModelDisplayName(m)} [${p.name}]`,
+      }))
+    ),
+    // Dynamic: installed Ollama models
+    ...(() => { try { return getOllamaModels().map(m => ({ cmd: `/model ${m.name}`, desc: `${m.name} (${m.size}) [ollama]` })); } catch { return []; } })(),
+    // Popular Ollama models not yet installed
+    ...POPULAR_OLLAMA_MODELS.map(m => ({ cmd: `/model ${m.name}`, desc: `${m.desc} [ollama]` })),
     { cmd: "/context", desc: "Projekt-Kontext" },
     { cmd: "/cost", desc: "Kosten-Tracking" },
     { cmd: "/quit", desc: "Beenden" },
   );
-  return cmds;
+  // Deduplicate by cmd (first occurrence wins)
+  const seen = new Set<string>();
+  return cmds.filter(c => { if (seen.has(c.cmd)) return false; seen.add(c.cmd); return true; });
 }
 
 let SLASH_COMMANDS: SlashCmd[] = buildSlashCommands();
