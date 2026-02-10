@@ -584,19 +584,40 @@ function getPrompt(): string {
   return PROMPT;
 }
 
-// ─── Autocomplete ─────────────────────────────────────────
-const SLASH_COMMANDS = [
-  "/help", "/features", "/agents", "/clear", "/model", "/context",
-  "/cost", "/compact", "/quit", "/exit",
-  "/agent:code", "/agent:debug", "/agent:review",
-  "/agent:refactor", "/agent:architect", "/agent:test", "/agent:off",
-  "/model deepseek-reasoner", "/model deepseek-chat",
+// ─── Autocomplete (Claude Code style) ─────────────────────
+import { emitKeypressEvents } from "node:readline";
+
+interface SlashCmd {
+  cmd: string;
+  desc: string;
+}
+
+const SLASH_COMMANDS: SlashCmd[] = [
+  { cmd: "/help",                    desc: "Alle Befehle anzeigen" },
+  { cmd: "/features",               desc: "Alle Features anzeigen" },
+  { cmd: "/agents",                  desc: "Verfuegbare Agenten" },
+  { cmd: "/agent:code",             desc: "Code Agent aktivieren" },
+  { cmd: "/agent:debug",            desc: "Debug Agent aktivieren" },
+  { cmd: "/agent:review",           desc: "Review Agent aktivieren" },
+  { cmd: "/agent:refactor",         desc: "Refactor Agent aktivieren" },
+  { cmd: "/agent:architect",        desc: "Architect Agent aktivieren" },
+  { cmd: "/agent:test",             desc: "Test Agent aktivieren" },
+  { cmd: "/agent:off",              desc: "Agent deaktivieren" },
+  { cmd: "/clear",                   desc: "Konversation zuruecksetzen" },
+  { cmd: "/model",                   desc: "Model anzeigen/wechseln" },
+  { cmd: "/model deepseek-reasoner", desc: "DeepSeek R1 (Thinking)" },
+  { cmd: "/model deepseek-chat",    desc: "DeepSeek Chat (Schnell)" },
+  { cmd: "/context",                 desc: "Projekt-Kontext anzeigen" },
+  { cmd: "/cost",                    desc: "Token-Nutzung anzeigen" },
+  { cmd: "/compact",                 desc: "Konversation komprimieren" },
+  { cmd: "/quit",                    desc: "Beenden" },
 ];
 
+// Tab completer for readline
 function completer(line: string): [string[], string] {
   if (line.startsWith("/")) {
-    const hits = SLASH_COMMANDS.filter((c) => c.startsWith(line));
-    return [hits.length ? hits : SLASH_COMMANDS, line];
+    const hits = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(line)).map(c => c.cmd);
+    return [hits.length ? hits : SLASH_COMMANDS.map(c => c.cmd), line];
   }
   return [[], line];
 }
@@ -609,12 +630,137 @@ const rl = createInterface({
   completer,
 });
 
+// ─── Live Autocomplete Suggestions ───────────────────────
+let suggestionsShown = 0;  // number of suggestion lines currently rendered
+let selectedIdx = 0;       // currently highlighted suggestion
+
+function clearSuggestions() {
+  if (suggestionsShown <= 0) return;
+  // Move cursor down to end of suggestions, then clear upward
+  for (let i = 0; i < suggestionsShown; i++) {
+    process.stdout.write("\x1b[B");  // move down
+  }
+  for (let i = 0; i < suggestionsShown; i++) {
+    process.stdout.write("\x1b[A");  // move up
+    process.stdout.write("\x1b[2K"); // clear line
+  }
+  suggestionsShown = 0;
+}
+
+function renderSuggestions(line: string) {
+  // Clear any previous suggestions
+  clearSuggestions();
+
+  if (!line.startsWith("/") || isProcessing) return;
+
+  const matches = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(line));
+  if (matches.length === 0 || (matches.length === 1 && matches[0].cmd === line)) return;
+
+  // Clamp selection
+  selectedIdx = Math.max(0, Math.min(selectedIdx, matches.length - 1));
+
+  // Save cursor, render below
+  process.stdout.write("\x1b[s");  // save cursor position
+
+  const maxShow = Math.min(matches.length, 8);
+  for (let i = 0; i < maxShow; i++) {
+    const m = matches[i];
+    process.stdout.write("\n");
+    if (i === selectedIdx) {
+      // Highlighted
+      process.stdout.write(chalk.bgHex("#3b3b3b").hex("#22d3ee").bold(`  ${m.cmd}`) + chalk.bgHex("#3b3b3b").hex("#6b7280")(` ${m.desc}`) + "\x1b[K");
+    } else {
+      process.stdout.write(chalk.hex("#6b7280")(`  ${m.cmd}`) + chalk.hex("#4b5563")(` ${m.desc}`) + "\x1b[K");
+    }
+  }
+  if (matches.length > maxShow) {
+    process.stdout.write("\n" + chalk.hex("#4b5563")(`  ... +${matches.length - maxShow} weitere`) + "\x1b[K");
+    suggestionsShown = maxShow + 1;
+  } else {
+    suggestionsShown = maxShow;
+  }
+
+  // Restore cursor position
+  process.stdout.write("\x1b[u");
+}
+
+// Listen for keypress events to show live suggestions
+if (process.stdin.isTTY) {
+  emitKeypressEvents(process.stdin, rl);
+
+  process.stdin.on("keypress", (_ch: string | undefined, key: { name?: string; ctrl?: boolean; sequence?: string }) => {
+    if (isProcessing) return;
+
+    // Get current line content from readline
+    const line = (rl as unknown as { line: string }).line || "";
+
+    if (key?.name === "down" && suggestionsShown > 0) {
+      const matches = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(line));
+      selectedIdx = Math.min(selectedIdx + 1, Math.min(matches.length, 8) - 1);
+      renderSuggestions(line);
+      return;
+    }
+
+    if (key?.name === "up" && suggestionsShown > 0) {
+      selectedIdx = Math.max(selectedIdx - 1, 0);
+      renderSuggestions(line);
+      return;
+    }
+
+    // Tab to accept highlighted suggestion
+    if (key?.name === "tab" && suggestionsShown > 0 && line.startsWith("/")) {
+      const matches = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(line));
+      if (matches.length > 0 && matches[selectedIdx]) {
+        clearSuggestions();
+        const selected = matches[selectedIdx].cmd;
+        // Replace current line with selected command
+        (rl as unknown as { line: string; cursor: number }).line = selected;
+        (rl as unknown as { line: string; cursor: number }).cursor = selected.length;
+        // Redraw prompt with new content
+        process.stdout.write("\x1b[2K\r" + getPrompt() + selected);
+        selectedIdx = 0;
+        return;
+      }
+    }
+
+    // Enter clears suggestions
+    if (key?.name === "return") {
+      clearSuggestions();
+      selectedIdx = 0;
+      return;
+    }
+
+    // Escape clears suggestions
+    if (key?.name === "escape") {
+      clearSuggestions();
+      selectedIdx = 0;
+      return;
+    }
+
+    // Reset selection on new char
+    selectedIdx = 0;
+
+    // Delay render to let readline update the line first
+    setImmediate(() => {
+      const currentLine = (rl as unknown as { line: string }).line || "";
+      if (currentLine.startsWith("/")) {
+        renderSuggestions(currentLine);
+      } else {
+        clearSuggestions();
+      }
+    });
+  });
+}
+
 rl.prompt();
 
 let multilineBuffer = "";
 let isMultiline = false;
 
 rl.on("line", async (line) => {
+  clearSuggestions();
+  selectedIdx = 0;
+
   // Multiline support: end line with \ to continue
   if (line.endsWith("\\\\") || line.endsWith("\\")) {
     multilineBuffer += line.slice(0, -1) + "\n";
@@ -639,6 +785,7 @@ rl.on("line", async (line) => {
 });
 
 rl.on("close", () => {
+  clearSuggestions();
   console.log(chalk.magenta("\n  " + STAR + " Bis bald!\n"));
   process.exit(0);
 });
