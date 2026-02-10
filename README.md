@@ -34,7 +34,7 @@ $ morningstar
   ║                                                          ║
   ║              M O R N I N G S T A R                       ║
   ║              ━━━━━━━━━━━━━━━━━━━━━━                      ║
-  ║           Terminal AI Coding Assistant                    ║
+  ║           Terminal AI Coding Assistant                   ║
   ║           Powered by Mr.Morningstar                      ║
   ║           github.com/morningstarnasser                   ║
   ║                                                          ║
@@ -45,7 +45,7 @@ $ morningstar
   │ ★ Projekt  my-app (TypeScript / Next.js)             │
   │ ★ Branch   main                                      │
   │ ★ CWD      /Users/dev/my-app                         │
-  │ ★ Theme    Morningstar Default                        │
+  │ ★ Theme    Morningstar Default                       │
   └──────────────────────────────────────────────────────┘
 
   Tools   read · write · edit · bash · grep · glob · ls · git
