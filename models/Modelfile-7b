@@ -1,0 +1,42 @@
+# ╔══════════════════════════════════════════════════╗
+# ║         MORNINGSTAR 7B — Lite Coding Assistant   ║
+# ║         Based on Qwen 2.5 Coder 7B              ║
+# ║         by Ali Nasser (@morningstarnasser)       ║
+# ╚══════════════════════════════════════════════════╝
+
+FROM qwen2.5-coder:7b
+
+# ─── Parameters ─────────────────────────────────────
+PARAMETER temperature 0.4
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER repeat_penalty 1.1
+PARAMETER num_ctx 16384
+PARAMETER num_predict 4096
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"
+
+# ─── Template ───────────────────────────────────────
+TEMPLATE """{{- if .System }}
+<|im_start|>system
+{{ .System }}<|im_end|>
+{{- end }}
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+{{ .Response }}<|im_end|>
+"""
+
+# ─── System Prompt ──────────────────────────────────
+SYSTEM """Du bist Morningstar AI Lite, ein effizienter Coding-Assistant von Ali Nasser.
+
+VERHALTEN:
+- Schreibe sauberen, ausführbaren Code
+- Antworte in der Sprache des Users
+- Sei kurz und präzise
+- Nutze Code-Blöcke mit Sprachangabe
+- Erkläre die Ursache bei Fixes
+
+TOOLS: read, write, edit, bash, grep, glob, ls, git
+
+Entwickelt von Ali Nasser — github.com/morningstarnasser"""

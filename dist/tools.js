@@ -192,6 +192,99 @@ export function listDir(dirPath, cwd) {
         return { tool: "ls", result: `Fehler: ${e.message}`, success: false };
     }
 }
+// ─── Web Search (DuckDuckGo) ───
+export async function webSearch(query) {
+    countTool("web");
+    try {
+        const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        const res = await fetch(url, {
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; Morningstar-CLI/1.0)" },
+            signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        const html = await res.text();
+        // Parse results from DuckDuckGo HTML
+        const results = [];
+        const resultRegex = /<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+        let m;
+        while ((m = resultRegex.exec(html)) !== null && results.length < 8) {
+            const rawUrl = m[1].replace(/.*uddg=([^&]+).*/, "$1");
+            const decodedUrl = decodeURIComponent(rawUrl);
+            const title = m[2].replace(/<[^>]+>/g, "").trim();
+            const snippet = m[3].replace(/<[^>]+>/g, "").trim();
+            if (title && decodedUrl)
+                results.push({ title, url: decodedUrl, snippet });
+        }
+        if (results.length === 0)
+            return { tool: "web", result: `Keine Ergebnisse fuer: ${query}`, success: true };
+        const formatted = results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}\n   ${r.snippet}`).join("\n\n");
+        return { tool: "web", result: truncate(formatted), success: true };
+    }
+    catch (e) {
+        return { tool: "web", result: `Web-Suche Fehler: ${e.message}`, success: false };
+    }
+}
+// ─── Fetch URL ───
+export async function fetchUrl(url) {
+    countTool("fetch");
+    try {
+        if (!/^https?:\/\//i.test(url))
+            return { tool: "fetch", result: "Nur http/https URLs erlaubt.", success: false };
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        const res = await fetch(url, {
+            headers: { "User-Agent": "Mozilla/5.0 (compatible; Morningstar-CLI/1.0)" },
+            signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        let text = await res.text();
+        // Strip script, style, nav, footer, header tags
+        text = text.replace(/<(script|style|nav|footer|header|noscript)[^>]*>[\s\S]*?<\/\1>/gi, "");
+        // Strip all HTML tags
+        text = text.replace(/<[^>]+>/g, " ");
+        // Decode common HTML entities
+        text = text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, " ");
+        // Collapse whitespace
+        text = text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+        // Limit length
+        if (text.length > 10000)
+            text = text.slice(0, 10000) + "\n...[truncated]";
+        return { tool: "fetch", result: text || "(leere Seite)", success: true };
+    }
+    catch (e) {
+        return { tool: "fetch", result: `Fetch Fehler: ${e.message}`, success: false };
+    }
+}
+// ─── GitHub CLI ───
+export function ghCli(command, cwd) {
+    countTool("gh");
+    // Block destructive commands
+    const blocked = ["repo delete", "repo archive", "auth logout"];
+    for (const b of blocked) {
+        if (command.startsWith(b))
+            return { tool: "gh", result: `Blockiert: 'gh ${b}' ist nicht erlaubt.`, success: false };
+    }
+    try {
+        const output = execSync(`gh ${command}`, {
+            cwd,
+            encoding: "utf-8",
+            timeout: 30000,
+            maxBuffer: 1024 * 1024 * 2,
+            stdio: ["pipe", "pipe", "pipe"],
+        });
+        return { tool: "gh", result: truncate(output || "(kein Output)"), success: true };
+    }
+    catch (e) {
+        const err = e;
+        const msg = (err.stderr || err.stdout || err.message || "").trim();
+        if (msg.includes("not found") || msg.includes("command not found") || msg.includes("not recognized")) {
+            return { tool: "gh", result: "GitHub CLI (gh) ist nicht installiert. Installieren: https://cli.github.com/", success: false };
+        }
+        return { tool: "gh", result: truncate(msg), success: false };
+    }
+}
 // ─── Git Status ───
 export function gitStatus(cwd) {
     countTool("git");
@@ -316,6 +409,18 @@ export async function executeToolCalls(response, cwd) {
                 }
                 case "git": {
                     result = gitStatus(cwd);
+                    break;
+                }
+                case "web": {
+                    result = await webSearch(args.trim());
+                    break;
+                }
+                case "fetch": {
+                    result = await fetchUrl(args.trim());
+                    break;
+                }
+                case "gh": {
+                    result = ghCli(args.trim(), cwd);
                     break;
                 }
                 case "create":

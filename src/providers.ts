@@ -34,6 +34,7 @@ export function detectProvider(model: string): string {
   if (m.startsWith("gemini-")) return "google";
   if (m.startsWith("deepseek-coder")) return "ollama";
   if (m.startsWith("deepseek-")) return "deepseek";
+  if (m.startsWith("morningstar")) return "ollama";
   if (m.startsWith("llama") || m.startsWith("codellama") || m.startsWith("mistral") || m.startsWith("phi") || m.startsWith("qwen") || m.startsWith("gemma") || m.startsWith("starcoder") || m.startsWith("tinyllama") || m.startsWith("vicuna") || m.startsWith("wizardcoder") || m.startsWith("orca") || m.startsWith("neural") || m.startsWith("nomic")) return "ollama";
   if (m.startsWith("mixtral") || m.startsWith("groq/")) return "groq";
   // Check if model exists in local Ollama before falling back to OpenAI
@@ -82,7 +83,7 @@ export function listProviders(): { name: string; models: string[]; envKey: strin
     { name: "openai", models: ["o3", "o3-mini", "o3-pro", "o4-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o1", "o1-mini", "codex-mini-latest", "gpt-4o-search-preview"], envKey: "OPENAI_API_KEY" },
     { name: "anthropic", models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-3-5-20241022"], envKey: "ANTHROPIC_API_KEY" },
     { name: "google", models: ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"], envKey: "GOOGLE_API_KEY" },
-    { name: "ollama", models: ["llama3", "codellama", "mistral", "deepseek-coder", "phi3", "qwen2.5-coder"], envKey: "(lokal)" },
+    { name: "ollama", models: ["morningstar-14b", "morningstar-7b", "llama3", "codellama", "mistral", "deepseek-coder", "phi3", "qwen2.5-coder"], envKey: "(lokal)" },
     { name: "groq", models: ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"], envKey: "GROQ_API_KEY" },
     { name: "openrouter", models: ["(jedes Modell mit provider/model Format)"], envKey: "OPENROUTER_API_KEY" },
   ];
@@ -120,6 +121,9 @@ export function getModelDisplayName(model: string): string {
     "gemini-2.0-flash": "Gemini 2.0 Flash",
     "gemini-2.0-pro": "Gemini 2.0 Pro",
     "gemini-1.5-pro": "Gemini 1.5 Pro",
+    // Morningstar Local Models
+    "morningstar-14b": "Morningstar 14B (Coding)",
+    "morningstar-7b": "Morningstar 7B Lite",
   };
   return names[model] || model;
 }

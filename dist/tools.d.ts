@@ -16,6 +16,9 @@ export declare function bash(command: string, cwd: string): ToolResult;
 export declare function grepSearch(pattern: string, cwd: string, fileGlob?: string): ToolResult;
 export declare function globSearch(pattern: string, cwd: string): Promise<ToolResult>;
 export declare function listDir(dirPath: string, cwd: string): ToolResult;
+export declare function webSearch(query: string): Promise<ToolResult>;
+export declare function fetchUrl(url: string): Promise<ToolResult>;
+export declare function ghCli(command: string, cwd: string): ToolResult;
 export declare function gitStatus(cwd: string): ToolResult;
 export declare function executeToolCalls(response: string, cwd: string): Promise<{
     results: ToolResult[];

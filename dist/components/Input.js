@@ -1,0 +1,118 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useState } from "react";
+import { Box, Text, useInput } from "ink";
+import { useTheme } from "../hooks/useTheme.js";
+import { useCommandHistory } from "../hooks/useHistory.js";
+import { getTheme } from "../theme.js";
+import { getAllAgents } from "../custom-agents.js";
+export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing, suggestions }) {
+    const { prompt, accent, warning, dim } = useTheme();
+    const theme = getTheme();
+    const [value, setValue] = useState("");
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [selectedSuggIdx, setSelectedSuggIdx] = useState(0);
+    const { addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
+    // Compute prompt text
+    let promptText = "> ";
+    let promptColor = prompt;
+    if (activeAgent) {
+        const allAgents = getAllAgents();
+        const agent = allAgents[activeAgent];
+        if (agent) {
+            promptText = `[${agent.name}] > `;
+            promptColor = agent.color;
+        }
+    }
+    else if (planMode) {
+        promptText = "[Plan] > ";
+        promptColor = warning;
+    }
+    else if (thinkMode) {
+        promptText = "[Think] > ";
+        promptColor = accent;
+    }
+    // Filter suggestions
+    const filteredSuggestions = value.startsWith("/")
+        ? suggestions.filter((s) => s.cmd.startsWith(value)).slice(0, 8)
+        : [];
+    useInput((input, key) => {
+        if (isProcessing)
+            return;
+        if (key.return) {
+            if (showSuggestions && filteredSuggestions.length > 0 && filteredSuggestions[selectedSuggIdx]?.cmd !== value) {
+                // Accept suggestion on Enter if suggestion list is open and selected != current
+                setValue(filteredSuggestions[selectedSuggIdx].cmd);
+                setShowSuggestions(false);
+                setSelectedSuggIdx(0);
+                return;
+            }
+            const trimmed = value.trim();
+            if (trimmed) {
+                addToHistory(trimmed);
+                onSubmit(trimmed);
+            }
+            setValue("");
+            setShowSuggestions(false);
+            setSelectedSuggIdx(0);
+            resetNavigation();
+            return;
+        }
+        if (key.escape) {
+            setShowSuggestions(false);
+            setSelectedSuggIdx(0);
+            return;
+        }
+        if (key.upArrow) {
+            if (showSuggestions && filteredSuggestions.length > 0) {
+                setSelectedSuggIdx(Math.max(0, selectedSuggIdx - 1));
+            }
+            else {
+                const prev = navigateUp(value);
+                if (prev !== null)
+                    setValue(prev);
+            }
+            return;
+        }
+        if (key.downArrow) {
+            if (showSuggestions && filteredSuggestions.length > 0) {
+                setSelectedSuggIdx(Math.min(filteredSuggestions.length - 1, selectedSuggIdx + 1));
+            }
+            else {
+                const next = navigateDown();
+                if (next !== null)
+                    setValue(next);
+            }
+            return;
+        }
+        if (key.rightArrow && showSuggestions && filteredSuggestions.length > 0) {
+            setValue(filteredSuggestions[selectedSuggIdx].cmd);
+            setShowSuggestions(false);
+            setSelectedSuggIdx(0);
+            return;
+        }
+        if (key.tab && showSuggestions && filteredSuggestions.length > 0) {
+            setValue(filteredSuggestions[selectedSuggIdx].cmd);
+            setShowSuggestions(false);
+            setSelectedSuggIdx(0);
+            return;
+        }
+        if (key.backspace || key.delete) {
+            const newVal = value.slice(0, -1);
+            setValue(newVal);
+            setShowSuggestions(newVal.startsWith("/") && newVal.length > 0);
+            setSelectedSuggIdx(0);
+            return;
+        }
+        if (input && !key.ctrl && !key.meta) {
+            const newVal = value + input;
+            setValue(newVal);
+            setShowSuggestions(newVal.startsWith("/"));
+            setSelectedSuggIdx(0);
+            resetNavigation();
+        }
+    });
+    if (isProcessing)
+        return null;
+    return (_jsxs(Box, { flexDirection: "column", children: [_jsxs(Box, { children: [_jsx(Text, { color: promptColor, bold: true, children: promptText }), _jsx(Text, { children: value }), _jsx(Text, { color: dim, children: "\u2588" })] }), showSuggestions && filteredSuggestions.length > 0 && (_jsx(Box, { flexDirection: "column", marginLeft: 2, children: filteredSuggestions.map((s, i) => (_jsx(Box, { children: i === selectedSuggIdx ? (_jsxs(Text, { backgroundColor: "#3b3b3b", children: [_jsxs(Text, { color: "#22d3ee", bold: true, children: ["  ", s.cmd] }), _jsxs(Text, { color: "#6b7280", children: [" ", s.desc] })] })) : (_jsxs(Text, { children: [_jsxs(Text, { color: "#6b7280", children: ["  ", s.cmd] }), _jsxs(Text, { color: "#4b5563", children: [" ", s.desc] })] })) }, s.cmd))) }))] }));
+}
+//# sourceMappingURL=Input.js.map

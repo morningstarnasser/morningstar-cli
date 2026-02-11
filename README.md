@@ -30,6 +30,8 @@
 
 [![Node.js 18+](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![TypeScript 5](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://typescriptlang.org)
+[![Ink 5](https://img.shields.io/badge/Ink_5-React_Terminal-61DAFB?style=flat-square&logo=react&logoColor=white)](https://github.com/vadimdemedes/ink)
+[![Shiki](https://img.shields.io/badge/Shiki-VS_Code_Highlighting-8B5CF6?style=flat-square&logo=visualstudiocode&logoColor=white)](https://shiki.style)
 [![7 Providers](https://img.shields.io/badge/Providers-7-8B5CF6?style=flat-square&logo=cloud&logoColor=white)](.)
 [![9 Tools](https://img.shields.io/badge/Tools-9-06B6D4?style=flat-square&logo=wrench&logoColor=white)](.)
 [![6+ Agents](https://img.shields.io/badge/Agents-6%2B_Custom-A855F7?style=flat-square&logo=robot&logoColor=white)](.)
@@ -42,6 +44,7 @@
 
 **A fully-featured AI coding assistant that lives in your terminal — inspired by Claude Code.**
 
+Built with **Ink** (React for Terminal) and **Shiki** (VS Code Syntax Highlighting).<br/>
 Streams responses in real-time with visible AI thinking, provides 50+ slash commands, 9 tools,<br/>
 custom agents, memory, permissions, project settings, image generation, vision, and more.
 
@@ -66,6 +69,8 @@ custom agents, memory, permissions, project settings, image generation, vision, 
 ## What is Morningstar CLI?
 
 Morningstar CLI is an **open-source terminal AI coding assistant** — like Claude Code, but with **7 AI providers**, **custom agents**, **local image generation**, **vision analysis**, and a full permission system with per-project settings.
+
+Built on **Ink** (React for the terminal) with **Shiki** syntax highlighting — the same engine that powers VS Code. Every UI element is a React component: the banner, input field, autocomplete suggestions, streaming output, code blocks, tool results, and the AI thinking display.
 
 One tool. Any model. Maximum control.
 
@@ -177,6 +182,34 @@ One tool. Any model. Maximum control.
 | **Cost Tracking** | Estimated token usage and costs per session |
 | **API Server** | Expose Morningstar as HTTP API |
 | **Crash-Proof** | Global error handlers prevent any crash |
+
+---
+
+## UI Stack
+
+Morningstar's terminal UI is built with modern React-based rendering:
+
+| Technology | Purpose |
+|:-----------|:--------|
+| **[Ink 5](https://github.com/vadimdemedes/ink)** | React renderer for the terminal — all UI is React components |
+| **[React 18](https://react.dev)** | Component architecture, hooks, state management |
+| **[Shiki](https://shiki.style)** | VS Code-quality syntax highlighting (vitesse-dark theme) |
+| **useReducer** | Central state management via AppContext |
+
+### Components
+
+| Component | Description |
+|:----------|:------------|
+| `<Banner/>` | ASCII star logo + project info box |
+| `<Input/>` | Terminal input with autocomplete (replaces readline) |
+| `<Suggestions/>` | Slash command autocomplete dropdown |
+| `<StreamingOutput/>` | Real-time AI response with code block detection |
+| `<CodeBlock/>` | Shiki-highlighted code with language label |
+| `<PlanBox/>` | AI reasoning/thinking display with word-wrap |
+| `<ToolResult/>` | Tool output box with diff view for edits |
+| `<Spinner/>` | Claude-style animated spinner with status text |
+| `<Help/>` | Structured `/help` output |
+| `<Features/>` | Feature list for `/features` |
 
 ---
 
@@ -613,35 +646,60 @@ your-project/
 
 ## Architecture
 
+The UI is built entirely with **Ink** (React for Terminal) — 10 components, 3 hooks, 1 context provider.
+
 ```
 morningstar-cli/
 ├── bin/
-│   └── morningstar.js            ← Entry point
+│   └── morningstar.js                ← Entry point
 ├── src/
-│   ├── index.ts                  ← CLI loop, 50+ commands, banner, autocomplete
-│   ├── ai.ts                     ← Multi-provider streaming + plan tokens
-│   ├── providers.ts              ← 7 providers (OpenAI, Anthropic, Google, DeepSeek, Ollama, Groq, OpenRouter)
-│   ├── tools.ts                  ← 9 tools + parser + undo tracking
-│   ├── settings.ts               ← Per-project + global settings (.morningstar/settings.local.json)
-│   ├── permissions.ts            ← Tool & command permission system
-│   ├── agents.ts                 ← 6 built-in agents
-│   ├── custom-agents.ts          ← Custom agent CRUD + persistence
-│   ├── memory.ts                 ← Persistent notes system
-│   ├── project-memory.ts         ← MORNINGSTAR.md project context
-│   ├── todo.ts                   ← Task management
-│   ├── history.ts                ← Session save/load
-│   ├── undo.ts                   ← Undo stack
-│   ├── theme.ts                  ← 6 color themes
-│   ├── context.ts                ← Project auto-detection
-│   ├── cost-tracker.ts           ← Token usage & cost estimation
-│   ├── repo-map.ts               ← Repository analysis & onboarding
-│   ├── mentions.ts               ← @file mentions in prompts
-│   ├── vision.ts                 ← Image analysis (LLaVA, multimodal)
-│   ├── image-gen.ts              ← Local Stable Diffusion generation
-│   ├── git-integration.ts        ← Smart commits & git operations
-│   ├── server.ts                 ← HTTP API server
-│   └── types.ts                  ← TypeScript interfaces
-├── dist/                         ← Compiled JavaScript
+│   ├── index.ts                      ← CLI setup (commander) + render(<App/>)
+│   ├── app.tsx                       ← Main Ink app (state, commands, AI loop)
+│   │
+│   ├── components/                   ← React UI Components
+│   │   ├── Banner.tsx                ← ASCII logo + project info
+│   │   ├── Help.tsx                  ← /help output
+│   │   ├── Features.tsx              ← /features output
+│   │   ├── Input.tsx                 ← Terminal input (replaces readline)
+│   │   ├── Suggestions.tsx           ← Autocomplete dropdown
+│   │   ├── StreamingOutput.tsx       ← AI response renderer
+│   │   ├── CodeBlock.tsx             ← Shiki syntax highlighting
+│   │   ├── PlanBox.tsx               ← AI reasoning display
+│   │   ├── ToolResult.tsx            ← Tool result display
+│   │   └── Spinner.tsx               ← Animated spinner
+│   │
+│   ├── context/
+│   │   └── AppContext.tsx             ← Global state (useReducer)
+│   │
+│   ├── hooks/
+│   │   ├── useTheme.ts               ← Theme colors for Ink
+│   │   ├── useChat.ts                ← AI streaming state
+│   │   └── useHistory.ts             ← Command history
+│   │
+│   ├── ai.ts                         ← Multi-provider streaming
+│   ├── providers.ts                  ← 7 providers
+│   ├── tools.ts                      ← 9 tools + parser
+│   ├── settings.ts                   ← Per-project + global settings
+│   ├── permissions.ts                ← Tool & command permissions
+│   ├── agents.ts                     ← 6 built-in agents
+│   ├── custom-agents.ts              ← Custom agent CRUD
+│   ├── memory.ts                     ← Persistent notes
+│   ├── project-memory.ts             ← MORNINGSTAR.md context
+│   ├── todo.ts                       ← Task management
+│   ├── history.ts                    ← Session save/load
+│   ├── undo.ts                       ← Undo stack
+│   ├── theme.ts                      ← 6 color themes
+│   ├── context.ts                    ← Project auto-detection
+│   ├── cost-tracker.ts               ← Token usage & cost
+│   ├── repo-map.ts                   ← Repository analysis
+│   ├── mentions.ts                   ← @file mentions
+│   ├── vision.ts                     ← Image analysis (LLaVA)
+│   ├── image-gen.ts                  ← Stable Diffusion
+│   ├── git-integration.ts            ← Smart commits
+│   ├── server.ts                     ← HTTP API server
+│   └── types.ts                      ← TypeScript interfaces
+├── dist/                             ← Compiled JavaScript
+├── MORNINGSTAR.md                    ← Project documentation
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -650,23 +708,24 @@ morningstar-cli/
 ### How It Works
 
 ```
- ┌─────────┐    ┌───────────┐    ┌──────────────┐    ┌──────────┐
- │  Input   │───→│  Router    │───→│  7 Providers │───→│  Stream  │
- │ readline │    │ 50+ cmds   │    │  SSE/REST    │    │  Output  │
- └─────────┘    └───────────┘    └──────────────┘    └──────────┘
-                     │                    │                  │
-                     ▼                    ▼                  ▼
-              ┌───────────┐       ┌──────────────┐   ┌──────────┐
-              │ Settings   │       │  Tool Calls  │   │   Plan   │
-              │ .morningstar│      │ read/write/  │   │ Display  │
-              │ permissions│       │ edit/bash/.. │   │ (Think)  │
-              └───────────┘       └──────────────┘   └──────────┘
-                                        │
-                                        ▼
-                                 ┌──────────────┐
-                                 │  Multi-Turn  │
-                                 │  (up to 5x)  │
-                                 └──────────────┘
+ ┌─────────────┐    ┌───────────┐    ┌──────────────┐    ┌──────────────┐
+ │  <Input/>    │───→│  Router    │───→│  7 Providers │───→│ <Streaming   │
+ │  Ink React   │    │ 50+ cmds   │    │  SSE/REST    │    │  Output/>    │
+ └─────────────┘    └───────────┘    └──────────────┘    └──────────────┘
+       │                 │                    │                   │
+       ▼                 ▼                    ▼                   ▼
+ ┌───────────┐    ┌───────────┐       ┌──────────────┐   ┌──────────────┐
+ │ <Suggest  │    │ Settings   │       │  Tool Calls  │   │ <CodeBlock/> │
+ │  ions/>   │    │ .morningstar│      │ read/write/  │   │  Shiki HL    │
+ │ Autocomp  │    │ permissions│       │ edit/bash/.. │   │ <PlanBox/>   │
+ └───────────┘    └───────────┘       └──────────────┘   └──────────────┘
+                                            │
+                                            ▼
+                                     ┌──────────────┐
+                                     │ <ToolResult/> │
+                                     │  Multi-Turn   │
+                                     │  (up to 5x)   │
+                                     └──────────────┘
 ```
 
 ---
