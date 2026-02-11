@@ -2099,7 +2099,8 @@ async function streamAI(msgs, cfg, signal) {
     const MAX_PLAN_LINES = 20; // compact — show max 20 lines
     const MAX_LINE_WIDTH = 68; // wrap long lines
     const planStart = Date.now();
-    const spinner = ora({ text: chalk.gray("Denkt nach..."), spinner: "dots", stream: process.stderr }).start();
+    // Use stdout for spinner (not stderr) — stderr desync's terminal cursor with readline
+    const spinner = ora({ text: chalk.gray("Denkt nach..."), spinner: "dots" }).start();
     // Live elapsed time + token estimate in spinner
     const spinnerStart = Date.now();
     let streamedChars = 0;
