@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
+import { AnimatedDiff } from "./AnimatedDiff.js";
 
 interface ToolResultProps {
   tool: string;
@@ -112,65 +113,86 @@ function getSummary(tool: string, result: string, success: boolean, linesChanged
   }
 }
 
+// Tools that show full multi-line output (like Claude Code)
+const FULL_OUTPUT_TOOLS = new Set(["bash", "auto-bash", "auto-python", "grep", "glob", "ls", "git", "web", "fetch"]);
+const MAX_OUTPUT_LINES = 25;
+const MAX_DIFF_LINES = 15;
+
 export function ToolResult({ tool, result, success, diff, filePath, linesChanged, command }: ToolResultProps) {
-  const { primary, success: successColor, error, warning, dim, accent } = useTheme();
+  const { primary, error, dim } = useTheme();
 
   const label = TOOL_LABELS[tool] || tool;
   const toolColor = success ? (TOOL_COLORS[tool] || primary) : error;
   const arg = getToolArg(tool, filePath, command, result);
-  const summary = getSummary(tool, result, success, linesChanged, filePath);
-  const maxDiffLines = 12;
+  const showFullOutput = FULL_OUTPUT_TOOLS.has(tool);
+  const lines = result.split("\n");
 
   return (
     <Box flexDirection="column" marginLeft={2}>
       {/* Header: ⏺ ToolName(arg) */}
       <Text>
-        <Text color={toolColor} bold>{"  ⏺ "}</Text>
+        <Text color={toolColor} bold>{"⏺ "}</Text>
         <Text color={toolColor} bold>{label}</Text>
         {arg && <Text color={dim}>({arg})</Text>}
       </Text>
 
-      {/* Summary line: ⎿  Result summary */}
-      <Text>
-        <Text color={dim}>{"    ⎿  "}</Text>
-        {success ? (
-          <Text>{summary}</Text>
-        ) : (
-          <Text color={error}>{summary}</Text>
-        )}
-      </Text>
-
-      {/* Diff view for edit tool — Claude Code style */}
-      {diff && tool === "edit" && (
-        <Box flexDirection="column" marginLeft={6}>
-          {diff.oldStr.split("\n").slice(0, maxDiffLines).map((line, i) => (
-            <Text key={`old-${i}`}>
-              <Text color="#f87171">{`      - ${line}`}</Text>
+      {/* Output with ⎿ continuation — Claude Code style */}
+      {success && showFullOutput && lines.length > 0 ? (
+        <Box flexDirection="column">
+          {/* First line with ⎿ */}
+          <Text>
+            <Text color={dim}>{"  ⎿  "}</Text>
+            <Text>{lines[0]}</Text>
+          </Text>
+          {/* Remaining lines indented to align */}
+          {lines.slice(1, MAX_OUTPUT_LINES).map((line, i) => (
+            <Text key={i}>
+              <Text>{"     "}</Text>
+              <Text>{line || " "}</Text>
             </Text>
           ))}
-          {diff.oldStr.split("\n").length > maxDiffLines && (
-            <Text color={dim}>{`      ... (+${diff.oldStr.split("\n").length - maxDiffLines} lines)`}</Text>
-          )}
-          {diff.newStr.split("\n").slice(0, maxDiffLines).map((line, i) => (
-            <Text key={`new-${i}`}>
-              <Text color="#34d399">{`      + ${line}`}</Text>
+          {lines.length > MAX_OUTPUT_LINES && (
+            <Text>
+              <Text>{"     "}</Text>
+              <Text color={dim}>{`… (+${lines.length - MAX_OUTPUT_LINES} lines)`}</Text>
             </Text>
-          ))}
-          {diff.newStr.split("\n").length > maxDiffLines && (
-            <Text color={dim}>{`      ... (+${diff.newStr.split("\n").length - maxDiffLines} lines)`}</Text>
           )}
         </Box>
-      )}
-
-      {/* Expanded output for bash/grep (multi-line results) */}
-      {!diff && success && (tool === "bash" || tool === "auto-bash" || tool === "auto-python" || tool === "grep" || tool === "ls") && result.split("\n").length > 1 && (
-        <Box flexDirection="column" marginLeft={6}>
-          {result.split("\n").slice(0, 15).map((line, i) => (
-            <Text key={i} color={dim}>{`      ${line}`}</Text>
+      ) : success && !showFullOutput ? (
+        /* Short summary for file tools (read/write/edit/delete) */
+        <Text>
+          <Text color={dim}>{"  ⎿  "}</Text>
+          <Text>{getSummary(tool, result, success, linesChanged, filePath)}</Text>
+        </Text>
+      ) : !success ? (
+        /* Error output */
+        <Box flexDirection="column">
+          <Text>
+            <Text color={dim}>{"  ⎿  "}</Text>
+            <Text color={error}>{lines[0]}</Text>
+          </Text>
+          {lines.slice(1, 10).map((line, i) => (
+            <Text key={i}>
+              <Text>{"     "}</Text>
+              <Text color={error}>{line || " "}</Text>
+            </Text>
           ))}
-          {result.split("\n").length > 15 && (
-            <Text color={dim}>{`      ... (+${result.split("\n").length - 15} lines)`}</Text>
+          {lines.length > 10 && (
+            <Text>
+              <Text>{"     "}</Text>
+              <Text color={dim}>{`… (+${lines.length - 10} lines)`}</Text>
+            </Text>
           )}
+        </Box>
+      ) : null}
+
+      {/* Animated diff view for edit tool */}
+      {diff && tool === "edit" && (
+        <Box marginLeft={3}>
+          <AnimatedDiff
+            oldLines={diff.oldStr ? diff.oldStr.split("\n") : []}
+            newLines={diff.newStr ? diff.newStr.split("\n") : []}
+          />
         </Box>
       )}
     </Box>

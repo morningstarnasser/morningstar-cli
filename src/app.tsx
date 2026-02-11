@@ -9,6 +9,8 @@ import { MorningstarSpinner } from "./components/Spinner.js";
 import { ToolResult as ToolResultBox } from "./components/ToolResult.js";
 import { CodeBlock } from "./components/CodeBlock.js";
 import { PlanBox } from "./components/PlanBox.js";
+import { ContextRadar } from "./components/ContextRadar.js";
+import { buildDepGraph, renderDepGraphAscii } from "./dep-graph.js";
 import { useTheme } from "./hooks/useTheme.js";
 import { streamChat } from "./ai.js";
 import { executeToolCalls, toolStats, webSearch, fetchUrl } from "./tools.js";
@@ -89,6 +91,8 @@ function buildSlashCommands(): SlashCmd[] {
     { cmd: "/score", desc: "Projekt-Score" },
     { cmd: "/roast", desc: "Code Roast" },
     { cmd: "/map", desc: "Codebase Map" },
+    { cmd: "/graph", desc: "Dependency Graph" },
+    { cmd: "/deps", desc: "Dependency Graph" },
     { cmd: "/diff", desc: "Git diff" },
     { cmd: "/status", desc: "Git status" },
     { cmd: "/log", desc: "Git log" },
@@ -343,6 +347,20 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       case "/roast":
         addOutput({ type: "text", content: generateCodeRoast(ctx.cwd) });
         return true;
+
+      case "/graph":
+      case "/deps":
+      case "/depgraph": {
+        const graph = buildDepGraph(ctx.cwd);
+        if (graph.nodes.length === 0) {
+          addOutput({ type: "info", content: "Keine Code-Dateien gefunden." });
+        } else {
+          const ascii = renderDepGraphAscii(graph, process.stdout.columns || 80);
+          addOutput({ type: "text", content: ascii });
+          addOutput({ type: "info", content: `${graph.nodes.length} Dateien \u00B7 ${graph.edges.length} Verbindungen` });
+        }
+        return true;
+      }
 
       case "/map": {
         const map = getRepoMap(ctx.cwd);
@@ -857,9 +875,9 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       case "tool-activity":
         return (
           <Box key={item.id} marginLeft={2}>
-            <Text color={info} bold>{"  ⏺ "}</Text>
+            <Text color={info} bold>{"⏺ "}</Text>
             <Text color={info}>{item.content}</Text>
-            <Text color={dim}>{" ..."}</Text>
+            <Text color={dim}>{" …"}</Text>
           </Box>
         );
       default:
@@ -890,6 +908,11 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
             startTime={streamStart}
           />
         )}
+
+        {/* Context Radar */}
+        <Box marginLeft={2}>
+          <ContextRadar messages={messages} />
+        </Box>
 
         {/* Input */}
         <Box marginTop={1}>
