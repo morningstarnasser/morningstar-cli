@@ -17,6 +17,10 @@ export const metadata: Metadata = {
     "Claude", "Gemini", "Ollama", "developer tools", "open source",
   ],
   authors: [{ name: "Ali Nasser", url: "https://github.com/morningstarnasser" }],
+  icons: {
+    icon: "/icon.svg",
+    apple: "/apple-touch-icon.svg",
+  },
   openGraph: {
     title: "MORNINGSTAR CLI",
     description: "Your Terminal. Your AI. No Limits.",

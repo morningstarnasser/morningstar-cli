@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="96" fill="#0a0a0a"/>
+  <!-- Outer glow -->
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="starGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="200" fill="url(#glow)"/>
+  <!-- 8-pointed star -->
+  <polygon points="256,56 288,200 432,200 312,288 344,432 256,344 168,432 200,288 80,200 224,200" fill="url(#starGrad)"/>
+  <!-- Inner star highlight -->
+  <polygon points="256,56 288,200 432,200 312,288 344,432 256,344 168,432 200,288 80,200 224,200" fill="none" stroke="#fde68a" stroke-width="4" stroke-opacity="0.5"/>
+  <!-- Center dot -->
+  <circle cx="256" cy="248" r="24" fill="#0a0a0a"/>
+  <circle cx="256" cy="248" r="12" fill="#fbbf24"/>
+</svg>
