@@ -236,13 +236,13 @@ function restorePrompt(): void {
     process.stdout.write("\x1b[?25h");   // Ensure cursor is visible
     process.stdin.resume();               // Ensure stdin is reading
     rl.resume();                          // Ensure readline is not paused
-    // Clear current terminal line — readline may have stale cursor position
-    clearLine(process.stdout, 0);
-    cursorTo(process.stdout, 0);
-    // Reset readline's internal line buffer (critical for TTY sync)
-    const rlInternal = rl as unknown as { line: string; cursor: number };
+    // Force a fresh line — prevents doubled text from readline desync
+    process.stdout.write("\r\n");
+    // Reset readline's FULL internal state (cursor, line, prevRows)
+    const rlInternal = rl as unknown as { line: string; cursor: number; prevRows: number; output: { columns?: number } };
     rlInternal.line = "";
     rlInternal.cursor = 0;
+    if ("prevRows" in rlInternal) rlInternal.prevRows = 0;
     // Set and display prompt
     rl.setPrompt(getPrompt());
     rl.prompt();
@@ -2296,10 +2296,5 @@ rl.on("line", async (line) => {
 
 rl.on("close", () => { clearSuggestions(); console.log(chalk.hex(t().star)("\n  " + STAR() + " Bis bald!\n")); process.exit(0); });
 
-// ─── Watchdog: auto-restore prompt if readline gets stuck ──
-setInterval(() => {
-  if (!isProcessing && lastProcessingEndTime > 0 && Date.now() - lastProcessingEndTime > 3000) {
-    lastProcessingEndTime = 0;
-    try { restorePrompt(); } catch {}
-  }
-}, 2000);
+// ─── Watchdog: disabled — was causing double-text by calling restorePrompt() while user types ──
+// The prompt is already restored in processInput's finally block.
