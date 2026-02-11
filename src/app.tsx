@@ -739,7 +739,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
           }
 
           const toolFeedback = toolResults.results.map(r => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`).join("\n\n");
-          const msgsWithAssistant = [...newMessages, { role: "assistant" as const, content: fullResponse }, { role: "user" as const, content: `Tool-Ergebnisse:\n${toolFeedback}\n\nFahre fort.` }];
+          const msgsWithAssistant = [...newMessages, { role: "assistant" as const, content: fullResponse }, { role: "user" as const, content: `Tool-Ergebnisse:\n${toolFeedback}\n\nFasse zusammen was du getan hast. Fuehre KEINE weiteren Tools aus, es sei denn es ist notwendig um die urspruengliche Aufgabe abzuschliessen.` }];
           setMessages(msgsWithAssistant);
 
           // Follow-up streaming
@@ -756,13 +756,22 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
             }
           } catch {}
 
-          // Multi-turn tool loop (max 5 rounds)
+          // Multi-turn tool loop (max 5 rounds, with loop detection)
           let depth = 0;
           let latestMessages = msgsWithAssistant;
+          let lastToolSig = "";
           while (depth < 5 && currentResponse && !signal.aborted) {
             let nested: Awaited<ReturnType<typeof executeToolCalls>> | null = null;
             try { nested = await executeToolCalls(currentResponse, ctx.cwd); } catch { break; }
             if (!nested || nested.results.length === 0) break;
+
+            // Loop detection: break if same tools are being called repeatedly
+            const toolSig = nested.results.map(r => `${r.tool}:${r.filePath || r.command || ""}`).join("|");
+            if (toolSig === lastToolSig) {
+              addOutput({ type: "info", content: "Loop erkannt — Tool-Kette gestoppt." });
+              break;
+            }
+            lastToolSig = toolSig;
 
             // Save current response before showing tool results
             saveResponseToOutput(currentResponse, currentReasoning, followUpStart);
@@ -770,7 +779,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
 
             for (const r of nested.results) addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff, filePath: r.filePath, linesChanged: r.linesChanged, command: r.command });
             const nestedFeedback = nested.results.map(r => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`).join("\n\n");
-            latestMessages = [...latestMessages, { role: "assistant" as const, content: currentResponse }, { role: "user" as const, content: `Tool-Ergebnisse:\n${nestedFeedback}\n\nFahre fort.` }];
+            latestMessages = [...latestMessages, { role: "assistant" as const, content: currentResponse }, { role: "user" as const, content: `Tool-Ergebnisse:\n${nestedFeedback}\n\nFasse zusammen was du getan hast. Fuehre KEINE weiteren Tools aus, es sei denn es ist notwendig um die urspruengliche Aufgabe abzuschliessen.` }];
             setMessages(latestMessages);
 
             // Start new streaming round
