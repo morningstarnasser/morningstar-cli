@@ -45,13 +45,16 @@ interface AppProps {
 // Output item types
 interface OutputItem {
   id: number;
-  type: "banner" | "text" | "help" | "features" | "streaming" | "ai-response" | "spinner" | "tool-result" | "info" | "error" | "success";
+  type: "banner" | "text" | "help" | "features" | "streaming" | "ai-response" | "spinner" | "tool-result" | "tool-activity" | "info" | "error" | "success";
   content?: string;
   // For tool results
   tool?: string;
   result?: string;
   success?: boolean;
   diff?: { filePath: string; oldStr: string; newStr: string };
+  filePath?: string;
+  linesChanged?: number;
+  command?: string;
   // For streaming
   streamingText?: string;
   streamingReasoning?: string;
@@ -637,7 +640,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       const isWebQuery = webKeywords.some(k => lower.includes(k));
 
       if (urlMatch) {
-        addOutput({ type: "info", content: `Auto-Fetch: ${urlMatch[0]}` });
+        addOutput({ type: "tool-activity", content: `Fetch(${urlMatch[0]})` });
         try {
           const fetchResult = await fetchUrl(urlMatch[0]);
           addOutput({ type: "tool-result", tool: "fetch", result: fetchResult.result, success: fetchResult.success });
@@ -645,7 +648,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
         } catch {}
       } else if (isWebQuery) {
         const searchQuery = mentionClean.replace(/^(suche?|finde?|google|recherchiere)\s*/i, "").trim() || mentionClean;
-        addOutput({ type: "info", content: `Auto-Suche: "${searchQuery}"` });
+        addOutput({ type: "tool-activity", content: `WebSearch("${searchQuery}")` });
         try {
           const searchResult = await webSearch(searchQuery);
           addOutput({ type: "tool-result", tool: "web", result: searchResult.result, success: searchResult.success });
@@ -712,9 +715,9 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
           saveResponseToOutput(fullResponse, fullReasoning, streamStart);
           setIsStreaming(false);
 
-          // Show tool results
+          // Show tool results — Claude Code style
           for (const r of toolResults.results) {
-            addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff });
+            addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff, filePath: r.filePath, linesChanged: r.linesChanged, command: r.command });
           }
 
           const toolFeedback = toolResults.results.map(r => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`).join("\n\n");
@@ -747,7 +750,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
             saveResponseToOutput(currentResponse, currentReasoning, followUpStart);
             setIsStreaming(false);
 
-            for (const r of nested.results) addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff });
+            for (const r of nested.results) addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff, filePath: r.filePath, linesChanged: r.linesChanged, command: r.command });
             const nestedFeedback = nested.results.map(r => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`).join("\n\n");
             latestMessages = [...latestMessages, { role: "assistant" as const, content: currentResponse }, { role: "user" as const, content: `Tool-Ergebnisse:\n${nestedFeedback}\n\nFahre fort.` }];
             setMessages(latestMessages);
@@ -849,7 +852,18 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
                 result={item.result || ""}
                 success={item.success ?? true}
                 diff={item.diff}
+                filePath={item.filePath}
+                linesChanged={item.linesChanged}
+                command={item.command}
               />
+            );
+          case "tool-activity":
+            return (
+              <Box key={item.id} marginLeft={2}>
+                <Text color={info} bold>{"  ⏺ "}</Text>
+                <Text color={info}>{item.content}</Text>
+                <Text color={dim}>{" ..."}</Text>
+              </Box>
             );
           default:
             return null;

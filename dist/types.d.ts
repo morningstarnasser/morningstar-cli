@@ -11,6 +11,9 @@ export interface ToolResult {
         oldStr: string;
         newStr: string;
     };
+    filePath?: string;
+    linesChanged?: number;
+    command?: string;
 }
 export interface ProjectContext {
     cwd: string;

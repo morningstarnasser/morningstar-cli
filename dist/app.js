@@ -623,7 +623,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
             const webKeywords = ["such", "find", "google", "recherch", "was ist", "wer ist", "how to"];
             const isWebQuery = webKeywords.some(k => lower.includes(k));
             if (urlMatch) {
-                addOutput({ type: "info", content: `Auto-Fetch: ${urlMatch[0]}` });
+                addOutput({ type: "tool-activity", content: `Fetch(${urlMatch[0]})` });
                 try {
                     const fetchResult = await fetchUrl(urlMatch[0]);
                     addOutput({ type: "tool-result", tool: "fetch", result: fetchResult.result, success: fetchResult.success });
@@ -633,7 +633,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
             }
             else if (isWebQuery) {
                 const searchQuery = mentionClean.replace(/^(suche?|finde?|google|recherchiere)\s*/i, "").trim() || mentionClean;
-                addOutput({ type: "info", content: `Auto-Suche: "${searchQuery}"` });
+                addOutput({ type: "tool-activity", content: `WebSearch("${searchQuery}")` });
                 try {
                     const searchResult = await webSearch(searchQuery);
                     addOutput({ type: "tool-result", tool: "web", result: searchResult.result, success: searchResult.success });
@@ -696,9 +696,9 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
                     // Save initial AI response to output BEFORE showing tool results
                     saveResponseToOutput(fullResponse, fullReasoning, streamStart);
                     setIsStreaming(false);
-                    // Show tool results
+                    // Show tool results — Claude Code style
                     for (const r of toolResults.results) {
-                        addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff });
+                        addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff, filePath: r.filePath, linesChanged: r.linesChanged, command: r.command });
                     }
                     const toolFeedback = toolResults.results.map(r => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`).join("\n\n");
                     const msgsWithAssistant = [...newMessages, { role: "assistant", content: fullResponse }, { role: "user", content: `Tool-Ergebnisse:\n${toolFeedback}\n\nFahre fort.` }];
@@ -741,7 +741,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
                         saveResponseToOutput(currentResponse, currentReasoning, followUpStart);
                         setIsStreaming(false);
                         for (const r of nested.results)
-                            addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff });
+                            addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff, filePath: r.filePath, linesChanged: r.linesChanged, command: r.command });
                         const nestedFeedback = nested.results.map(r => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`).join("\n\n");
                         latestMessages = [...latestMessages, { role: "assistant", content: currentResponse }, { role: "user", content: `Tool-Ergebnisse:\n${nestedFeedback}\n\nFahre fort.` }];
                         setMessages(latestMessages);
@@ -820,7 +820,9 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
                     case "ai-response":
                         return (_jsx(StreamingOutput, { text: item.streamingText || "", reasoning: item.streamingReasoning || "", isStreaming: false, startTime: item.startTime || 0 }, item.id));
                     case "tool-result":
-                        return (_jsx(ToolResultBox, { tool: item.tool || "", result: item.result || "", success: item.success ?? true, diff: item.diff }, item.id));
+                        return (_jsx(ToolResultBox, { tool: item.tool || "", result: item.result || "", success: item.success ?? true, diff: item.diff, filePath: item.filePath, linesChanged: item.linesChanged, command: item.command }, item.id));
+                    case "tool-activity":
+                        return (_jsxs(Box, { marginLeft: 2, children: [_jsx(Text, { color: info, bold: true, children: "  ⏺ " }), _jsx(Text, { color: info, children: item.content }), _jsx(Text, { color: dim, children: " ..." })] }, item.id));
                     default:
                         return null;
                 }

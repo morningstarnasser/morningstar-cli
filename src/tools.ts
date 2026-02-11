@@ -35,9 +35,10 @@ export function readFile(filePath: string, cwd: string): ToolResult {
     const abs = resolve(cwd, filePath);
     if (!existsSync(abs)) return { tool: "read", result: `Datei nicht gefunden: ${filePath}`, success: false };
     const content = readFileSync(abs, "utf-8");
+    const lineCount = content.split("\n").length;
     const lines = content.split("\n").map((l, i) => `${String(i + 1).padStart(4)} | ${l}`).join("\n");
     toolStats.filesRead++;
-    return { tool: "read", result: truncate(lines), success: true };
+    return { tool: "read", result: truncate(lines), success: true, filePath, linesChanged: lineCount };
   } catch (e) {
     return { tool: "read", result: `Fehler: ${(e as Error).message}`, success: false };
   }
@@ -63,8 +64,9 @@ export function writeFile(filePath: string, content: string, cwd: string): ToolR
     });
 
     writeFileSync(abs, content, "utf-8");
+    const lineCount = content.split("\n").length;
     toolStats.filesWritten++;
-    return { tool: "write", result: `Datei geschrieben: ${filePath} (${content.length} Zeichen)`, success: true };
+    return { tool: "write", result: `Wrote ${lineCount} lines to ${filePath}`, success: true, filePath, linesChanged: lineCount };
   } catch (e) {
     return { tool: "write", result: `Fehler: ${(e as Error).message}`, success: false };
   }
@@ -93,8 +95,12 @@ export function editFile(filePath: string, oldStr: string, newStr: string, cwd: 
 
     const newContent = content.replace(oldStr, newStr);
     writeFileSync(abs, newContent, "utf-8");
+    const addedLines = newStr.split("\n").length;
+    const removedLines = oldStr.split("\n").length;
+    const delta = addedLines - removedLines;
+    const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
     toolStats.filesEdited++;
-    return { tool: "edit", result: `Datei bearbeitet: ${filePath}`, success: true, diff: { filePath, oldStr, newStr } };
+    return { tool: "edit", result: `Updated ${filePath} (${deltaStr} lines)`, success: true, diff: { filePath, oldStr, newStr }, filePath, linesChanged: addedLines };
   } catch (e) {
     return { tool: "edit", result: `Fehler: ${(e as Error).message}`, success: false };
   }
@@ -120,7 +126,7 @@ export function deleteFile(filePath: string, cwd: string): ToolResult {
 
     unlinkSync(abs);
     toolStats.filesDeleted++;
-    return { tool: "delete", result: `Datei geloescht: ${filePath}`, success: true };
+    return { tool: "delete", result: `Deleted ${filePath}`, success: true, filePath };
   } catch (e) {
     return { tool: "delete", result: `Fehler: ${(e as Error).message}`, success: false };
   }
@@ -138,11 +144,11 @@ export function bash(command: string, cwd: string): ToolResult {
       maxBuffer: 1024 * 1024 * 5,
       stdio: ["pipe", "pipe", "pipe"],
     });
-    return { tool: "bash", result: truncate(output || "(kein Output)"), success: true };
+    return { tool: "bash", result: truncate(output || "(kein Output)"), success: true, command };
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; message: string };
     const output = (err.stdout || "") + (err.stderr || "") || err.message;
-    return { tool: "bash", result: truncate(output), success: false };
+    return { tool: "bash", result: truncate(output), success: false, command };
   }
 }
 

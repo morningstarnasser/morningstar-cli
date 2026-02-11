@@ -7,7 +7,10 @@ interface ToolResultProps {
         oldStr: string;
         newStr: string;
     };
+    filePath?: string;
+    linesChanged?: number;
+    command?: string;
 }
-export declare function ToolResult({ tool, result, success, diff }: ToolResultProps): import("react/jsx-runtime").JSX.Element;
+export declare function ToolResult({ tool, result, success, diff, filePath, linesChanged, command }: ToolResultProps): import("react/jsx-runtime").JSX.Element;
 export {};
 //# sourceMappingURL=ToolResult.d.ts.map
