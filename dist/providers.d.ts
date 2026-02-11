@@ -11,6 +11,7 @@ export declare function detectProvider(model: string): string;
 export declare function getProviderBaseUrl(provider: string): string;
 export declare function getProviderApiKeyEnv(provider: string): string;
 export declare function resolveApiKey(provider: string, configKey: string): string;
+export declare function resolveModelName(model: string, provider: string): string;
 export declare function listProviders(): {
     name: string;
     models: string[];

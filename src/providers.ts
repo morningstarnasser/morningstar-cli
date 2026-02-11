@@ -77,13 +77,28 @@ export function resolveApiKey(provider: string, configKey: string): string {
   return key || (envVar ? process.env[envVar] || "" : "");
 }
 
+// Map CLI display model names → actual Ollama model names
+const OLLAMA_MODEL_MAP: Record<string, string> = {
+  "morningstar-14b": "morningstar",
+  "morningstar-7b": "morningstar",
+  "morningstar-32b": "morningstar-32b",
+  "morningstar-vision": "morningstar-vision",
+};
+
+export function resolveModelName(model: string, provider: string): string {
+  if (provider === "ollama" && OLLAMA_MODEL_MAP[model]) {
+    return OLLAMA_MODEL_MAP[model];
+  }
+  return model;
+}
+
 export function listProviders(): { name: string; models: string[]; envKey: string }[] {
   return [
     { name: "deepseek", models: ["deepseek-reasoner", "deepseek-chat"], envKey: "DEEPSEEK_API_KEY" },
     { name: "openai", models: ["o3", "o3-mini", "o3-pro", "o4-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o1", "o1-mini", "codex-mini-latest", "gpt-4o-search-preview"], envKey: "OPENAI_API_KEY" },
     { name: "anthropic", models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-3-5-20241022"], envKey: "ANTHROPIC_API_KEY" },
     { name: "google", models: ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"], envKey: "GOOGLE_API_KEY" },
-    { name: "ollama", models: ["morningstar-14b", "morningstar-7b", "llama3", "codellama", "mistral", "deepseek-coder", "phi3", "qwen2.5-coder"], envKey: "(lokal)" },
+    { name: "ollama", models: ["morningstar-14b", "morningstar-32b", "morningstar-vision", "llama3", "codellama", "mistral", "deepseek-coder", "phi3", "qwen2.5-coder"], envKey: "(lokal)" },
     { name: "groq", models: ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"], envKey: "GROQ_API_KEY" },
     { name: "openrouter", models: ["(jedes Modell mit provider/model Format)"], envKey: "OPENROUTER_API_KEY" },
   ];
@@ -123,7 +138,8 @@ export function getModelDisplayName(model: string): string {
     "gemini-1.5-pro": "Gemini 1.5 Pro",
     // Morningstar Local Models
     "morningstar-14b": "Morningstar 14B (Coding)",
-    "morningstar-7b": "Morningstar 7B Lite",
+    "morningstar-32b": "Morningstar 32B (Pro)",
+    "morningstar-vision": "Morningstar Vision (13B)",
   };
   return names[model] || model;
 }
@@ -400,7 +416,8 @@ function createOpenAICompatible(name: string, defaultBaseUrl: string): LLMProvid
     async *streamChat(messages, config, signal) {
       const baseUrl = config.baseUrl !== "https://api.deepseek.com/v1" ? config.baseUrl : defaultBaseUrl;
       const apiKey = resolveApiKey(name, config.apiKey);
-      yield* openaiCompatibleStream(baseUrl, apiKey, config.model, messages, config.maxTokens, config.temperature, signal);
+      const actualModel = resolveModelName(config.model, name);
+      yield* openaiCompatibleStream(baseUrl, apiKey, actualModel, messages, config.maxTokens, config.temperature, signal);
     },
   };
 }
