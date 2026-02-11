@@ -218,6 +218,8 @@ function formatSize(bytes: number): string {
 // ─── Parse & Execute Tool Calls from AI Response ───
 export async function executeToolCalls(response: string, cwd: string): Promise<{ results: ToolResult[]; cleanResponse: string }> {
   const results: ToolResult[] = [];
+  // Strip <br> tags that some models inject between tool calls
+  response = response.replace(/<br\s*\/?>/gi, "\n");
   let cleanResponse = response;
 
   // Parse <tool> blocks: <tool:name>args</tool> or <tool:name>args</tool:name>
@@ -236,8 +238,48 @@ export async function executeToolCalls(response: string, cwd: string): Promise<{
         }
         case "write": {
           const pathMatch = args.match(/^([^\n]+)\n([\s\S]*)$/);
-          if (!pathMatch) { result = { tool: "write", result: "Format: pfad\\ninhalt", success: false }; break; }
-          result = writeFile(pathMatch[1].trim(), pathMatch[2], cwd);
+          if (pathMatch) {
+            result = writeFile(pathMatch[1].trim(), pathMatch[2], cwd);
+          } else {
+            // Model sent <tool:write>path</tool> without content — smart fallback
+            let filePath = args.trim();
+            const afterTool = response.slice((match.index ?? 0) + fullMatch.length);
+
+            // Check if there's a filename between </tool> and the code block (e.g. "index.html\n```html\n...")
+            const codeWithNameMatch = afterTool.match(/^\s*\n?([\w][\w.\-]*\.\w+)\s*\n```\w*\n([\s\S]*?)```/);
+            // Check for ```lang\n...\n``` code blocks (allow whitespace/newlines before)
+            const codeMatch = afterTool.match(/^\s*```\w*\n([\s\S]*?)```/);
+            // Check for <code>\n...\n</code> blocks (some models use this)
+            const codeTagMatch = afterTool.match(/^\s*<code>\n?([\s\S]*?)<\/code>/);
+
+            if (codeWithNameMatch) {
+              // Append the filename to the path (e.g. /tmp/snake-game + index.html)
+              const extraName = codeWithNameMatch[1];
+              filePath = filePath.endsWith("/") ? filePath + extraName : filePath + "/" + extraName;
+              const dir = dirname(resolve(cwd, filePath));
+              if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+              result = writeFile(filePath, codeWithNameMatch[2], cwd);
+              cleanResponse = cleanResponse.replace(codeWithNameMatch[0], "");
+            } else if (codeMatch) {
+              const dir = dirname(resolve(cwd, filePath));
+              if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+              result = writeFile(filePath, codeMatch[1], cwd);
+              cleanResponse = cleanResponse.replace(codeMatch[0], "");
+            } else if (codeTagMatch) {
+              // <code>...</code> blocks
+              const dir = dirname(resolve(cwd, filePath));
+              if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+              result = writeFile(filePath, codeTagMatch[1], cwd);
+              cleanResponse = cleanResponse.replace(codeTagMatch[0], "");
+            } else if (!filePath.includes(".")) {
+              // Path has no extension — treat as mkdir (model meant to create directory)
+              const abs = resolve(cwd, filePath);
+              if (!existsSync(abs)) mkdirSync(abs, { recursive: true });
+              result = { tool: "write", result: `Verzeichnis erstellt: ${filePath}`, success: true };
+            } else {
+              result = { tool: "write", result: `Format: pfad\\ninhalt`, success: false };
+            }
+          }
           break;
         }
         case "edit": {
@@ -271,6 +313,18 @@ export async function executeToolCalls(response: string, cwd: string): Promise<{
           result = gitStatus(cwd);
           break;
         }
+        case "create":
+        case "mkdir": {
+          // Models sometimes use <tool:create>path</tool> — treat as mkdir -p
+          const dirPath = args.trim().replace(/^.*?([\/~].+)$/, "$1"); // extract path from text
+          if (dirPath.startsWith("/") || dirPath.startsWith("~")) {
+            result = bash(`mkdir -p "${dirPath}"`, cwd);
+            result.tool = "create";
+          } else {
+            result = { tool: "create", result: `Kein gültiger Pfad: ${args.trim()}`, success: false };
+          }
+          break;
+        }
         default:
           result = { tool: toolName, result: `Unbekanntes Tool: ${toolName}`, success: false };
       }
@@ -280,6 +334,43 @@ export async function executeToolCalls(response: string, cwd: string): Promise<{
 
     results.push(result);
     cleanResponse = cleanResponse.replace(fullMatch, "");
+  }
+
+  // ─── Unclosed Tool Tags: <tool:write>path\n```lang\ncontent\n``` (no </tool>) ───
+  if (results.length === 0) {
+    const unclosedWriteRegex = /<tool:write>([^\n<]+)\n```\w*\n([\s\S]*?)```/g;
+    let uwMatch;
+    while ((uwMatch = unclosedWriteRegex.exec(response)) !== null) {
+      const [fullBlock, filePath, content] = uwMatch;
+      const trimmedPath = filePath.trim();
+      if (!trimmedPath) continue;
+      try {
+        const abs = resolve(cwd, trimmedPath);
+        const dir = dirname(abs);
+        if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+        const r = writeFile(trimmedPath, content, cwd);
+        results.push(r);
+      } catch (e) {
+        results.push({ tool: "write", result: `Fehler: ${(e as Error).message}`, success: false });
+      }
+      cleanResponse = cleanResponse.replace(fullBlock, "");
+    }
+
+    // Also handle unclosed <tool:bash>command (no </tool>)
+    const unclosedBashRegex = /<tool:bash>([^\n<]+)(?:\n|$)/g;
+    let ubMatch;
+    while ((ubMatch = unclosedBashRegex.exec(response)) !== null) {
+      const [fullBlock, command] = ubMatch;
+      const trimmed = command.trim();
+      if (!trimmed) continue;
+      try {
+        const r = bash(trimmed, cwd);
+        results.push(r);
+      } catch (e) {
+        results.push({ tool: "bash", result: `Fehler: ${(e as Error).message}`, success: false });
+      }
+      cleanResponse = cleanResponse.replace(fullBlock, "");
+    }
   }
 
   // ─── Auto-Execute Code Blocks (for models that don't use <tool:> tags) ───
