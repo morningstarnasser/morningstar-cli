@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, Static, useApp, useInput } from "ink";
 import { Banner } from "./components/Banner.js";
 import { Help } from "./components/Help.js";
 import { Features } from "./components/Features.js";
@@ -798,103 +798,111 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
     }
   }, [messages, config, activeAgent, planMode, thinkMode, chatOnly, ctx.cwd]);
 
+  // ── Render output item ──
+  function renderOutputItem(item: OutputItem): React.ReactNode {
+    switch (item.type) {
+      case "banner":
+        return <Banner key={item.id} config={config} ctx={ctx} skipPermissions={skipPermissions} />;
+      case "help":
+        return <Help key={item.id} />;
+      case "features":
+        return <Features key={item.id} />;
+      case "text":
+        return (
+          <Box key={item.id} marginLeft={2} marginY={1}>
+            <Text wrap="wrap">{item.content}</Text>
+          </Box>
+        );
+      case "info":
+        return (
+          <Box key={item.id} marginLeft={2} marginY={1}>
+            <Text color={info} wrap="wrap">{item.content}</Text>
+          </Box>
+        );
+      case "success":
+        return (
+          <Box key={item.id} marginLeft={2} marginY={1}>
+            <Text color={successColor}>  ✓ {item.content}</Text>
+          </Box>
+        );
+      case "error":
+        return (
+          <Box key={item.id} marginLeft={2} marginY={1}>
+            <Text color={errorColor}>  ✗ {item.content}</Text>
+          </Box>
+        );
+      case "ai-response":
+        return (
+          <StreamingOutput
+            key={item.id}
+            text={item.streamingText || ""}
+            reasoning={item.streamingReasoning || ""}
+            isStreaming={false}
+            startTime={item.startTime || 0}
+          />
+        );
+      case "tool-result":
+        return (
+          <ToolResultBox
+            key={item.id}
+            tool={item.tool || ""}
+            result={item.result || ""}
+            success={item.success ?? true}
+            diff={item.diff}
+            filePath={item.filePath}
+            linesChanged={item.linesChanged}
+            command={item.command}
+          />
+        );
+      case "tool-activity":
+        return (
+          <Box key={item.id} marginLeft={2}>
+            <Text color={info} bold>{"  ⏺ "}</Text>
+            <Text color={info}>{item.content}</Text>
+            <Text color={dim}>{" ..."}</Text>
+          </Box>
+        );
+      default:
+        return null;
+    }
+  }
+
   // ── Render ──
   return (
-    <Box flexDirection="column">
-      {/* Render output items */}
-      {output.map((item) => {
-        switch (item.type) {
-          case "banner":
-            return <Banner key={item.id} config={config} ctx={ctx} skipPermissions={skipPermissions} />;
-          case "help":
-            return <Help key={item.id} />;
-          case "features":
-            return <Features key={item.id} />;
-          case "text":
-            return (
-              <Box key={item.id} marginLeft={2} marginY={1}>
-                <Text wrap="wrap">{item.content}</Text>
-              </Box>
-            );
-          case "info":
-            return (
-              <Box key={item.id} marginLeft={2} marginY={1}>
-                <Text color={info} wrap="wrap">{item.content}</Text>
-              </Box>
-            );
-          case "success":
-            return (
-              <Box key={item.id} marginLeft={2} marginY={1}>
-                <Text color={successColor}>  ✓ {item.content}</Text>
-              </Box>
-            );
-          case "error":
-            return (
-              <Box key={item.id} marginLeft={2} marginY={1}>
-                <Text color={errorColor}>  ✗ {item.content}</Text>
-              </Box>
-            );
-          case "ai-response":
-            return (
-              <StreamingOutput
-                key={item.id}
-                text={item.streamingText || ""}
-                reasoning={item.streamingReasoning || ""}
-                isStreaming={false}
-                startTime={item.startTime || 0}
-              />
-            );
-          case "tool-result":
-            return (
-              <ToolResultBox
-                key={item.id}
-                tool={item.tool || ""}
-                result={item.result || ""}
-                success={item.success ?? true}
-                diff={item.diff}
-                filePath={item.filePath}
-                linesChanged={item.linesChanged}
-                command={item.command}
-              />
-            );
-          case "tool-activity":
-            return (
-              <Box key={item.id} marginLeft={2}>
-                <Text color={info} bold>{"  ⏺ "}</Text>
-                <Text color={info}>{item.content}</Text>
-                <Text color={dim}>{" ..."}</Text>
-              </Box>
-            );
-          default:
-            return null;
-        }
-      })}
+    <>
+      {/* Static output — rendered once, scrolls naturally, no re-render flicker */}
+      <Static items={output}>
+        {(item) => renderOutputItem(item)}
+      </Static>
 
-      {/* Streaming output */}
-      {isStreaming && !streamText && !streamReasoning && (
-        <MorningstarSpinner startTime={streamStart} streamedChars={streamedChars} />
-      )}
+      {/* Dynamic area — streaming + input, always at bottom */}
+      <Box flexDirection="column">
+        {/* Streaming output */}
+        {isStreaming && !streamText && !streamReasoning && (
+          <MorningstarSpinner startTime={streamStart} streamedChars={streamedChars} />
+        )}
 
-      {(streamText || streamReasoning) && (
-        <StreamingOutput
-          text={streamText}
-          reasoning={streamReasoning}
-          isStreaming={isStreaming}
-          startTime={streamStart}
-        />
-      )}
+        {(streamText || streamReasoning) && (
+          <StreamingOutput
+            text={streamText}
+            reasoning={streamReasoning}
+            isStreaming={isStreaming}
+            startTime={streamStart}
+          />
+        )}
 
-      {/* Input */}
-      <Box marginTop={1}>
-        <Input
-          onSubmit={processInput}
-          activeAgent={activeAgent}
-          planMode={planMode}
-          thinkMode={thinkMode}
-          isProcessing={isProcessing}
-          suggestions={slashCommands}
-        />
+        {/* Input */}
+        <Box marginTop={1}>
+          <Input
+            onSubmit={processInput}
+            activeAgent={activeAgent}
+            planMode={planMode}
+            thinkMode={thinkMode}
+            isProcessing={isProcessing}
+            suggestions={slashCommands}
+          />
+        </Box>
       </Box>
-    </Box>
+    </>
   );
 }

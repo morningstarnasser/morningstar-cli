@@ -1,6 +1,6 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useState, useCallback, useRef } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, Static, useApp, useInput } from "ink";
 import { Banner } from "./components/Banner.js";
 import { Help } from "./components/Help.js";
 import { Features } from "./components/Features.js";
@@ -800,32 +800,34 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
             abortRef.current = null;
         }
     }, [messages, config, activeAgent, planMode, thinkMode, chatOnly, ctx.cwd]);
+    // ── Render output item ──
+    function renderOutputItem(item) {
+        switch (item.type) {
+            case "banner":
+                return _jsx(Banner, { config: config, ctx: ctx, skipPermissions: skipPermissions }, item.id);
+            case "help":
+                return _jsx(Help, {}, item.id);
+            case "features":
+                return _jsx(Features, {}, item.id);
+            case "text":
+                return (_jsx(Box, { marginLeft: 2, marginY: 1, children: _jsx(Text, { wrap: "wrap", children: item.content }) }, item.id));
+            case "info":
+                return (_jsx(Box, { marginLeft: 2, marginY: 1, children: _jsx(Text, { color: info, wrap: "wrap", children: item.content }) }, item.id));
+            case "success":
+                return (_jsx(Box, { marginLeft: 2, marginY: 1, children: _jsxs(Text, { color: successColor, children: ["  \u2713 ", item.content] }) }, item.id));
+            case "error":
+                return (_jsx(Box, { marginLeft: 2, marginY: 1, children: _jsxs(Text, { color: errorColor, children: ["  \u2717 ", item.content] }) }, item.id));
+            case "ai-response":
+                return (_jsx(StreamingOutput, { text: item.streamingText || "", reasoning: item.streamingReasoning || "", isStreaming: false, startTime: item.startTime || 0 }, item.id));
+            case "tool-result":
+                return (_jsx(ToolResultBox, { tool: item.tool || "", result: item.result || "", success: item.success ?? true, diff: item.diff, filePath: item.filePath, linesChanged: item.linesChanged, command: item.command }, item.id));
+            case "tool-activity":
+                return (_jsxs(Box, { marginLeft: 2, children: [_jsx(Text, { color: info, bold: true, children: "  ⏺ " }), _jsx(Text, { color: info, children: item.content }), _jsx(Text, { color: dim, children: " ..." })] }, item.id));
+            default:
+                return null;
+        }
+    }
     // ── Render ──
-    return (_jsxs(Box, { flexDirection: "column", children: [output.map((item) => {
-                switch (item.type) {
-                    case "banner":
-                        return _jsx(Banner, { config: config, ctx: ctx, skipPermissions: skipPermissions }, item.id);
-                    case "help":
-                        return _jsx(Help, {}, item.id);
-                    case "features":
-                        return _jsx(Features, {}, item.id);
-                    case "text":
-                        return (_jsx(Box, { marginLeft: 2, marginY: 1, children: _jsx(Text, { wrap: "wrap", children: item.content }) }, item.id));
-                    case "info":
-                        return (_jsx(Box, { marginLeft: 2, marginY: 1, children: _jsx(Text, { color: info, wrap: "wrap", children: item.content }) }, item.id));
-                    case "success":
-                        return (_jsx(Box, { marginLeft: 2, marginY: 1, children: _jsxs(Text, { color: successColor, children: ["  \u2713 ", item.content] }) }, item.id));
-                    case "error":
-                        return (_jsx(Box, { marginLeft: 2, marginY: 1, children: _jsxs(Text, { color: errorColor, children: ["  \u2717 ", item.content] }) }, item.id));
-                    case "ai-response":
-                        return (_jsx(StreamingOutput, { text: item.streamingText || "", reasoning: item.streamingReasoning || "", isStreaming: false, startTime: item.startTime || 0 }, item.id));
-                    case "tool-result":
-                        return (_jsx(ToolResultBox, { tool: item.tool || "", result: item.result || "", success: item.success ?? true, diff: item.diff, filePath: item.filePath, linesChanged: item.linesChanged, command: item.command }, item.id));
-                    case "tool-activity":
-                        return (_jsxs(Box, { marginLeft: 2, children: [_jsx(Text, { color: info, bold: true, children: "  ⏺ " }), _jsx(Text, { color: info, children: item.content }), _jsx(Text, { color: dim, children: " ..." })] }, item.id));
-                    default:
-                        return null;
-                }
-            }), isStreaming && !streamText && !streamReasoning && (_jsx(MorningstarSpinner, { startTime: streamStart, streamedChars: streamedChars })), (streamText || streamReasoning) && (_jsx(StreamingOutput, { text: streamText, reasoning: streamReasoning, isStreaming: isStreaming, startTime: streamStart })), _jsx(Box, { marginTop: 1, children: _jsx(Input, { onSubmit: processInput, activeAgent: activeAgent, planMode: planMode, thinkMode: thinkMode, isProcessing: isProcessing, suggestions: slashCommands }) })] }));
+    return (_jsxs(_Fragment, { children: [_jsx(Static, { items: output, children: (item) => renderOutputItem(item) }), _jsxs(Box, { flexDirection: "column", children: [isStreaming && !streamText && !streamReasoning && (_jsx(MorningstarSpinner, { startTime: streamStart, streamedChars: streamedChars })), (streamText || streamReasoning) && (_jsx(StreamingOutput, { text: streamText, reasoning: streamReasoning, isStreaming: isStreaming, startTime: streamStart })), _jsx(Box, { marginTop: 1, children: _jsx(Input, { onSubmit: processInput, activeAgent: activeAgent, planMode: planMode, thinkMode: thinkMode, isProcessing: isProcessing, suggestions: slashCommands }) })] })] }));
 }
 //# sourceMappingURL=app.js.map
