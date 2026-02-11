@@ -60,15 +60,32 @@ export default function Tools() {
               <div className="terminal-dot bg-green-500" />
             </div>
             <div className="p-4 font-mono text-sm">
-              <div className="text-green-400 flex items-center gap-1">
-                <Check size={14} strokeWidth={2.5} />
-                <span className="text-yellow-400">[edit]</span>{" "}
-                <span className="text-gray-400">src/app/page.tsx</span>
+              <div className="flex items-center gap-1">
+                <span className="text-yellow-400 font-bold">{"\u23FA "}</span>
+                <span className="text-yellow-400 font-bold">Update</span>
+                <span className="text-gray-500">(src/app/page.tsx)</span>
               </div>
-              <div className="text-gray-600 mt-1">  ┌──────────────────────────────┐</div>
-              <div className="text-red-400">  │ - const data = fetchData()</div>
-              <div className="text-cyan-400">  │ + const data = await fetchData()</div>
-              <div className="text-gray-600">  └──────────────────────────────┘</div>
+              <div className="mt-1">
+                <span className="text-gray-500">{" \u23BF  "}</span>
+                <span className="text-red-400">- const data = fetchData()</span>
+              </div>
+              <div>
+                <span className="text-gray-500">{"    "}</span>
+                <span className="text-green-400">+ const data = await fetchData()</span>
+              </div>
+              <div className="mt-2 flex items-center gap-1">
+                <span className="text-blue-400 font-bold">{"\u23FA "}</span>
+                <span className="text-blue-400 font-bold">Bash</span>
+                <span className="text-gray-500">(npm test)</span>
+              </div>
+              <div>
+                <span className="text-gray-500">{" \u23BF  "}</span>
+                <span className="text-white">Tests: 12 passed, 0 failed</span>
+              </div>
+              <div>
+                <span className="text-gray-600">{"    "}</span>
+                <span className="text-white">Time: 1.24s</span>
+              </div>
             </div>
           </div>
         </ScrollReveal>

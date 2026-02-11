@@ -143,7 +143,16 @@ export default function Hero() {
               code · debug · review · refactor · architect · test
             </span>
           </div>
-          <div className="mt-4 text-gray-400">
+          <div className="mt-2 text-gray-500 text-xs">
+            {" "}
+            <span className="text-teal-400">{"\u25D0"} Context</span>
+            {" "}
+            <span className="text-green-500">{"\u2588\u2588\u2588\u2588\u2588"}</span>
+            <span className="text-gray-700">{"\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591"}</span>
+            {" "}
+            <span className="text-gray-500">24% · Free 76%</span>
+          </div>
+          <div className="mt-3 text-gray-400">
             {"  > "}
             <span className="text-white">
               Analysiere dieses Projekt und finde Bugs

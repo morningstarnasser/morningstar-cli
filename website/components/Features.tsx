@@ -1,8 +1,8 @@
-import { Globe, Wrench, Sparkles, Bot, Lock, Brain, Paintbrush, Eye, Palette } from "lucide-react";
+import { Globe, Wrench, Sparkles, Bot, Lock, Brain, Paintbrush, Eye, Palette, Radar, GitCompare, Network } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 import type { LucideIcon } from "lucide-react";
 
-const features: { icon: LucideIcon; title: string; desc: string; color: string }[] = [
+const features: { icon: LucideIcon; title: string; desc: string; color: string; badge?: string }[] = [
   {
     icon: Globe,
     title: "7 AI Providers",
@@ -20,6 +20,27 @@ const features: { icon: LucideIcon; title: string; desc: string; color: string }
     title: "VS Code Highlighting",
     desc: "Shiki-powered syntax highlighting with the vitesse-dark theme — same engine as VS Code",
     color: "text-purple-400",
+  },
+  {
+    icon: Radar,
+    title: "Context Radar",
+    desc: "Real-time context window monitor — see token usage per segment (System, Chat, Code, Tools) with color-coded bar",
+    color: "text-teal-400",
+    badge: "NEW",
+  },
+  {
+    icon: GitCompare,
+    title: "Animated Diff",
+    desc: "Code morphing animation — old lines fade out in red, new lines type in green with typewriter effect",
+    color: "text-rose-400",
+    badge: "NEW",
+  },
+  {
+    icon: Network,
+    title: "Dependency Graph",
+    desc: "ASCII architecture visualization with /graph — scans imports, builds layered topology with box-drawing",
+    color: "text-sky-400",
+    badge: "NEW",
   },
   {
     icon: Bot,
@@ -76,13 +97,21 @@ export default function Features() {
               Everything you need.{" "}
               <span className="text-amber-400">Nothing you don&apos;t.</span>
             </h2>
+            <p className="text-gray-400 mt-4 max-w-lg mx-auto text-sm">
+              12 features. 3 brand-new exclusive capabilities no other CLI has.
+            </p>
           </div>
         </ScrollReveal>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {features.map((f, i) => (
             <ScrollReveal key={f.title} delay={i * 80}>
-              <div className="glass-card rounded-xl p-6 h-full">
+              <div className={`glass-card rounded-xl p-6 h-full relative ${f.badge ? "ring-1 ring-amber-500/30" : ""}`}>
+                {f.badge && (
+                  <span className="absolute top-3 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 tracking-wider">
+                    {f.badge}
+                  </span>
+                )}
                 <div className={`mb-3 ${f.color}`}>
                   <f.icon size={28} strokeWidth={1.5} />
                 </div>
