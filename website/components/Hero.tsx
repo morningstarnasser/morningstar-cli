@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Star } from "lucide-react";
 
-const ASCII_STAR = `    . .  ★  . .
+const ASCII_STAR = `    . .  *  . .
    .  ./ . \\.  .
   .  /  . | .  \\  .
-  ── * ─────+───── * ──
+  -- * -----+----- * --
   .  \\  . | .  /  .
    .  .\\ . /.  .
-    . .  ★  . .`;
+    . .  *  . .`;
 
 const TAGLINE = "Your Terminal. Your AI. No Limits.";
 
@@ -90,19 +91,22 @@ export default function Hero() {
           <span className="ml-3 text-gray-500 text-sm">morningstar</span>
         </div>
         <div className="p-6 font-mono text-sm leading-relaxed">
-          <div className="text-amber-400">
-            {"  ★ Model    "}
-            <span className="text-white">DeepSeek R1 (Thinking)</span>
-            <span className="text-gray-500"> [deepseek]</span>
+          <div className="text-amber-400 flex items-center gap-2">
+            <Star size={12} fill="currentColor" strokeWidth={0} />
+            <span>Model</span>
+            <span className="ml-4 text-white">DeepSeek R1 (Thinking)</span>
+            <span className="text-gray-500">[deepseek]</span>
           </div>
-          <div className="text-amber-400">
-            {"  ★ Projekt  "}
-            <span className="text-white">my-app</span>
-            <span className="text-gray-500"> (TypeScript / Next.js)</span>
+          <div className="text-amber-400 flex items-center gap-2">
+            <Star size={12} fill="currentColor" strokeWidth={0} />
+            <span>Projekt</span>
+            <span className="ml-2 text-white">my-app</span>
+            <span className="text-gray-500">(TypeScript / Next.js)</span>
           </div>
-          <div className="text-amber-400">
-            {"  ★ Branch   "}
-            <span className="text-white">main</span>
+          <div className="text-amber-400 flex items-center gap-2">
+            <Star size={12} fill="currentColor" strokeWidth={0} />
+            <span>Branch</span>
+            <span className="ml-3 text-white">main</span>
           </div>
           <div className="mt-3 text-gray-500">
             {"  Tools     "}

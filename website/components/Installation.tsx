@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Star } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 
 const INSTALL_CMD = `git clone https://github.com/morningstarnasser/morningstar-cli.git
@@ -73,8 +74,9 @@ export default function Installation() {
                 <span className="text-green-400">$</span>{" "}
                 <span className="text-white font-bold">morningstar</span>
               </div>
-              <div className="mt-3 text-amber-400">
-                ★ Welcome to Morningstar AI
+              <div className="mt-3 text-amber-400 flex items-center gap-2">
+                <Star size={12} fill="currentColor" strokeWidth={0} />
+                <span>Welcome to Morningstar AI</span>
               </div>
             </div>
           </div>

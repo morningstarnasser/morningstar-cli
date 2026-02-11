@@ -1,31 +1,48 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Star, Check, ArrowRight } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 
-const LINES = [
-  { text: "★ Model    DeepSeek R1 (Thinking) [deepseek]", color: "text-amber-400" },
-  { text: "★ Projekt  my-app (TypeScript / Next.js)", color: "text-amber-400" },
+type LineType = "star" | "check" | "arrow" | "text";
+
+interface DemoLine {
+  text: string;
+  color: string;
+  prefix?: string;
+  type?: LineType;
+}
+
+const LINES: DemoLine[] = [
+  { text: "Model    DeepSeek R1 (Thinking) [deepseek]", color: "text-amber-400", type: "star" },
+  { text: "Projekt  my-app (TypeScript / Next.js)", color: "text-amber-400", type: "star" },
   { text: "", color: "" },
   { text: "> Analysiere dieses Projekt und finde Bugs", color: "text-white", prefix: "  " },
   { text: "", color: "" },
-  { text: "┌─ Plan ──────────────────────────────────────────┐", color: "text-gray-600" },
-  { text: "│ Ich schaue mir die Projektstruktur an,           │", color: "text-gray-400" },
-  { text: "│ dann lese ich die Hauptdateien...                │", color: "text-gray-400" },
-  { text: "└────────────────────────────── 2.1s ──────────────┘", color: "text-gray-600" },
+  { text: "\u250C\u2500 Plan \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510", color: "text-gray-600" },
+  { text: "\u2502 Ich schaue mir die Projektstruktur an,           \u2502", color: "text-gray-400" },
+  { text: "\u2502 dann lese ich die Hauptdateien...                \u2502", color: "text-gray-400" },
+  { text: "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 2.1s \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518", color: "text-gray-600" },
   { text: "", color: "" },
-  { text: "✔ [read] src/app/page.tsx", color: "text-green-400" },
-  { text: "  │ 1│ import { getData } from './lib/api'", color: "text-gray-500" },
-  { text: "  │ 2│ export default function Home() {", color: "text-gray-500" },
+  { text: "[read] src/app/page.tsx", color: "text-green-400", type: "check" },
+  { text: "  \u2502 1\u2502 import { getData } from './lib/api'", color: "text-gray-500" },
+  { text: "  \u2502 2\u2502 export default function Home() {", color: "text-gray-500" },
   { text: "", color: "" },
-  { text: "✔ [grep] pattern: \"useEffect\" → 3 matches", color: "text-green-400" },
+  { text: "[grep] pattern: \"useEffect\" \u2192 3 matches", color: "text-green-400", type: "check" },
   { text: "", color: "" },
-  { text: "★ Ich habe 3 Probleme gefunden:", color: "text-amber-400" },
+  { text: "Ich habe 3 Probleme gefunden:", color: "text-amber-400", type: "star" },
   { text: "", color: "" },
   { text: "  1. Missing 'await' in getData() call", color: "text-cyan-400" },
   { text: "  2. useEffect missing dependency array", color: "text-cyan-400" },
   { text: "  3. No error boundary around async component", color: "text-cyan-400" },
 ];
+
+function LineIcon({ type }: { type?: LineType }) {
+  if (type === "star") return <Star size={12} fill="currentColor" strokeWidth={0} className="text-amber-400 shrink-0 mt-0.5" />;
+  if (type === "check") return <Check size={14} strokeWidth={2.5} className="text-green-400 shrink-0 mt-0.5" />;
+  if (type === "arrow") return <ArrowRight size={12} strokeWidth={2} className="text-gray-400 shrink-0 mt-0.5" />;
+  return null;
+}
 
 export default function TerminalDemo() {
   const [visibleLines, setVisibleLines] = useState(0);
@@ -86,11 +103,11 @@ export default function TerminalDemo() {
             {LINES.slice(0, visibleLines).map((line, i) => (
               <div
                 key={i}
-                className={`terminal-line ${line.color}`}
+                className={`terminal-line ${line.color} ${line.type ? "flex items-start gap-1.5" : ""}`}
                 style={{ animationDelay: `${i * 0.05}s` }}
               >
-                {line.prefix || "  "}
-                {line.text || "\u00A0"}
+                {line.type && <LineIcon type={line.type} />}
+                <span>{line.prefix || (line.type ? "" : "  ")}{line.text || "\u00A0"}</span>
               </div>
             ))}
             {visibleLines < LINES.length && started && (

@@ -1,56 +1,58 @@
+import { Globe, Wrench, Sparkles, Bot, Lock, Brain, Paintbrush, Eye, Palette } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
+import type { LucideIcon } from "lucide-react";
 
-const features = [
+const features: { icon: LucideIcon; title: string; desc: string; color: string }[] = [
   {
-    icon: "🌐",
+    icon: Globe,
     title: "7 AI Providers",
     desc: "DeepSeek, OpenAI, Anthropic, Google, Ollama, Groq, OpenRouter — switch mid-session with /model",
     color: "text-amber-400",
   },
   {
-    icon: "🛠",
+    icon: Wrench,
     title: "9 Built-in Tools",
     desc: "read, write, edit, delete, bash, grep, glob, ls, git — with undo support and colored diffs",
     color: "text-cyan-400",
   },
   {
-    icon: "✨",
+    icon: Sparkles,
     title: "VS Code Highlighting",
     desc: "Shiki-powered syntax highlighting with the vitesse-dark theme — same engine as VS Code",
     color: "text-purple-400",
   },
   {
-    icon: "🤖",
+    icon: Bot,
     title: "Custom Agents",
     desc: "6 built-in agents + create your own with custom system prompts, export & import as JSON",
     color: "text-green-400",
   },
   {
-    icon: "🔒",
+    icon: Lock,
     title: "Permission System",
     desc: "Per-project permissions with allow/deny lists, 3 modes: auto, ask, strict — like Claude Code",
     color: "text-red-400",
   },
   {
-    icon: "🧠",
+    icon: Brain,
     title: "Memory & History",
     desc: "Persistent notes across sessions, todo system with priorities, save & restore conversations",
     color: "text-blue-400",
   },
   {
-    icon: "🎨",
+    icon: Paintbrush,
     title: "Image Generation",
     desc: "Local Stable Diffusion (txt2img) — generate images directly from your terminal",
     color: "text-pink-400",
   },
   {
-    icon: "👁",
+    icon: Eye,
     title: "Vision Analysis",
     desc: "Analyze screenshots and images with LLaVA / multimodal models for UI reviews",
     color: "text-emerald-400",
   },
   {
-    icon: "🎭",
+    icon: Palette,
     title: "6 Themes",
     desc: "Default (gold), Ocean (blue), Hacker (green), Sunset (red), Nord (frost), Rose (pink)",
     color: "text-orange-400",
@@ -81,7 +83,9 @@ export default function Features() {
           {features.map((f, i) => (
             <ScrollReveal key={f.title} delay={i * 80}>
               <div className="glass-card rounded-xl p-6 h-full">
-                <div className={`text-2xl mb-3 ${f.color}`}>{f.icon}</div>
+                <div className={`mb-3 ${f.color}`}>
+                  <f.icon size={28} strokeWidth={1.5} />
+                </div>
                 <h3 className="text-lg font-bold text-white mb-2">{f.title}</h3>
                 <p className="text-gray-400 text-sm leading-relaxed">{f.desc}</p>
               </div>

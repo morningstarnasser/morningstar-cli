@@ -1,9 +1,13 @@
+import { Star } from "lucide-react";
+
 export default function Footer() {
   return (
     <footer className="relative z-10 border-t border-amber-500/10 py-16 px-4">
       <div className="max-w-4xl mx-auto text-center">
         {/* Star icon */}
-        <div className="text-amber-400 text-4xl mb-4 text-glow-amber">★</div>
+        <div className="flex justify-center mb-4 text-amber-400 text-glow-amber">
+          <Star size={36} fill="currentColor" strokeWidth={0} />
+        </div>
 
         <div className="text-gray-400 text-sm mb-6">
           Built by{" "}

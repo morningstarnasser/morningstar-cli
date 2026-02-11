@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 
 const tools = [
@@ -59,8 +60,9 @@ export default function Tools() {
               <div className="terminal-dot bg-green-500" />
             </div>
             <div className="p-4 font-mono text-sm">
-              <div className="text-green-400">
-                ✔ <span className="text-yellow-400">[edit]</span>{" "}
+              <div className="text-green-400 flex items-center gap-1">
+                <Check size={14} strokeWidth={2.5} />
+                <span className="text-yellow-400">[edit]</span>{" "}
                 <span className="text-gray-400">src/app/page.tsx</span>
               </div>
               <div className="text-gray-600 mt-1">  ┌──────────────────────────────┐</div>

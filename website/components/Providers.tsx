@@ -1,3 +1,4 @@
+import { Star } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 
 const providers = [
@@ -63,8 +64,9 @@ export default function Providers() {
                 <div className="text-gray-400">
                   $ <span className="text-white">morningstar --model o3</span>
                 </div>
-                <div className="text-amber-400 mt-1">
-                  ★ Provider auto-detected: OpenAI
+                <div className="text-amber-400 mt-1 flex items-center gap-1">
+                  <Star size={12} fill="currentColor" strokeWidth={0} className="inline" />
+                  Provider auto-detected: OpenAI
                 </div>
               </div>
             </div>
