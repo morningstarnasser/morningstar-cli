@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import { Star } from "lucide-react";
 
-const ASCII_STAR = `    . .  *  . .
-   .  ./ . \\.  .
-  .  /  . | .  \\  .
-  -- * -----+----- * --
-  .  \\  . | .  /  .
-   .  .\\ . /.  .
-    . .  *  . .`;
+const ASCII_STAR = `    ·  ·  ★  ·  ·
+    · · / · \\ · ·
+   ·  /  ·  |  ·  \\  ·
+  ── ★ ─────┼───── ★ ──
+   ·  \\  ·  |  ·  /  ·
+    · · \\ · / · ·
+    ·  ·  ★  ·  ·`;
 
 const TAGLINE = "Your Terminal. Your AI. No Limits.";
 
