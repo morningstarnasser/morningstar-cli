@@ -1,9 +1,14 @@
 "use client";
 
+import {
+  Keyboard, Waves, GitCompare, Command, Brain, RotateCcw,
+  PenTool, Terminal, BookOpen, Puzzle, Shield, Download
+} from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
+import type { LucideIcon } from "lucide-react";
 
 interface CLIFeature {
-  icon: string;
+  icon: LucideIcon;
   title: string;
   description: string;
   detail: string;
@@ -11,73 +16,73 @@ interface CLIFeature {
 
 const cliFeatures: CLIFeature[] = [
   {
-    icon: "\u2328\uFE0F",
+    icon: Keyboard,
     title: "Interactive Mode",
     description: "Full autocomplete, syntax highlighting, and inline suggestions.",
     detail: "Tab completion for commands, flags, and file paths",
   },
   {
-    icon: "\uD83C\uDF0A",
+    icon: Waves,
     title: "Streaming Output",
     description: "Watch AI responses stream in real-time with live formatting.",
     detail: "Token-by-token rendering with markdown support",
   },
   {
-    icon: "\uD83D\uDCCA",
+    icon: GitCompare,
     title: "Live Diff View",
     description: "Review every change before it is applied with highlighted diffs.",
     detail: "Claude Code-style inline diffs with line numbers",
   },
   {
-    icon: "\u2318",
+    icon: Command,
     title: "Keyboard Shortcuts",
     description: "Power-user shortcuts for maximum velocity.",
     detail: "ctrl+o expand \u00B7 ctrl+c cancel \u00B7 Esc+Esc rewind \u00B7 Ctrl+R search",
   },
   {
-    icon: "\uD83E\uDDE0",
+    icon: Brain,
     title: "Extended Thinking",
     description: "4 effort levels with provider-specific thinking parameters.",
     detail: "/effort low|medium|high|ultra \u00B7 /ultrathink",
   },
   {
-    icon: "\u21A9\uFE0F",
+    icon: RotateCcw,
     title: "Checkpoints & Rewind",
     description: "Git-based checkpoints paired with conversation state.",
     detail: "/checkpoint create \u00B7 /rewind N \u00B7 Esc+Esc undo",
   },
   {
-    icon: "\uD83D\uDCDD",
+    icon: PenTool,
     title: "Vim Mode",
     description: "Native Vim keybindings for the input editor.",
     detail: "Normal, Insert, motions, and ex commands",
   },
   {
-    icon: "\uD83D\uDD17",
+    icon: Terminal,
     title: "! Bash Mode",
     description: "Prefix with ! to execute shell commands directly.",
     detail: "!npm test \u00B7 !git status \u00B7 instant execution",
   },
   {
-    icon: "\uD83D\uDCCB",
+    icon: BookOpen,
     title: "Skills & Rules",
     description: "Reusable .md-based skills and project rules with auto-trigger.",
     detail: "/skill:list \u00B7 /rules list \u00B7 YAML frontmatter",
   },
   {
-    icon: "\uD83D\uDD0C",
+    icon: Puzzle,
     title: "MCP & Plugins",
     description: "Connect external tool servers and install community plugins.",
     detail: "/mcp add \u00B7 /plugins install \u00B7 Plugin API",
   },
   {
-    icon: "\uD83D\uDEE1\uFE0F",
+    icon: Shield,
     title: "Sandbox Mode",
     description: "OS-level sandboxing restricts filesystem access.",
     detail: "--sandbox \u00B7 macOS sandbox-exec \u00B7 Linux firejail",
   },
   {
-    icon: "\uD83D\uDCE4",
+    icon: Download,
     title: "Export & Copy",
     description: "Export conversations as markdown, copy last response.",
     detail: "/export \u00B7 /copy \u00B7 /rename session",
@@ -113,8 +118,8 @@ export default function CLIFeatures() {
             return (
               <ScrollReveal key={feature.title} delay={index * 80}>
                 <div className={`glass-card p-5 ${borderColors[ci]} h-full rounded-xl`}>
-                  <div className={`w-10 h-10 rounded-lg ${bgColors[ci]} flex items-center justify-center text-xl mb-4`}>
-                    {feature.icon}
+                  <div className={`w-10 h-10 rounded-lg ${bgColors[ci]} flex items-center justify-center mb-4 ${colors[ci]}`}>
+                    <feature.icon size={20} strokeWidth={1.5} />
                   </div>
                   <h3 className={`text-sm font-semibold mb-1.5 ${colors[ci]}`}>
                     {feature.title}
