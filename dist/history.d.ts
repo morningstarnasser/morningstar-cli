@@ -19,4 +19,6 @@ export declare function listConversations(): Array<{
 }>;
 export declare function deleteConversation(id: string): boolean;
 export declare function getLastConversation(): SavedConversation | null;
+export declare function autoSave(messages: Message[], projectName: string, model: string): void;
+export declare function getLastAutoSave(projectName: string): SavedConversation | null;
 //# sourceMappingURL=history.d.ts.map

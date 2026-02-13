@@ -1,11 +1,15 @@
-import Hero from "@/components/Hero";
-import Features from "@/components/Features";
-import TerminalDemo from "@/components/TerminalDemo";
-import Providers from "@/components/Providers";
-import Tools from "@/components/Tools";
-import Installation from "@/components/Installation";
-import Footer from "@/components/Footer";
-import MatrixRain from "@/components/MatrixRain";
+import Hero from "../components/Hero";
+import Features from "../components/Features";
+import TerminalDemo from "../components/TerminalDemo";
+import Providers from "../components/Providers";
+import Models from "../components/Models";
+import Languages from "../components/Languages";
+import InterfaceLanguages from "../components/InterfaceLanguages";
+import CLIFeatures from "../components/CLIFeatures";
+import Security from "../components/Security";
+import Installation from "../components/Installation";
+import Footer from "../components/Footer";
+import MatrixRain from "../components/MatrixRain";
 
 export default function Home() {
   return (
@@ -32,16 +36,28 @@ export default function Home() {
       <Hero />
 
       <div className="section-divider" />
-      <Features />
+      <TerminalDemo />
 
       <div className="section-divider" />
-      <TerminalDemo />
+      <Features />
 
       <div className="section-divider" />
       <Providers />
 
       <div className="section-divider" />
-      <Tools />
+      <Models />
+
+      <div className="section-divider" />
+      <Languages />
+
+      <div className="section-divider" />
+      <InterfaceLanguages />
+
+      <div className="section-divider" />
+      <CLIFeatures />
+
+      <div className="section-divider" />
+      <Security />
 
       <div className="section-divider" />
       <Installation />

@@ -71,4 +71,39 @@ export function getLastConversation() {
         return null;
     return loadConversation(list[0].id);
 }
+// ─── Auto-Save ────────────────────────────────────────────
+const AUTOSAVE_DIR = join(CONFIG_DIR, "autosave");
+function ensureAutoSaveDir() {
+    if (!existsSync(AUTOSAVE_DIR))
+        mkdirSync(AUTOSAVE_DIR, { recursive: true });
+}
+export function autoSave(messages, projectName, model) {
+    ensureAutoSaveDir();
+    const safeName = projectName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const filePath = join(AUTOSAVE_DIR, `${safeName}.json`);
+    try {
+        const data = {
+            id: `autosave-${safeName}`,
+            name: `AutoSave: ${projectName}`,
+            messages,
+            model,
+            project: projectName,
+            savedAt: new Date().toISOString(),
+            messageCount: messages.length,
+        };
+        writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+    }
+    catch { }
+}
+export function getLastAutoSave(projectName) {
+    const safeName = projectName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const filePath = join(AUTOSAVE_DIR, `${safeName}.json`);
+    try {
+        if (existsSync(filePath)) {
+            return JSON.parse(readFileSync(filePath, "utf-8"));
+        }
+    }
+    catch { }
+    return null;
+}
 //# sourceMappingURL=history.js.map

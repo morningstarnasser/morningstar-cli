@@ -114,6 +114,33 @@ const HELP_SECTIONS = [
             { cmd: "/doctor", desc: "Setup diagnostizieren" },
         ],
     },
+    {
+        title: "Modes & Tools",
+        items: [
+            { cmd: "/fast", desc: "Fast mode an/aus (leichteres Model)" },
+            { cmd: "/vim", desc: "Vim keybindings an/aus" },
+            { cmd: "/terminal-setup", desc: "Terminal-Bindings (Shift+Enter)" },
+        ],
+    },
+    {
+        title: "Account & System",
+        items: [
+            { cmd: "/login [provider]", desc: "API Key setzen" },
+            { cmd: "/logout", desc: "API Key entfernen" },
+            { cmd: "/bug", desc: "Bug Report oeffnen" },
+            { cmd: "/hooks", desc: "Lifecycle Hooks anzeigen" },
+            { cmd: "/mcp", desc: "MCP Server Info" },
+            { cmd: "/pr-comments [nr]", desc: "PR Review Comments laden" },
+        ],
+    },
+    {
+        title: "Keyboard Shortcuts",
+        items: [
+            { cmd: "ctrl+o", desc: "Tool-Gruppe expand/collapse" },
+            { cmd: "ctrl+c", desc: "Abbrechen / Beenden" },
+            { cmd: "ctrl+b", desc: "Background Info" },
+        ],
+    },
 ];
 export function Help() {
     const { primary, info, dim } = useTheme();

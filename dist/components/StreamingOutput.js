@@ -36,7 +36,7 @@ export function StreamingOutput({ text, reasoning, isStreaming, startTime }) {
         const openCount = (text.match(/```/g) || []).length;
         return openCount % 2 !== 0;
     }, [text]);
-    return (_jsxs(Box, { flexDirection: "column", children: [reasoning && (_jsx(PlanBox, { reasoning: reasoning, elapsed: elapsed })), text && (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsx(Box, { children: _jsx(Text, { color: star, children: "  * " }) }), blocks.map((block, i) => {
+    return (_jsxs(Box, { flexDirection: "column", children: [reasoning && (_jsx(PlanBox, { reasoning: reasoning, elapsed: elapsed })), text && (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsx(Box, { children: _jsx(Text, { color: dim, children: "  \u23BF " }) }), blocks.map((block, i) => {
                         if (block.type === "code") {
                             return _jsx(CodeBlock, { code: block.content.replace(/\n$/, ""), lang: block.lang }, i);
                         }

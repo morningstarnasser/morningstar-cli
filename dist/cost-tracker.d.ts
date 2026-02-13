@@ -24,4 +24,12 @@ export declare function getSessionCosts(): SessionCosts;
 export declare function formatCostDisplay(): string;
 export declare function resetSessionCosts(): void;
 export declare function isFreeTier(model: string): boolean;
+/**
+ * Check if session cost exceeds the budget limit.
+ */
+export declare function isBudgetExceeded(maxBudgetUsd: number): boolean;
+/**
+ * Get remaining budget.
+ */
+export declare function getRemainingBudget(maxBudgetUsd: number): number;
 //# sourceMappingURL=cost-tracker.d.ts.map

@@ -1,5 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, Static, useApp, useInput } from "ink";
+import { homedir } from "node:os";
+import { resolve as resolvePath, join as joinPath } from "node:path";
+import { existsSync, statSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { Banner } from "./components/Banner.js";
 import { Help } from "./components/Help.js";
 import { Features } from "./components/Features.js";
@@ -7,6 +11,7 @@ import { Input } from "./components/Input.js";
 import { StreamingOutput } from "./components/StreamingOutput.js";
 import { MorningstarSpinner } from "./components/Spinner.js";
 import { ToolResult as ToolResultBox } from "./components/ToolResult.js";
+import { ToolGroup } from "./components/ToolGroup.js";
 import { CodeBlock } from "./components/CodeBlock.js";
 import { PlanBox } from "./components/PlanBox.js";
 import { ContextRadar } from "./components/ContextRadar.js";
@@ -20,17 +25,37 @@ import type { Agent } from "./agents.js";
 import { getAllAgents, createAgent, editAgent, deleteAgent, isBuiltinAgent, loadCustomAgents } from "./custom-agents.js";
 import { addMemory, removeMemory, loadMemories, searchMemories, clearMemories, getMemoryContext } from "./memory.js";
 import { addTodo, toggleTodo, removeTodo, loadTodos, clearDoneTodos, clearAllTodos, getTodoStats } from "./todo.js";
-import { saveConversation, loadConversation, listConversations, deleteConversation } from "./history.js";
+import { saveConversation, loadConversation, listConversations, deleteConversation, autoSave, getLastAutoSave } from "./history.js";
 import { undoLastChange, getUndoStack, getUndoStackSize, clearUndoStack } from "./undo.js";
 import { THEMES, setTheme as setThemeId, getTheme, getThemeId, listThemes } from "./theme.js";
-import type { Message, CLIConfig, ProjectContext } from "./types.js";
+import type { Message, CLIConfig, ProjectContext, ToolResult as ToolResultType } from "./types.js";
 import { detectProvider, getProviderBaseUrl, getProviderApiKeyEnv, resolveApiKey, listProviders, getModelDisplayName } from "./providers.js";
-import { getPermissionMode, setPermissionMode } from "./permissions.js";
+import { getPermissionMode, setPermissionMode, shouldAskPermission } from "./permissions.js";
 import { loadSettings, initProjectSettings, projectSettingsExist, getProjectSettingsPath, getGlobalSettingsPath } from "./settings.js";
 import { loadProjectMemory } from "./project-memory.js";
 import { trackUsage, getSessionCosts, formatCostDisplay, isFreeTier } from "./cost-tracker.js";
 import { getRepoMap, generateOnboarding, generateProjectScore, generateCodeRoast } from "./repo-map.js";
 import { parseMentions, formatMentionContext } from "./mentions.js";
+import { getFastModel, getDefaultModel } from "./fast-model-map.js";
+import { loadCustomCommands } from "./custom-commands.js";
+import type { CustomCommand } from "./custom-commands.js";
+import { generateImage, isSetupComplete, setupImageGen, startImageServer, stopImageServer, IMAGE_MODELS, IMAGE_OUTPUT_DIR } from "./image-gen.js";
+import { analyzeImage, analyzeImageFull, isOllamaRunning, isVisionModelInstalled, pullVisionModel, VISION_MODELS, DEFAULT_VISION_MODEL } from "./vision.js";
+import { loadSkills, getSkill, matchSkillByTrigger, createSkill, formatSkillsList, getSkillPromptAddition, type Skill } from "./skills.js";
+import { loadFileAgents, createFileAgent, migrateAgentsJsonToMd, formatFileAgentsList, type FileAgent } from "./file-agents.js";
+import { loadRules, createRule, formatRulesList } from "./rules.js";
+import { executeHooks, formatHooksDisplay, type HookEvent } from "./hooks-system.js";
+import { formatMCPDisplay, getMCPServers, addMCPServer, removeMCPServer, connectMCPServer, disconnectMCPServer, getAllMCPTools } from "./mcp.js";
+import { addToInputHistory, searchInputHistory } from "./input-history.js";
+import { createTeam, deleteTeam, getTeam, listTeams, formatTeamsList, getTeamExecutionOrder, buildTeamPrompt, type TeamMember } from "./agent-teams.js";
+import { createCheckpoint, listCheckpoints, loadCheckpoint, restoreCheckpoint, deleteCheckpoint, formatCheckpointsList } from "./checkpoints.js";
+import { enableSandbox, disableSandbox, getSandboxStatus, isSandboxAvailable } from "./sandbox.js";
+import { loadPlugins, getLoadedPlugins, formatPluginsList } from "./plugins.js";
+import { getRegisteredCommands } from "./plugin-api.js";
+import { getChromeStatus, launchChrome, getPages } from "./chrome.js";
+import { getThinkingConfig, setEffortLevel, toggleThinking, getThinkingStatus, getThinkingPromptPrefix, type EffortLevel } from "./thinking.js";
+import { isBudgetExceeded, getRemainingBudget } from "./cost-tracker.js";
+import { isValidPermissionMode, getPermissionModeDescription, type PermissionMode } from "./permissions.js";
 
 interface AppProps {
   config: CLIConfig;
@@ -42,12 +67,15 @@ interface AppProps {
   getStoredApiKey: (provider: string) => string;
   storeApiKey: (provider: string, key: string) => void;
   saveConfig: (data: Record<string, unknown>) => void;
+  resumedMessages?: Message[];
 }
 
 // Output item types
 interface OutputItem {
   id: number;
-  type: "banner" | "text" | "help" | "features" | "streaming" | "ai-response" | "spinner" | "tool-result" | "tool-activity" | "info" | "error" | "success";
+  type: "banner" | "text" | "help" | "features" | "streaming" | "ai-response"
+    | "spinner" | "tool-result" | "tool-activity" | "tool-group"
+    | "info" | "error" | "success";
   content?: string;
   // For tool results
   tool?: string;
@@ -57,16 +85,24 @@ interface OutputItem {
   filePath?: string;
   linesChanged?: number;
   command?: string;
+  startLineNumber?: number;
   // For streaming
   streamingText?: string;
   streamingReasoning?: string;
   startTime?: number;
+  // For tool-group
+  toolResults?: ToolResultType[];
+  toolDuration?: number;
+  toolTokens?: number;
+  toolLabel?: string;
+  toolCount?: number;
+  expanded?: boolean;
 }
 
 // All slash commands for autocomplete
 interface SlashCmd { cmd: string; desc: string }
 
-function buildSlashCommands(): SlashCmd[] {
+function buildSlashCommands(customCommands: CustomCommand[]): SlashCmd[] {
   const cmds: SlashCmd[] = [
     { cmd: "/help", desc: "Alle Befehle" },
     { cmd: "/features", desc: "Alle Features" },
@@ -82,6 +118,7 @@ function buildSlashCommands(): SlashCmd[] {
     { cmd: "/model", desc: "Model wechseln" },
     { cmd: "/provider", desc: "Provider anzeigen/wechseln" },
     { cmd: "/providers", desc: "Alle Provider anzeigen" },
+    { cmd: "/cd", desc: "Verzeichnis wechseln" },
     { cmd: "/context", desc: "Projekt-Kontext" },
     { cmd: "/cost", desc: "Kosten-Tracking" },
     { cmd: "/permissions", desc: "Permission-Modus" },
@@ -115,8 +152,48 @@ function buildSlashCommands(): SlashCmd[] {
     { cmd: "/vision", desc: "Bild analysieren" },
     { cmd: "/imagine", desc: "Bild generieren" },
     { cmd: "/serve", desc: "API Server starten" },
+    // New Claude Code-compatible commands:
+    { cmd: "/fast", desc: "Fast mode an/aus" },
+    { cmd: "/vim", desc: "Vim mode an/aus" },
+    { cmd: "/terminal-setup", desc: "Terminal-Bindings" },
+    { cmd: "/login", desc: "API Key setzen" },
+    { cmd: "/logout", desc: "API Key entfernen" },
+    { cmd: "/bug", desc: "Bug melden" },
+    { cmd: "/pr-comments", desc: "PR Review Comments" },
+    { cmd: "/hooks", desc: "Hooks-Konfiguration" },
+    { cmd: "/mcp", desc: "MCP Servers" },
+    // New Features:
+    { cmd: "/skill", desc: "Skills verwalten" },
+    { cmd: "/skill:list", desc: "Skills anzeigen" },
+    { cmd: "/skill:create", desc: "Skill erstellen" },
+    { cmd: "/rules", desc: "Rules anzeigen" },
+    { cmd: "/rules list", desc: "Rules auflisten" },
+    { cmd: "/rules add", desc: "Rule hinzufuegen" },
+    { cmd: "/export", desc: "Konversation exportieren" },
+    { cmd: "/copy", desc: "Letzte Antwort kopieren" },
+    { cmd: "/rename", desc: "Session umbenennen" },
+    { cmd: "/rewind", desc: "Letzte N Messages entfernen" },
+    { cmd: "/debug", desc: "Debug-Modus an/aus" },
+    { cmd: "/statusline", desc: "Status-Bar an/aus" },
+    { cmd: "/team", desc: "Agent Teams" },
+    { cmd: "/team create", desc: "Team erstellen" },
+    { cmd: "/team list", desc: "Teams anzeigen" },
+    { cmd: "/checkpoint", desc: "Checkpoint erstellen" },
+    { cmd: "/checkpoint list", desc: "Checkpoints anzeigen" },
+    { cmd: "/checkpoint restore", desc: "Checkpoint wiederherstellen" },
+    { cmd: "/sandbox", desc: "Sandbox-Status" },
+    { cmd: "/plugins", desc: "Plugins anzeigen" },
+    { cmd: "/chrome", desc: "Chrome Integration" },
+    { cmd: "/effort", desc: "Thinking Effort-Level" },
+    { cmd: "/ultrathink", desc: "Ultra-Think Modus" },
+    { cmd: "/agent:migrate", desc: "Agents zu .md migrieren" },
     { cmd: "/quit", desc: "Beenden" },
   ];
+
+  // Add custom commands
+  for (const cc of customCommands) {
+    cmds.push({ cmd: `/${cc.name}`, desc: `${cc.description} [custom]` });
+  }
 
   // Add agent commands
   const allAgents = getAllAgents();
@@ -134,20 +211,29 @@ function buildSlashCommands(): SlashCmd[] {
   return cmds;
 }
 
-export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, baseSystemPrompt, sessionStart, getStoredApiKey, storeApiKey, saveConfig }: AppProps) {
+export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, baseSystemPrompt, sessionStart, getStoredApiKey, storeApiKey, saveConfig, resumedMessages }: AppProps) {
   const { exit } = useApp();
   const { primary, success: successColor, error: errorColor, warning, info, dim, accent, star } = useTheme();
 
   // ── State ──
   const [config, setConfig] = useState<CLIConfig>(initialConfig);
-  const [messages, setMessages] = useState<Message[]>([{ role: "system", content: getFullSystemPrompt() }]);
+  const [cwd, setCwd] = useState<string>(ctx.cwd);
+  const [messages, setMessages] = useState<Message[]>(
+    resumedMessages || [{ role: "system", content: getFullSystemPrompt() }]
+  );
   const [activeAgent, setActiveAgent] = useState<string | null>(null);
   const [planMode, setPlanMode] = useState(false);
   const [thinkMode, setThinkMode] = useState(false);
+  const [vimMode, setVimMode] = useState(false);
+  const [debugMode, setDebugMode] = useState(initialConfig.debug || false);
+  const [showStatusLine, setShowStatusLine] = useState(true);
+  const [activeSkill, setActiveSkill] = useState<Skill | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [output, setOutput] = useState<OutputItem[]>([{ id: 0, type: "banner" }]);
-  const [slashCommands] = useState<SlashCmd[]>(() => buildSlashCommands());
+  const [customCommands] = useState<CustomCommand[]>(() => loadCustomCommands(cwd));
+  const [slashCommands] = useState<SlashCmd[]>(() => buildSlashCommands(customCommands));
   const abortRef = useRef<AbortController | null>(null);
+  const messageCountRef = useRef(0);
 
   // Streaming state
   const [streamText, setStreamText] = useState("");
@@ -155,6 +241,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamStart, setStreamStart] = useState(0);
   const [streamedChars, setStreamedChars] = useState(0);
+  const [thinkingStartTime, setThinkingStartTime] = useState(0);
 
   let nextId = useRef(1);
   function addOutput(item: Omit<OutputItem, "id">): void {
@@ -163,12 +250,26 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
 
   function getFullSystemPrompt(): string {
     let prompt = baseSystemPrompt + getMemoryContext();
-    const projectMem = loadProjectMemory(ctx.cwd);
+    const projectMem = loadProjectMemory(cwd);
     if (projectMem) prompt += `\n\n--- Project Memory (MORNINGSTAR.md) ---\n${projectMem}\n--- Ende ---`;
+    prompt += `\n\n--- WICHTIG: Bild-Generierung ---
+Wenn der User ein Bild erstellen/generieren/malen moechte, antworte IMMER mit:
+"Nutze den Befehl: /imagine <dein prompt>"
+Du kannst KEINE Bilder direkt erstellen. Nur /imagine kann Bilder generieren (via lokales Stable Diffusion).
+Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine Content-Einschraenkungen.
+--- Ende ---`;
     return prompt;
   }
 
-  // ── SIGINT handler ──
+  // ── Auto-save on message count ──
+  useEffect(() => {
+    if (messages.length > 2 && messages.length - messageCountRef.current >= 10) {
+      messageCountRef.current = messages.length;
+      autoSave(messages, ctx.projectName, config.model);
+    }
+  }, [messages]);
+
+  // ── SIGINT handler + ctrl+o expand/collapse ──
   useInput((_input, key) => {
     if (key.ctrl && _input === "c") {
       if (isProcessing && abortRef.current) {
@@ -177,9 +278,30 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
         setIsStreaming(false);
         addOutput({ type: "info", content: "Abgebrochen." });
       } else {
+        // Auto-save on exit
+        if (messages.length > 2) {
+          autoSave(messages, ctx.projectName, config.model);
+        }
         addOutput({ type: "text", content: "* Bis bald!" });
         setTimeout(() => exit(), 100);
       }
+    }
+    // ctrl+o: toggle expand/collapse of last ToolGroup
+    if (key.ctrl && _input === "o") {
+      setOutput(prev => {
+        const copy = [...prev];
+        for (let i = copy.length - 1; i >= 0; i--) {
+          if (copy[i].type === "tool-group") {
+            copy[i] = { ...copy[i], expanded: !copy[i].expanded };
+            break;
+          }
+        }
+        return copy;
+      });
+    }
+    // ctrl+b: background info
+    if (key.ctrl && _input === "b") {
+      addOutput({ type: "info", content: "Background execution not available in this context." });
     }
   });
 
@@ -197,6 +319,26 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       case "/features":
         addOutput({ type: "features" });
         return true;
+
+      case "/cd": {
+        if (!arg) {
+          addOutput({ type: "info", content: `Aktuelles Verzeichnis: ${cwd}` });
+          return true;
+        }
+        let target: string;
+        if (arg === "~") target = homedir();
+        else if (arg.startsWith("~/")) target = joinPath(homedir(), arg.slice(2));
+        else if (arg.startsWith("/")) target = arg;
+        else target = resolvePath(cwd, arg);
+        if (!existsSync(target) || !statSync(target).isDirectory()) {
+          addOutput({ type: "error", content: `Verzeichnis nicht gefunden: ${target}` });
+          return true;
+        }
+        setCwd(target);
+        process.chdir(target);
+        addOutput({ type: "success", content: `Verzeichnis gewechselt: ${target}` });
+        return true;
+      }
 
       case "/clear":
         setMessages([{ role: "system", content: getFullSystemPrompt() }]);
@@ -228,6 +370,164 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
           return next;
         });
         return true;
+
+      // ── NEW: /fast — Fast Mode Toggle ──
+      case "/fast": {
+        const newFast = !config.fast;
+        const newModel = newFast ? getFastModel(config.model) : getDefaultModel(config.model);
+        const newProv = detectProvider(newModel);
+        const newConfig = { ...config, fast: newFast, model: newModel, provider: newProv, baseUrl: getProviderBaseUrl(newProv), apiKey: getStoredApiKey(newProv) };
+        setConfig(newConfig);
+        saveConfig({ model: newModel, provider: newProv, baseUrl: newConfig.baseUrl });
+        addOutput({ type: "info", content: `Fast mode ${newFast ? "ON" : "OFF"} — Model: ${getModelDisplayName(newModel)}` });
+        return true;
+      }
+
+      // ── NEW: /vim — Vim Mode Toggle ──
+      case "/vim":
+        setVimMode(prev => {
+          const next = !prev;
+          addOutput({ type: next ? "info" : "success", content: next ? "Vim mode ON — [NORMAL] h/l/w/b/i/a/d/c/0/$" : "Vim mode OFF" });
+          return next;
+        });
+        return true;
+
+      // ── NEW: /terminal-setup — Terminal Bindings ──
+      case "/terminal-setup": {
+        const term = process.env.TERM_PROGRAM || "unknown";
+        let instructions = `Terminal: ${term}\n\n`;
+        switch (term.toLowerCase()) {
+          case "vscode":
+            instructions += "  VS Code: Shift+Enter binding already works.\n  For custom keybindings: Ctrl+Shift+P → Keyboard Shortcuts";
+            break;
+          case "iterm2":
+          case "iterm.app":
+            instructions += "  iTerm2: Preferences → Profiles → Keys → Key Mappings\n  Add Shift+Enter → Send Hex Codes: 0x1b 0x0a";
+            break;
+          case "alacritty":
+            instructions += "  Alacritty: Add to alacritty.toml:\n  [[keyboard.bindings]]\n  key = \"Return\"\n  mods = \"Shift\"\n  chars = \"\\x1b\\x0a\"";
+            break;
+          case "warp":
+            instructions += "  Warp: Shift+Enter works natively for multiline input.";
+            break;
+          case "ghostty":
+            instructions += "  Ghostty: Add to config:\n  keybind = shift+enter=text:\\x1b\\x0a";
+            break;
+          default:
+            instructions += "  Generic: Configure Shift+Enter to send ESC + Enter (\\x1b\\x0a)";
+        }
+        addOutput({ type: "info", content: instructions });
+        return true;
+      }
+
+      // ── NEW: /login — API Key Management ──
+      case "/login": {
+        const targetProvider = arg || config.provider || "deepseek";
+        addOutput({ type: "info", content: `Login fuer ${targetProvider}...\n  Setze API Key via: morningstar --api-key <key>\n  Oder: export ${getProviderApiKeyEnv(targetProvider) || targetProvider.toUpperCase() + "_API_KEY"}=<key>` });
+        return true;
+      }
+
+      // ── NEW: /logout — Remove API Key ──
+      case "/logout": {
+        storeApiKey(config.provider || "deepseek", "");
+        addOutput({ type: "success", content: "Ausgeloggt." });
+        return true;
+      }
+
+      // ── NEW: /bug — Bug Report ──
+      case "/bug": {
+        try {
+  
+          execSync("open https://github.com/morningstarnasser/morningstar-cli/issues/new", { timeout: 5000 });
+          addOutput({ type: "info", content: "Bug-Report geoeffnet im Browser." });
+        } catch {
+          addOutput({ type: "info", content: "Bug melden: https://github.com/morningstarnasser/morningstar-cli/issues/new" });
+        }
+        return true;
+      }
+
+      // ── NEW: /pr-comments — PR Review Comments ──
+      case "/pr-comments": {
+        const pr = arg || "";
+        try {
+  
+          const comments = execSync(`gh pr view ${pr} --comments --json comments`, { cwd: cwd, encoding: "utf-8", timeout: 15000 });
+          processInput(`Address these PR review comments:\n${comments}`);
+        } catch (e) {
+          addOutput({ type: "error", content: `PR-Comments Fehler: ${(e as Error).message}\nStelle sicher dass 'gh' installiert ist und du eingeloggt bist.` });
+        }
+        return true;
+      }
+
+      // ── /hooks — Enhanced Lifecycle Hooks ──
+      case "/hooks": {
+        const currentSettings = loadSettings(cwd);
+        addOutput({ type: "info", content: formatHooksDisplay(currentSettings) });
+        return true;
+      }
+
+      // ── /mcp — MCP Server Management ──
+      case "/mcp": {
+        const subCmd = parts[1]?.toLowerCase();
+        const mcpSettings = loadSettings(cwd);
+
+        if (subCmd === "add" && parts[2] && parts[3]) {
+          const serverName = parts[2];
+          const command = parts[3];
+          const serverArgs = parts.slice(4);
+          addMCPServer(serverName, { command, args: serverArgs.length > 0 ? serverArgs : undefined });
+          addOutput({ type: "success", content: `MCP Server "${serverName}" hinzugefuegt.` });
+          return true;
+        }
+        if (subCmd === "remove" && parts[2]) {
+          if (removeMCPServer(parts[2])) {
+            addOutput({ type: "success", content: `MCP Server "${parts[2]}" entfernt.` });
+          } else {
+            addOutput({ type: "error", content: `MCP Server "${parts[2]}" nicht gefunden.` });
+          }
+          return true;
+        }
+        if (subCmd === "connect" && parts[2]) {
+          const servers = getMCPServers(mcpSettings);
+          const serverConfig = servers[parts[2]];
+          if (!serverConfig) {
+            addOutput({ type: "error", content: `MCP Server "${parts[2]}" nicht konfiguriert.` });
+            return true;
+          }
+          addOutput({ type: "info", content: `Verbinde mit MCP Server "${parts[2]}"...` });
+          (async () => {
+            try {
+              const tools = await connectMCPServer(parts[2], serverConfig);
+              addOutput({ type: "success", content: `MCP Server "${parts[2]}" verbunden. ${tools.length} Tool(s) verfuegbar.` });
+            } catch (e: any) {
+              addOutput({ type: "error", content: `MCP Verbindungsfehler: ${e.message}` });
+            }
+          })();
+          return true;
+        }
+        if (subCmd === "disconnect" && parts[2]) {
+          (async () => {
+            await disconnectMCPServer(parts[2]);
+            addOutput({ type: "success", content: `MCP Server "${parts[2]}" getrennt.` });
+          })();
+          return true;
+        }
+        if (subCmd === "tools") {
+          (async () => {
+            const tools = await getAllMCPTools();
+            if (tools.length === 0) {
+              addOutput({ type: "info", content: "Keine MCP-Tools verfuegbar. Verbinde zuerst einen Server: /mcp connect <name>" });
+            } else {
+              const text = tools.map(t => `  ${t.name.padEnd(25)} [${t.serverName}] ${t.description}`).join("\n");
+              addOutput({ type: "info", content: `MCP Tools:\n\n${text}` });
+            }
+          })();
+          return true;
+        }
+
+        addOutput({ type: "info", content: formatMCPDisplay(mcpSettings) });
+        return true;
+      }
 
       case "/model":
         if (arg) {
@@ -271,7 +571,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       }
 
       case "/context":
-        addOutput({ type: "info", content: `Projekt-Kontext:\n  CWD: ${ctx.cwd}\n  Name: ${ctx.projectName}\n  Sprache: ${ctx.language || "unbekannt"}\n  Framework: ${ctx.framework || "keins"}\n  Git: ${ctx.hasGit ? ctx.gitBranch || "ja" : "nein"}\n  Dateien: ${ctx.files.length}` });
+        addOutput({ type: "info", content: `Projekt-Kontext:\n  CWD: ${cwd}\n  Name: ${ctx.projectName}\n  Sprache: ${ctx.language || "unbekannt"}\n  Framework: ${ctx.framework || "keins"}\n  Git: ${ctx.hasGit ? ctx.gitBranch || "ja" : "nein"}\n  Dateien: ${ctx.files.length}` });
         return true;
 
       case "/cost": {
@@ -284,27 +584,30 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
         const mins = Math.floor(elapsed / 60);
         const secs = elapsed % 60;
         const costs = getSessionCosts();
-        let text = `Session-Statistiken:\n\n  Laufzeit:        ${mins}m ${secs}s\n  Messages:        ${messages.length}\n  Tool-Aufrufe:    ${toolStats.calls}\n  Dateien gelesen: ${toolStats.filesRead}\n  Dateien geschrieben: ${toolStats.filesWritten}\n  Dateien bearbeitet:  ${toolStats.filesEdited}\n  Bash-Befehle:    ${toolStats.bashCommands}\n  Undo-Stack:      ${getUndoStackSize()}\n  Model:           ${getModelDisplayName(config.model)}\n  Provider:        ${config.provider || detectProvider(config.model)}\n  Agent:           ${activeAgent || "keiner"}\n  Plan-Modus:      ${planMode ? "AN" : "AUS"}\n  Think-Modus:     ${thinkMode ? "AN" : "AUS"}`;
+        let text = `Session-Statistiken:\n\n  Laufzeit:        ${mins}m ${secs}s\n  Messages:        ${messages.length}\n  Tool-Aufrufe:    ${toolStats.calls}\n  Dateien gelesen: ${toolStats.filesRead}\n  Dateien geschrieben: ${toolStats.filesWritten}\n  Dateien bearbeitet:  ${toolStats.filesEdited}\n  Bash-Befehle:    ${toolStats.bashCommands}\n  Undo-Stack:      ${getUndoStackSize()}\n  Model:           ${getModelDisplayName(config.model)}\n  Provider:        ${config.provider || detectProvider(config.model)}\n  Agent:           ${activeAgent || "keiner"}\n  Plan-Modus:      ${planMode ? "AN" : "AUS"}\n  Think-Modus:     ${thinkMode ? "AN" : "AUS"}\n  Vim-Modus:       ${vimMode ? "AN" : "AUS"}\n  Fast-Modus:      ${config.fast ? "AN" : "AUS"}`;
         if (costs.messages > 0) text += `\n  Kosten:          $${costs.totalCost.toFixed(4)}`;
         addOutput({ type: "info", content: text });
         return true;
       }
 
       case "/permissions":
-        if (arg && ["auto", "ask", "strict"].includes(arg.toLowerCase())) {
-          setPermissionMode(arg.toLowerCase() as "auto" | "ask" | "strict");
-          addOutput({ type: "success", content: `Permission-Modus: ${arg.toLowerCase()}` });
+        if (arg && isValidPermissionMode(arg.toLowerCase())) {
+          setPermissionMode(arg.toLowerCase() as PermissionMode);
+          addOutput({ type: "success", content: `Permission-Modus: ${arg.toLowerCase()} — ${getPermissionModeDescription(arg.toLowerCase() as PermissionMode)}` });
         } else {
-          addOutput({ type: "info", content: `Permission-Modus: ${getPermissionMode()}\n  auto  — alle Tools ohne Nachfrage\n  ask   — bei write/edit/delete nachfragen\n  strict — bei jedem Tool nachfragen` });
+          const modes: PermissionMode[] = ["auto", "ask", "strict", "bypassPermissions", "acceptEdits", "plan", "dontAsk", "delegate"];
+          const current = config.permissionMode || getPermissionMode();
+          const modeList = modes.map(m => `  ${m === current ? "→ " : "  "}${m.padEnd(22)} ${getPermissionModeDescription(m)}`).join("\n");
+          addOutput({ type: "info", content: `Permission-Modus: ${current}\n\n${modeList}` });
         }
         return true;
 
       case "/settings":
         if (arg === "init") {
-          const path = initProjectSettings(ctx.cwd);
+          const path = initProjectSettings(cwd);
           addOutput({ type: "success", content: `Settings erstellt: ${path}` });
         } else {
-          addOutput({ type: "info", content: `Settings:\n  Global:  ${getGlobalSettingsPath()}\n  Projekt: ${projectSettingsExist(ctx.cwd) ? getProjectSettingsPath(ctx.cwd) : "nicht vorhanden"}\n\n  /settings init — Erstellen` });
+          addOutput({ type: "info", content: `Settings:\n  Global:  ${getGlobalSettingsPath()}\n  Projekt: ${projectSettingsExist(cwd) ? getProjectSettingsPath(cwd) : "nicht vorhanden"}\n\n  /settings init — Erstellen` });
         }
         return true;
 
@@ -313,14 +616,14 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       case "/status":
       case "/log":
       case "/branch": {
-        const { execSync } = require("node:child_process");
+
         try {
           let gitCmd: string;
           if (cmd === "/diff") gitCmd = arg === "staged" ? "git diff --cached" : "git diff";
           else if (cmd === "/status") gitCmd = "git status";
           else if (cmd === "/log") gitCmd = `git log --oneline -${arg ? parseInt(arg, 10) || 10 : 10}`;
           else gitCmd = "git branch -a";
-          const result = execSync(gitCmd, { cwd: ctx.cwd, encoding: "utf-8", timeout: 10000 }).trim();
+          const result = execSync(gitCmd, { cwd: cwd, encoding: "utf-8", timeout: 10000 }).trim();
           addOutput({ type: "text", content: result || "Keine Aenderungen." });
         } catch (e) {
           addOutput({ type: "error", content: `Git Fehler: ${(e as Error).message}` });
@@ -330,11 +633,11 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
 
       // Codebase Analysis
       case "/onboard":
-        addOutput({ type: "info", content: "Projekt-Onboarding...\n\n" + generateOnboarding(ctx.cwd) });
+        addOutput({ type: "info", content: "Projekt-Onboarding...\n\n" + generateOnboarding(cwd) });
         return true;
 
       case "/score": {
-        const score = generateProjectScore(ctx.cwd);
+        const score = generateProjectScore(cwd);
         const bar = (label: string, val: number) => {
           const filled = Math.round(val / 5);
           const empty = 20 - filled;
@@ -345,13 +648,13 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       }
 
       case "/roast":
-        addOutput({ type: "text", content: generateCodeRoast(ctx.cwd) });
+        addOutput({ type: "text", content: generateCodeRoast(cwd) });
         return true;
 
       case "/graph":
       case "/deps":
       case "/depgraph": {
-        const graph = buildDepGraph(ctx.cwd);
+        const graph = buildDepGraph(cwd);
         if (graph.nodes.length === 0) {
           addOutput({ type: "info", content: "Keine Code-Dateien gefunden." });
         } else {
@@ -363,7 +666,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       }
 
       case "/map": {
-        const map = getRepoMap(ctx.cwd);
+        const map = getRepoMap(cwd);
         if (map.length === 0) { addOutput({ type: "info", content: "Keine Code-Dateien gefunden." }); return true; }
         const lines = map.slice(0, 50).map((f: any) => {
           let line = `  ${f.path} (${f.lines} Zeilen)`;
@@ -377,9 +680,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
 
       // Init
       case "/init": {
-        const { existsSync, writeFileSync } = require("node:fs");
-        const { join } = require("node:path");
-        const mdPath = join(ctx.cwd, "MORNINGSTAR.md");
+        const mdPath = joinPath(cwd, "MORNINGSTAR.md");
         if (existsSync(mdPath)) { addOutput({ type: "info", content: "MORNINGSTAR.md existiert bereits." }); return true; }
         const content = `# ${ctx.projectName}\n\n## Projekt-Notizen\n\n- Sprache: ${ctx.language || "unbekannt"}\n- Framework: ${ctx.framework || "keins"}\n- Erstellt: ${new Date().toISOString().split("T")[0]}\n\n## Konventionen\n\n- \n\n## Wichtige Dateien\n\n- \n\n## TODOs\n\n- [ ] \n`;
         writeFileSync(mdPath, content, "utf-8");
@@ -404,8 +705,8 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       case "/search":
         if (!arg) { addOutput({ type: "error", content: "Nutzung: /search <query>" }); return true; }
         try {
-          const { execSync } = require("node:child_process");
-          const results = execSync(`grep -rn "${arg.replace(/"/g, '\\"')}" . --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.py" --include="*.go" --include="*.rs" --include="*.java" --include="*.css" --include="*.json" --include="*.md" 2>/dev/null | head -30`, { cwd: ctx.cwd, encoding: "utf-8", timeout: 10000 }).trim();
+  
+          const results = execSync(`grep -rn "${arg.replace(/"/g, '\\"')}" . --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.py" --include="*.go" --include="*.rs" --include="*.java" --include="*.css" --include="*.json" --include="*.md" 2>/dev/null | head -30`, { cwd: cwd, encoding: "utf-8", timeout: 10000 }).trim();
           addOutput({ type: "text", content: results || `Keine Treffer fuer "${arg}".` });
         } catch { addOutput({ type: "info", content: `Keine Treffer fuer "${arg}".` }); }
         return true;
@@ -542,16 +843,12 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
 
       // Config
       case "/config":
-        addOutput({ type: "info", content: `Konfiguration:\n\n  provider:    ${config.provider || detectProvider(config.model)}\n  model:       ${getModelDisplayName(config.model)}\n  baseUrl:     ${config.baseUrl}\n  maxTokens:   ${config.maxTokens}\n  temperature: ${config.temperature}\n  theme:       ${getThemeId()}\n\n  /config set <key> <value> zum Aendern` });
+        addOutput({ type: "info", content: `Konfiguration:\n\n  provider:    ${config.provider || detectProvider(config.model)}\n  model:       ${getModelDisplayName(config.model)}\n  baseUrl:     ${config.baseUrl}\n  maxTokens:   ${config.maxTokens}\n  temperature: ${config.temperature}\n  theme:       ${getThemeId()}\n  fast:        ${config.fast ? "ON" : "OFF"}\n  vim:         ${vimMode ? "ON" : "OFF"}\n  maxTurns:    ${config.maxTurns ?? "unlimited"}\n  allowedTools:${config.allowedTools ? " " + config.allowedTools.join(", ") : " all"}\n\n  /config set <key> <value> zum Aendern` });
         return true;
 
       // Doctor
       case "/doctor": {
-        const { existsSync } = require("node:fs");
-        const { execSync } = require("node:child_process");
-        const { join } = require("node:path");
-        const { homedir } = require("node:os");
-        const CONFIG_DIR = join(homedir(), ".morningstar");
+        const CONFIG_DIR = joinPath(homedir(), ".morningstar");
         const checks: string[] = [];
         checks.push(`  ✓ Node.js        ${process.version}`);
         checks.push(`  ${config.apiKey ? "✓" : "✗"} API Key        ${config.apiKey ? "gesetzt" : "FEHLT"}`);
@@ -581,14 +878,438 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
         return true;
       }
 
+      // ── /imagine — Image Generation (direct, no AI filter) ──
+      case "/imagine": {
+        if (!arg) {
+          addOutput({ type: "info", content: "Nutzung: /imagine <prompt>\n  /imagine setup  — Stable Diffusion installieren\n  /imagine start  — Server starten (Model einmal laden, dann ~2-5s pro Bild)\n  /imagine stop   — Server stoppen\n  /imagine models — Verfuegbare Modelle\n\n  Optionen (im Prompt):\n    --model sdxl|sdxl-turbo|sd15\n    --steps 30\n    --width 1024 --height 1024\n    --seed 42\n    --negative 'blurry, ugly'" });
+          return true;
+        }
+        if (arg === "setup") {
+          addOutput({ type: "info", content: "Starte Image Generation Setup..." });
+          (async () => {
+            try {
+              await setupImageGen((s) => addOutput({ type: "info", content: `  ${s}` }));
+              addOutput({ type: "success", content: "Image Generation Setup fertig!\n  Starte den Server mit: /imagine start\n  Dann: /imagine <dein prompt>" });
+            } catch (e: any) {
+              addOutput({ type: "error", content: `Setup Fehler: ${e.message}` });
+            }
+          })();
+          return true;
+        }
+        if (arg === "start") {
+          addOutput({ type: "info", content: "Starte Image Server..." });
+          (async () => {
+            try {
+              await startImageServer((s) => addOutput({ type: "info", content: `  ${s}` }));
+              addOutput({ type: "success", content: "Image Server bereit! Bilder werden jetzt in ~2-5s generiert." });
+            } catch (e: any) {
+              addOutput({ type: "error", content: `Server-Start Fehler: ${e.message}` });
+            }
+          })();
+          return true;
+        }
+        if (arg === "stop") {
+          (async () => {
+            await stopImageServer();
+            addOutput({ type: "success", content: "Image Server gestoppt." });
+          })();
+          return true;
+        }
+        if (arg === "models") {
+          let text = "Verfuegbare Bild-Modelle:\n\n";
+          for (const m of IMAGE_MODELS) {
+            text += `  ${m.id.padEnd(12)} ${m.name} (${m.size}) — ${m.description}\n`;
+          }
+          addOutput({ type: "info", content: text });
+          return true;
+        }
+        // Parse inline options from prompt
+        let imgPrompt = arg;
+        let imgModel: string | undefined;
+        let imgSteps: number | undefined;
+        let imgWidth: number | undefined;
+        let imgHeight: number | undefined;
+        let imgSeed: number | undefined;
+        let imgGuidance: number | undefined;
+        let imgNegative: string | undefined;
+        const optRegex = /--(\w+)\s+(?:'([^']*)'|"([^"]*)"|(\S+))/g;
+        let optMatch: RegExpExecArray | null;
+        while ((optMatch = optRegex.exec(arg)) !== null) {
+          const val = optMatch[2] ?? optMatch[3] ?? optMatch[4];
+          switch (optMatch[1]) {
+            case "model": imgModel = val; break;
+            case "steps": imgSteps = parseInt(val); break;
+            case "width": imgWidth = parseInt(val); break;
+            case "height": imgHeight = parseInt(val); break;
+            case "seed": imgSeed = parseInt(val); break;
+            case "guidance": imgGuidance = parseFloat(val); break;
+            case "negative": imgNegative = val; break;
+          }
+          imgPrompt = imgPrompt.replace(optMatch[0], "");
+        }
+        imgPrompt = imgPrompt.trim();
+        if (!imgPrompt) {
+          addOutput({ type: "error", content: "Prompt darf nicht leer sein." });
+          return true;
+        }
+        addOutput({ type: "info", content: `Generiere Bild: "${imgPrompt}"${imgModel ? ` (Model: ${imgModel})` : ""}...` });
+        (async () => {
+          try {
+            const ready = await isSetupComplete();
+            if (!ready) {
+              addOutput({ type: "error", content: "Image Generation nicht eingerichtet.\n  Nutze: /imagine setup" });
+              return;
+            }
+            const result = await generateImage(imgPrompt, {
+              model: imgModel, steps: imgSteps, width: imgWidth, height: imgHeight,
+              seed: imgSeed, guidanceScale: imgGuidance, negativePrompt: imgNegative,
+            });
+            addOutput({ type: "success", content: `Bild generiert!\n  Pfad: ${result.path}\n  Model: ${result.model} | ${result.resolution} | ${result.steps} Steps | Seed: ${result.seed}\n  Dauer: ${result.duration}s` });
+          } catch (e: any) {
+            addOutput({ type: "error", content: `Bild-Generierung fehlgeschlagen: ${e.message}` });
+          }
+        })();
+        return true;
+      }
+
+      // ── /vision — Image Analysis (local Ollama, no AI filter) ──
+      case "/vision": {
+        if (!arg) {
+          addOutput({ type: "info", content: "Nutzung: /vision <bild-pfad> [prompt]\n  /vision models — Verfuegbare Vision-Modelle\n  /vision setup [model] — Vision-Model herunterladen\n\n  Beispiel: /vision screenshot.png Was ist auf diesem Bild?" });
+          return true;
+        }
+        if (arg === "models") {
+          let text = "Verfuegbare Vision-Modelle:\n\n";
+          for (const m of VISION_MODELS) {
+            text += `  ${m.id.padEnd(15)} ${m.name} (${m.size}) — ${m.description}\n`;
+          }
+          addOutput({ type: "info", content: text });
+          return true;
+        }
+        if (arg.startsWith("setup")) {
+          const modelToSetup = parts[2] || DEFAULT_VISION_MODEL;
+          addOutput({ type: "info", content: `Lade Vision-Model '${modelToSetup}'...` });
+          (async () => {
+            try {
+              const running = await isOllamaRunning();
+              if (!running) { addOutput({ type: "error", content: "Ollama nicht erreichbar. Starte: ollama serve" }); return; }
+              await pullVisionModel(modelToSetup, (s) => addOutput({ type: "info", content: `  ${s}` }));
+              addOutput({ type: "success", content: `Vision-Model '${modelToSetup}' bereit!` });
+            } catch (e: any) {
+              addOutput({ type: "error", content: `Fehler: ${e.message}` });
+            }
+          })();
+          return true;
+        }
+        // Parse: /vision <path> [prompt]
+        const visionParts = arg.split(/\s+/);
+        const imgPath = visionParts[0];
+        const visionPrompt = visionParts.slice(1).join(" ") || "Describe this image in detail.";
+        addOutput({ type: "info", content: `Analysiere Bild: ${imgPath}...` });
+        (async () => {
+          try {
+            const running = await isOllamaRunning();
+            if (!running) { addOutput({ type: "error", content: "Ollama nicht erreichbar. Starte: ollama serve" }); return; }
+            const installed = await isVisionModelInstalled();
+            if (!installed) { addOutput({ type: "error", content: `Vision-Model nicht installiert.\n  Nutze: /vision setup ${DEFAULT_VISION_MODEL}` }); return; }
+            const result = await analyzeImageFull(imgPath, visionPrompt);
+            addOutput({ type: "success", content: `Vision-Analyse:\n\n${result}` });
+          } catch (e: any) {
+            addOutput({ type: "error", content: `Vision-Fehler: ${e.message}` });
+          }
+        })();
+        return true;
+      }
+
+      // ── /skill — Skills System ──
+      case "/skill":
+      case "/skill:list": {
+        const skills = loadSkills(cwd);
+        addOutput({ type: "info", content: `Skills:\n\n${formatSkillsList(skills)}\n\n  /skill:<id> zum Aktivieren · /skill:create zum Erstellen` });
+        return true;
+      }
+
+      case "/skill:create": {
+        if (!arg) {
+          addOutput({ type: "error", content: "Nutzung: /skill:create <id> <name> | <description>" });
+          return true;
+        }
+        const skillParts = arg.split("|").map(s => s.trim());
+        const skillIdName = skillParts[0]?.split(" ") || [];
+        const skillId = skillIdName[0] || "new-skill";
+        const skillName = skillIdName.slice(1).join(" ") || skillId;
+        const skillDesc = skillParts[1] || "";
+        const result = createSkill(skillId, skillName, skillDesc, "# Skill Instructions\n\nAdd your skill prompt here.", undefined, cwd);
+        if (result.success) {
+          addOutput({ type: "success", content: `Skill "${skillId}" erstellt: ${result.filePath}` });
+        } else {
+          addOutput({ type: "error", content: result.error || "Skill-Erstellung fehlgeschlagen." });
+        }
+        return true;
+      }
+
+      // ── /rules — Rules System ──
+      case "/rules": {
+        const rulesSubCmd = parts[1]?.toLowerCase();
+        if (rulesSubCmd === "add" && parts[2]) {
+          const ruleId = parts[2];
+          const ruleContent = parts.slice(3).join(" ") || "# Rule\n\nDefine your rule here.";
+          const ruleResult = createRule(ruleId, ruleContent, { description: ruleId }, cwd);
+          if (ruleResult.success) {
+            addOutput({ type: "success", content: `Rule "${ruleId}" erstellt: ${ruleResult.filePath}` });
+          } else {
+            addOutput({ type: "error", content: ruleResult.error || "Rule-Erstellung fehlgeschlagen." });
+          }
+          return true;
+        }
+        if (rulesSubCmd === "show" && parts[2]) {
+          const rules = loadRules(cwd);
+          const rule = rules.find(r => r.id === parts[2]);
+          if (rule) {
+            addOutput({ type: "info", content: `Rule: ${rule.id}\n  Source: ${rule.source}\n  File: ${rule.filePath}\n${rule.pathPattern ? `  Path: ${rule.pathPattern}\n` : ""}  Priority: ${rule.priority || 0}\n\n${rule.content.slice(0, 500)}` });
+          } else {
+            addOutput({ type: "error", content: `Rule "${parts[2]}" nicht gefunden.` });
+          }
+          return true;
+        }
+        const rules = loadRules(cwd);
+        addOutput({ type: "info", content: `Rules:\n\n${formatRulesList(rules)}\n\n  /rules add <id> [content] — Rule hinzufuegen\n  /rules show <id> — Rule anzeigen` });
+        return true;
+      }
+
+      // ── /export — Export conversation ──
+      case "/export": {
+        const exportName = arg || `morningstar-export-${Date.now()}`;
+        const exportPath = joinPath(cwd, `${exportName}.md`);
+        const exportContent = messages
+          .filter(m => m.role !== "system")
+          .map(m => `## ${m.role === "user" ? "User" : "Assistant"}\n\n${m.content}`)
+          .join("\n\n---\n\n");
+        writeFileSync(exportPath, `# Morningstar Session Export\n\n${exportContent}`, "utf-8");
+        addOutput({ type: "success", content: `Konversation exportiert: ${exportPath}` });
+        return true;
+      }
+
+      // ── /copy — Copy last response ──
+      case "/copy": {
+        const lastAssistant = [...messages].reverse().find(m => m.role === "assistant");
+        if (!lastAssistant) {
+          addOutput({ type: "error", content: "Keine AI-Antwort zum Kopieren." });
+          return true;
+        }
+        try {
+          const platform = process.platform;
+          const cmd = platform === "darwin" ? "pbcopy" : "xclip -selection clipboard";
+          execSync(cmd, { input: lastAssistant.content, timeout: 5000 });
+          addOutput({ type: "success", content: "Letzte Antwort in Clipboard kopiert." });
+        } catch {
+          addOutput({ type: "error", content: "Clipboard-Kopie fehlgeschlagen (pbcopy/xclip nicht verfuegbar?)." });
+        }
+        return true;
+      }
+
+      // ── /rename — Rename session ──
+      case "/rename": {
+        if (!arg) {
+          addOutput({ type: "error", content: "Nutzung: /rename <neuer name>" });
+          return true;
+        }
+        const conv = saveConversation(arg, messages, config.model, ctx.projectName);
+        addOutput({ type: "success", content: `Session umbenannt und gespeichert: "${arg}" (${conv.id})` });
+        return true;
+      }
+
+      // ── /rewind — Remove last N messages ──
+      case "/rewind": {
+        const n = parseInt(arg, 10) || 2;
+        setMessages(prev => {
+          if (prev.length <= 1 + n) return [prev[0]]; // Keep system prompt
+          return prev.slice(0, -n);
+        });
+        addOutput({ type: "success", content: `Letzte ${n} Message(s) entfernt.` });
+        return true;
+      }
+
+      // ── /debug — Toggle debug mode ──
+      case "/debug":
+        setDebugMode(prev => {
+          const next = !prev;
+          addOutput({ type: next ? "info" : "success", content: next ? "Debug-Modus AN — Raw Messages, Token-Counts, Timing" : "Debug-Modus AUS" });
+          return next;
+        });
+        return true;
+
+      // ── /statusline — Toggle status bar ──
+      case "/statusline":
+        setShowStatusLine(prev => {
+          const next = !prev;
+          addOutput({ type: next ? "info" : "success", content: next ? "Status-Bar AN" : "Status-Bar AUS" });
+          return next;
+        });
+        return true;
+
+      // ── /team — Agent Teams ──
+      case "/team": {
+        const teamSubCmd = parts[1]?.toLowerCase();
+        if (teamSubCmd === "create" && parts[2]) {
+          const teamId = parts[2];
+          const teamName = parts.slice(3).join(" ") || teamId;
+          // Simple creation — members can be added later
+          const teamResult = createTeam(teamId, teamName, "", []);
+          if (teamResult.success) {
+            addOutput({ type: "success", content: `Team "${teamId}" erstellt.` });
+          } else {
+            addOutput({ type: "error", content: teamResult.error || "Team-Erstellung fehlgeschlagen." });
+          }
+          return true;
+        }
+        if (teamSubCmd === "delete" && parts[2]) {
+          if (deleteTeam(parts[2])) addOutput({ type: "success", content: `Team "${parts[2]}" geloescht.` });
+          else addOutput({ type: "error", content: `Team "${parts[2]}" nicht gefunden.` });
+          return true;
+        }
+        const teams = listTeams();
+        addOutput({ type: "info", content: `Agent Teams:\n\n${formatTeamsList(teams)}\n\n  /team create <id> [name] — Team erstellen\n  /team delete <id> — Team loeschen` });
+        return true;
+      }
+
+      // ── /checkpoint — Checkpointing ──
+      case "/checkpoint": {
+        const cpSubCmd = parts[1]?.toLowerCase();
+        if (cpSubCmd === "create" || (!cpSubCmd && arg)) {
+          const cpName = arg || `Checkpoint ${new Date().toLocaleString("de-DE")}`;
+          const cp = createCheckpoint(cpName, messages, cwd);
+          addOutput({ type: "success", content: `Checkpoint "${cp.name}" erstellt (${cp.id}).` });
+          return true;
+        }
+        if (cpSubCmd === "list") {
+          const cps = listCheckpoints();
+          addOutput({ type: "info", content: `Checkpoints:\n\n${formatCheckpointsList(cps)}\n\n  /checkpoint create [name]\n  /checkpoint restore <id>` });
+          return true;
+        }
+        if (cpSubCmd === "restore" && parts[2]) {
+          const restoreResult = restoreCheckpoint(parts[2], cwd);
+          if (restoreResult.success && restoreResult.messages) {
+            setMessages(restoreResult.messages);
+            addOutput({ type: "success", content: `Checkpoint "${parts[2]}" wiederhergestellt (${restoreResult.messages.length} messages).` });
+          } else {
+            addOutput({ type: "error", content: restoreResult.error || "Checkpoint-Wiederherstellung fehlgeschlagen." });
+          }
+          return true;
+        }
+        if (cpSubCmd === "delete" && parts[2]) {
+          if (deleteCheckpoint(parts[2])) addOutput({ type: "success", content: `Checkpoint "${parts[2]}" geloescht.` });
+          else addOutput({ type: "error", content: `Checkpoint "${parts[2]}" nicht gefunden.` });
+          return true;
+        }
+        const cps = listCheckpoints();
+        addOutput({ type: "info", content: `Checkpoints:\n\n${formatCheckpointsList(cps)}\n\n  /checkpoint create [name]\n  /checkpoint list\n  /checkpoint restore <id>` });
+        return true;
+      }
+
+      // ── /sandbox — Sandboxing ──
+      case "/sandbox": {
+        if (arg === "on") {
+          enableSandbox({ allowedPaths: [cwd], networkAccess: true });
+          addOutput({ type: "success", content: "Sandbox aktiviert." });
+          return true;
+        }
+        if (arg === "off") {
+          disableSandbox();
+          addOutput({ type: "success", content: "Sandbox deaktiviert." });
+          return true;
+        }
+        addOutput({ type: "info", content: getSandboxStatus() });
+        return true;
+      }
+
+      // ── /plugins — Plugin System ──
+      case "/plugins": {
+        const plugins = getLoadedPlugins();
+        addOutput({ type: "info", content: `Plugins:\n\n${formatPluginsList(plugins)}\n\n  Plugin-Verzeichnis: ~/.morningstar/plugins/` });
+        return true;
+      }
+
+      // ── /chrome — Chrome Integration ──
+      case "/chrome": {
+        if (arg === "launch") {
+          const url = parts[2] || undefined;
+          const chromeResult = launchChrome(url);
+          addOutput({ type: chromeResult.success ? "success" : "error", content: chromeResult.message });
+          return true;
+        }
+        (async () => {
+          const status = await getChromeStatus();
+          addOutput({ type: "info", content: status });
+        })();
+        return true;
+      }
+
+      // ── /effort — Thinking Effort Level ──
+      case "/effort": {
+        if (arg && ["low", "medium", "high", "ultra"].includes(arg.toLowerCase())) {
+          setEffortLevel(arg.toLowerCase() as EffortLevel);
+          addOutput({ type: "success", content: `Effort-Level: ${arg.toLowerCase()}` });
+        } else {
+          addOutput({ type: "info", content: getThinkingStatus() });
+        }
+        return true;
+      }
+
+      // ── /ultrathink — Ultra-Think Toggle ──
+      case "/ultrathink": {
+        const thinkingCfg = getThinkingConfig();
+        if (thinkingCfg.enabled && thinkingCfg.effortLevel === "ultra") {
+          toggleThinking();
+          addOutput({ type: "success", content: "Ultra-Think AUS" });
+        } else {
+          setEffortLevel("ultra");
+          addOutput({ type: "info", content: "Ultra-Think AN — Maximale Denktiefe aktiviert" });
+        }
+        return true;
+      }
+
+      // ── /agent:migrate — Migrate agents.json to .md ──
+      case "/agent:migrate": {
+        const migResult = migrateAgentsJsonToMd(cwd);
+        if (migResult.migrated > 0) {
+          addOutput({ type: "success", content: `${migResult.migrated} Agent(s) migriert.${migResult.errors.length > 0 ? `\n  Fehler: ${migResult.errors.join(", ")}` : ""}` });
+        } else {
+          addOutput({ type: "info", content: `Keine Agents migriert.${migResult.errors.length > 0 ? `\n  ${migResult.errors.join(", ")}` : ""}` });
+        }
+        return true;
+      }
+
       case "/quit":
       case "/exit":
       case "/q":
+        // Auto-save on quit
+        if (messages.length > 2) {
+          autoSave(messages, ctx.projectName, config.model);
+        }
         addOutput({ type: "text", content: "* Bis bald!" });
         setTimeout(() => exit(), 100);
         return true;
 
-      default:
+      default: {
+        // Skill activation: /skill:<id>
+        if (cmd.startsWith("/skill:") && cmd !== "/skill:list" && cmd !== "/skill:create") {
+          const skillId = cmd.slice(7);
+          if (skillId === "off" || skillId === "none") {
+            setActiveSkill(null);
+            addOutput({ type: "success", content: "Skill deaktiviert." });
+            return true;
+          }
+          const skill = getSkill(skillId, cwd);
+          if (skill) {
+            setActiveSkill(skill);
+            addOutput({ type: "success", content: `Skill "${skill.name}" aktiviert — ${skill.description}` });
+          } else {
+            addOutput({ type: "error", content: `Skill "${skillId}" nicht gefunden.` });
+          }
+          return true;
+        }
+
         // Agent activation
         if (cmd.startsWith("/agent:")) {
           const agentId = cmd.slice(7);
@@ -616,8 +1337,84 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
           addOutput({ type: "error", content: `Unbekannter Agent: ${agentId}. Verfuegbar: ${Object.keys(allAgents).join(", ")}` });
           return true;
         }
+
+        // Custom commands
+        const customCmd = customCommands.find(c => cmd === `/${c.name}`);
+        if (customCmd) {
+          processInput(`${customCmd.content}\n\n${arg || ""}`);
+          return true;
+        }
+
         return false;
+      }
     }
+  }
+
+  // ── Auto-Fallback: Detect complex tasks on weak local models ──
+  function detectFallbackConfig(input: string): { fallbackConfig: CLIConfig; fallbackModel: string } | null {
+    const currentProvider = config.provider || detectProvider(config.model);
+
+    // Only fallback from ollama (local models)
+    if (currentProvider !== "ollama") return null;
+
+    // Check if input is a complex coding task
+    const lower = input.toLowerCase();
+    const complexPatterns = [
+      /\b(game|spiel|snake|tetris|pong|platformer|shooter|rpg|puzzle|chess|schach|jump.?and.?run)\b/,
+      /\b(webapp|web.?app|website|webseite|dashboard|landing.?page|portfolio|blog|shop|e.?commerce)\b/,
+      /\b(erstell|bau|implementier|create|build|implement|develop|entwickl)\b.*\b(app|seite|page|site|game|spiel|projekt|project|system|tool|api|server)\b/,
+      /\b(html5?|css)\b.*\b(modern|schoen|beautiful|responsive|animation|interaktiv|ultra|design)\b/,
+      /\b(vollst|komplett|complete|full|ganzes?)\b.*\b(app|projekt|project|seite|page|game|spiel)\b/,
+      /\b(react|vue|svelte|next\.?js|express|fastapi|django)\b.*\b(app|projekt|project|erstell|bau|create|build)\b/,
+    ];
+
+    const isComplex = complexPatterns.some(p => p.test(lower));
+    if (!isComplex) return null;
+
+    // Check for available cloud API keys (priority: DeepSeek free → others)
+    const fallbackOptions: { provider: string; model: string }[] = [
+      { provider: "deepseek", model: "deepseek-chat" },
+      { provider: "openai", model: "gpt-4o-mini" },
+      { provider: "google", model: "gemini-2.0-flash" },
+      { provider: "groq", model: "llama-3.3-70b-versatile" },
+      { provider: "anthropic", model: "claude-haiku-3-5-20241022" },
+    ];
+
+    for (const opt of fallbackOptions) {
+      const key = getStoredApiKey(opt.provider);
+      if (key && key !== "ollama" && key !== "") {
+        return {
+          fallbackConfig: {
+            ...config,
+            model: opt.model,
+            provider: opt.provider,
+            baseUrl: getProviderBaseUrl(opt.provider),
+            apiKey: key,
+          },
+          fallbackModel: opt.model,
+        };
+      }
+    }
+
+    // Also check --fallback-model CLI flag
+    if (config.fallbackModel) {
+      const fbProv = detectProvider(config.fallbackModel);
+      const fbKey = getStoredApiKey(fbProv);
+      if (fbKey && fbKey !== "ollama" && fbKey !== "") {
+        return {
+          fallbackConfig: {
+            ...config,
+            model: config.fallbackModel,
+            provider: fbProv,
+            baseUrl: getProviderBaseUrl(fbProv),
+            apiKey: fbKey,
+          },
+          fallbackModel: config.fallbackModel,
+        };
+      }
+    }
+
+    return null;
   }
 
   // ── Process Input ──
@@ -630,25 +1427,104 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       if (handled) return;
     }
 
+    // ── ! Bash Mode: execute rest as bash command directly ──
+    if (input.startsWith("!") && input.length > 1) {
+      const bashCmd = input.slice(1).trim();
+      if (bashCmd) {
+        addOutput({ type: "text", content: `> !${bashCmd}` });
+        try {
+          const result = execSync(bashCmd, { cwd, encoding: "utf-8", timeout: 30000, maxBuffer: 1024 * 1024 * 5, stdio: ["pipe", "pipe", "pipe"] });
+          addOutput({ type: "text", content: result || "(kein Output)" });
+        } catch (e: any) {
+          const output = (e.stdout || "") + (e.stderr || "") || e.message;
+          addOutput({ type: "error", content: output });
+        }
+        return;
+      }
+    }
+
+    // ── Budget check ──
+    if (config.maxBudgetUsd && isBudgetExceeded(config.maxBudgetUsd)) {
+      addOutput({ type: "error", content: `Budget-Limit erreicht ($${config.maxBudgetUsd}). Session-Kosten: $${getSessionCosts().totalCost.toFixed(4)}` });
+      return;
+    }
+
+    // ── Bare "cd" command (without slash) ──
+    if (/^cd\s+/.test(input.trim()) || input.trim() === "cd") {
+      const cdArg = input.trim().replace(/^cd\s*/, "").trim() || "~";
+      handleSlashCommand(`/cd ${cdArg}`);
+      return;
+    }
+
+    // ── Auto-detect image generation intent → route to /imagine ──
+    {
+      const lower = input.toLowerCase();
+      const imageKeywords = [
+        "erstelle.*bild", "mach.*bild", "generiere.*bild", "erzeuge.*bild",
+        "create.*image", "generate.*image", "make.*image", "draw.*image",
+        "erstelle.*foto", "mach.*foto", "generiere.*foto",
+        "create.*picture", "generate.*picture", "make.*picture",
+        "erstelle.*wallpaper", "mach.*wallpaper",
+        "bild von", "foto von", "image of", "picture of",
+        "zeichne", "male mir", "paint me", "draw me",
+      ];
+      if (imageKeywords.some(kw => new RegExp(kw, "i").test(lower))) {
+        addOutput({ type: "info", content: "Bild-Anfrage erkannt — leite zu /imagine weiter..." });
+        handleSlashCommand(`/imagine ${input}`);
+        return;
+      }
+    }
+
     setIsProcessing(true);
     const abort = new AbortController();
     abortRef.current = abort;
     const signal = abort.signal;
 
+    // ── Auto-Fallback for complex tasks on local models ──
+    let activeConfig = config;
+    const fallback = detectFallbackConfig(input);
+    if (fallback) {
+      activeConfig = fallback.fallbackConfig;
+      addOutput({ type: "info", content: `Komplexe Aufgabe erkannt — automatischer Upgrade zu ${getModelDisplayName(fallback.fallbackModel)} (${fallback.fallbackConfig.provider})` });
+    }
+
     // Parse @-mentions
-    const { cleanInput: mentionClean, mentions } = parseMentions(input, ctx.cwd);
+    const { cleanInput: mentionClean, mentions } = parseMentions(input, cwd);
     const mentionContext = formatMentionContext(mentions);
     if (mentions.length > 0) {
       addOutput({ type: "info", content: `${mentions.length} @-Mention(s) aufgeloest` });
     }
+
+    // ── Auto-trigger skills ──
+    const triggeredSkill = matchSkillByTrigger(mentionClean, cwd);
+    if (triggeredSkill && !activeSkill) {
+      setActiveSkill(triggeredSkill);
+      addOutput({ type: "info", content: `Skill "${triggeredSkill.name}" auto-aktiviert` });
+    }
+
+    // ── Extended Thinking prefix ──
+    const thinkingPrefix = getThinkingPromptPrefix();
 
     // Build user content
     let userContent = planMode
       ? `[PLAN-MODUS] Erstelle zuerst einen detaillierten Plan bevor du handelst.\n\n${mentionClean}`
       : thinkMode
       ? `Denke Schritt fuer Schritt nach. Nutze <think>...</think> Tags fuer deinen Denkprozess.\n\n${mentionClean}`
+      : thinkingPrefix
+      ? thinkingPrefix + mentionClean
       : mentionClean;
     if (mentionContext) userContent = mentionContext + "\n\n" + userContent;
+
+    // ── Active skill prompt addition ──
+    const skillToApply = activeSkill || triggeredSkill;
+    if (skillToApply) {
+      userContent += getSkillPromptAddition(skillToApply);
+    }
+
+    // ── Debug info ──
+    if (debugMode) {
+      addOutput({ type: "info", content: `[DEBUG] Messages: ${messages.length}, Tokens ~${Math.round(userContent.length / 4)}, Model: ${activeConfig.model}` });
+    }
 
     // Auto web search / fetch
     if (!chatOnly) {
@@ -688,6 +1564,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
     setIsStreaming(true);
     setStreamStart(Date.now());
     setStreamedChars(0);
+    setThinkingStartTime(0);
 
     // Helper: save completed AI response to persistent output
     const saveResponseToOutput = (text: string, reasoning: string, start: number) => {
@@ -698,12 +1575,16 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       setStreamReasoning("");
     };
 
+    const maxTurns = activeConfig.maxTurns ?? 5;
+
     try {
       let fullResponse = "";
       let fullReasoning = "";
-      for await (const token of streamChat(newMessages, config, signal)) {
+      let reasoningStart = 0;
+      for await (const token of streamChat(newMessages, activeConfig, signal)) {
         if (signal.aborted) break;
         if (token.type === "reasoning") {
+          if (!reasoningStart) reasoningStart = Date.now();
           fullReasoning += token.text;
           setStreamReasoning(prev => prev + token.text);
         } else {
@@ -711,6 +1592,10 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
           setStreamText(prev => prev + token.text);
           setStreamedChars(prev => prev + token.text.length);
         }
+      }
+
+      if (reasoningStart) {
+        setThinkingStartTime(Math.round((Date.now() - reasoningStart) / 1000));
       }
 
       if (signal.aborted || !fullResponse) {
@@ -721,25 +1606,60 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
         return;
       }
 
-      trackUsage(config.model, userContent, fullResponse);
+      trackUsage(activeConfig.model, userContent, fullResponse);
 
       // Execute tools
       if (!chatOnly) {
         let toolResults: Awaited<ReturnType<typeof executeToolCalls>> | null = null;
-        try { toolResults = await executeToolCalls(fullResponse, ctx.cwd); } catch {}
+        const roundStart = Date.now();
+        try { toolResults = await executeToolCalls(fullResponse, cwd); } catch {}
 
         if (toolResults && toolResults.results.length > 0) {
+          // Check allowedTools filter
+          if (activeConfig.allowedTools) {
+            toolResults.results = toolResults.results.filter(r =>
+              activeConfig.allowedTools!.some(pattern => {
+                if (pattern.includes("(")) {
+                  const [toolPart, argPattern] = pattern.split("(");
+                  const argGlob = argPattern?.replace(")", "").replace("*", ".*");
+                  return r.tool === toolPart && (!argGlob || new RegExp(argGlob).test(r.command || r.filePath || ""));
+                }
+                return r.tool === pattern;
+              })
+            );
+          }
+
           // Save initial AI response to output BEFORE showing tool results
           saveResponseToOutput(fullResponse, fullReasoning, streamStart);
           setIsStreaming(false);
 
-          // Show tool results — Claude Code style
-          for (const r of toolResults.results) {
-            addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff, filePath: r.filePath, linesChanged: r.linesChanged, command: r.command });
-          }
+          // Show tool results as grouped ToolGroup — Claude Code style
+          const roundDuration = Date.now() - roundStart;
+          const estimatedTokens = Math.round(fullResponse.length / 4);
+          addOutput({
+            type: "tool-group",
+            toolResults: toolResults.results,
+            toolDuration: roundDuration,
+            toolTokens: estimatedTokens,
+            toolCount: toolResults.results.length,
+            expanded: toolResults.results.length <= 3,
+          });
 
-          const toolFeedback = toolResults.results.map(r => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`).join("\n\n");
-          const msgsWithAssistant = [...newMessages, { role: "assistant" as const, content: fullResponse }, { role: "user" as const, content: `Tool-Ergebnisse:\n${toolFeedback}\n\nFasse zusammen was du getan hast. Fuehre KEINE weiteren Tools aus, es sei denn es ist notwendig um die urspruengliche Aufgabe abzuschliessen.` }];
+          const failedTools = toolResults.results.filter(r => !r.success);
+          const successTools = toolResults.results.filter(r => r.success);
+          const toolFeedback = toolResults.results.map(r => `[Tool: ${r.tool}] ${r.success ? "ERFOLG" : "FEHLGESCHLAGEN"}: ${r.result}`).join("\n\n");
+          let followUpInstruction = `Tool-Ergebnisse:\n${toolFeedback}\n\n`;
+          if (failedTools.length > 0) {
+            followUpInstruction += `ACHTUNG: ${failedTools.length} Tool(s) sind FEHLGESCHLAGEN! Sag dem User EHRLICH was nicht funktioniert hat und WARUM. Behaupte NICHT dass alles geklappt hat wenn Tools Fehler hatten. `;
+            if (failedTools.some(r => r.result?.includes("Unbekanntes Tool"))) {
+              followUpInstruction += `Du hast ein Tool benutzt das NICHT EXISTIERT. Nutze NUR: read, write, edit, delete, bash, grep, glob, ls, git, web, fetch, gh. Fuer Verschieben/Kopieren nutze <tool:bash>mv/cp</tool>. `;
+            }
+          }
+          if (successTools.length > 0) {
+            followUpInstruction += `Fasse zusammen was erfolgreich war. `;
+          }
+          followUpInstruction += `Fuehre KEINE weiteren Tools aus, es sei denn es ist notwendig um die urspruengliche Aufgabe abzuschliessen.`;
+          const msgsWithAssistant = [...newMessages, { role: "assistant" as const, content: fullResponse }, { role: "user" as const, content: followUpInstruction }];
           setMessages(msgsWithAssistant);
 
           // Follow-up streaming
@@ -749,21 +1669,52 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
           let currentReasoning = "";
           const followUpStart = Date.now();
           try {
-            for await (const token of streamChat(msgsWithAssistant, config, signal)) {
+            for await (const token of streamChat(msgsWithAssistant, activeConfig, signal)) {
               if (signal.aborted) break;
               if (token.type === "reasoning") { currentReasoning += token.text; setStreamReasoning(prev => prev + token.text); }
               else { currentResponse += token.text; setStreamText(prev => prev + token.text); }
             }
           } catch {}
 
-          // Multi-turn tool loop (max 5 rounds, with loop detection)
+          // Multi-turn tool loop (max turns, with loop detection)
           let depth = 0;
           let latestMessages = msgsWithAssistant;
           let lastToolSig = "";
-          while (depth < 5 && currentResponse && !signal.aborted) {
+          let consecutiveFailures = 0;
+          while (depth < maxTurns && currentResponse && !signal.aborted) {
             let nested: Awaited<ReturnType<typeof executeToolCalls>> | null = null;
-            try { nested = await executeToolCalls(currentResponse, ctx.cwd); } catch { break; }
+            const nestedStart = Date.now();
+            try { nested = await executeToolCalls(currentResponse, cwd); } catch { break; }
             if (!nested || nested.results.length === 0) break;
+
+            // Apply allowedTools filter
+            if (activeConfig.allowedTools) {
+              nested.results = nested.results.filter(r =>
+                activeConfig.allowedTools!.some(pattern => {
+                  if (pattern.includes("(")) {
+                    const [toolPart, argPattern] = pattern.split("(");
+                    const argGlob = argPattern?.replace(")", "").replace("*", ".*");
+                    return r.tool === toolPart && (!argGlob || new RegExp(argGlob).test(r.command || r.filePath || ""));
+                  }
+                  return r.tool === pattern;
+                })
+              );
+              if (nested.results.length === 0) break;
+            }
+
+            // Track consecutive failures
+            const allFailed = nested.results.every(r => !r.success);
+            if (allFailed) {
+              consecutiveFailures++;
+            } else {
+              consecutiveFailures = 0;
+            }
+
+            // Break on 2+ consecutive all-fail rounds
+            if (consecutiveFailures >= 2) {
+              addOutput({ type: "info", content: "Wiederholte Fehler erkannt — Tool-Kette gestoppt." });
+              break;
+            }
 
             // Loop detection: break if same tools are being called repeatedly
             const toolSig = nested.results.map(r => `${r.tool}:${r.filePath || r.command || ""}`).join("|");
@@ -777,9 +1728,29 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
             saveResponseToOutput(currentResponse, currentReasoning, followUpStart);
             setIsStreaming(false);
 
-            for (const r of nested.results) addOutput({ type: "tool-result", tool: r.tool, result: r.result, success: r.success, diff: r.diff, filePath: r.filePath, linesChanged: r.linesChanged, command: r.command });
-            const nestedFeedback = nested.results.map(r => `[Tool: ${r.tool}] ${r.success ? "Erfolg" : "Fehler"}: ${r.result}`).join("\n\n");
-            latestMessages = [...latestMessages, { role: "assistant" as const, content: currentResponse }, { role: "user" as const, content: `Tool-Ergebnisse:\n${nestedFeedback}\n\nFasse zusammen was du getan hast. Fuehre KEINE weiteren Tools aus, es sei denn es ist notwendig um die urspruengliche Aufgabe abzuschliessen.` }];
+            // Show as grouped ToolGroup
+            const nestedDuration = Date.now() - nestedStart;
+            const nestedTokens = Math.round(currentResponse.length / 4);
+            addOutput({
+              type: "tool-group",
+              toolResults: nested.results,
+              toolDuration: nestedDuration,
+              toolTokens: nestedTokens,
+              toolCount: nested.results.length,
+              expanded: nested.results.length <= 3,
+            });
+
+            const nestedFailed = nested.results.filter(r => !r.success);
+            const nestedFeedback = nested.results.map(r => `[Tool: ${r.tool}] ${r.success ? "ERFOLG" : "FEHLGESCHLAGEN"}: ${r.result}`).join("\n\n");
+            let nestedInstruction = `Tool-Ergebnisse:\n${nestedFeedback}\n\n`;
+            if (nestedFailed.length > 0) {
+              nestedInstruction += `ACHTUNG: ${nestedFailed.length} Tool(s) FEHLGESCHLAGEN! Sag EHRLICH was nicht funktioniert hat. Behaupte NICHT dass es geklappt hat. `;
+              if (nestedFailed.some(r => r.result?.includes("Unbekanntes Tool"))) {
+                nestedInstruction += `Du hast ein NICHT EXISTIERENDES Tool benutzt! Nutze NUR: read, write, edit, delete, bash, grep, glob, ls, git, web, fetch, gh. `;
+              }
+            }
+            nestedInstruction += `Fuehre KEINE weiteren Tools aus, es sei denn es ist notwendig um die urspruengliche Aufgabe abzuschliessen.`;
+            latestMessages = [...latestMessages, { role: "assistant" as const, content: currentResponse }, { role: "user" as const, content: nestedInstruction }];
             setMessages(latestMessages);
 
             // Start new streaming round
@@ -788,7 +1759,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
             currentResponse = "";
             currentReasoning = "";
             try {
-              for await (const token of streamChat(latestMessages, config, signal)) {
+              for await (const token of streamChat(latestMessages, activeConfig, signal)) {
                 if (signal.aborted) break;
                 if (token.type === "reasoning") { currentReasoning += token.text; setStreamReasoning(prev => prev + token.text); }
                 else { currentResponse += token.text; setStreamText(prev => prev + token.text); }
@@ -823,7 +1794,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       setStreamReasoning("");
       abortRef.current = null;
     }
-  }, [messages, config, activeAgent, planMode, thinkMode, chatOnly, ctx.cwd]);
+  }, [messages, config, activeAgent, activeSkill, planMode, thinkMode, debugMode, chatOnly, cwd, customCommands]);
 
   // ── Render output item ──
   function renderOutputItem(item: OutputItem): React.ReactNode {
@@ -879,6 +1850,18 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
             filePath={item.filePath}
             linesChanged={item.linesChanged}
             command={item.command}
+            startLineNumber={item.startLineNumber}
+          />
+        );
+      case "tool-group":
+        return (
+          <ToolGroup
+            key={item.id}
+            results={item.toolResults || []}
+            duration={item.toolDuration || 0}
+            tokenCount={item.toolTokens || 0}
+            expanded={item.expanded ?? true}
+            toolUseCount={item.toolCount || 0}
           />
         );
       case "tool-activity":
@@ -906,7 +1889,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
       <Box flexDirection="column">
         {/* Streaming output */}
         {isStreaming && !streamText && !streamReasoning && (
-          <MorningstarSpinner startTime={streamStart} streamedChars={streamedChars} />
+          <MorningstarSpinner startTime={streamStart} streamedChars={streamedChars} thinkingTime={thinkingStartTime > 0 ? thinkingStartTime : undefined} />
         )}
 
         {(streamText || streamReasoning) && (
@@ -918,13 +1901,8 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
           />
         )}
 
-        {/* Context Radar */}
-        <Box marginLeft={2}>
-          <ContextRadar messages={messages} />
-        </Box>
-
         {/* Input */}
-        <Box marginTop={1}>
+        <Box marginTop={0}>
           <Input
             onSubmit={processInput}
             activeAgent={activeAgent}
@@ -932,8 +1910,66 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
             thinkMode={thinkMode}
             isProcessing={isProcessing}
             suggestions={slashCommands}
+            vimMode={vimMode}
           />
         </Box>
+
+        {/* ── Bottom Status Bar ── */}
+        {showStatusLine && (
+          <>
+            <Box marginLeft={0} marginTop={0}>
+              <Text color={dim}>{"─".repeat(70)}</Text>
+            </Box>
+            <Box marginLeft={1} gap={1}>
+              <Text color={accent} bold>{"📁 "}{cwd.replace(homedir(), "~")}</Text>
+              <Text color={dim}>{"│"}</Text>
+              <Text color={primary} bold>{"🤖 "}{config.model.length > 25 ? config.model.slice(0, 25) + "…" : config.model}</Text>
+              <Text color={dim}>{"│"}</Text>
+              <Text color={(config.provider || "deepseek") === "ollama" ? successColor : info}>
+                {(config.provider || "deepseek") === "ollama" ? "⚡ lokal" : `☁️  ${config.provider || "deepseek"}`}
+              </Text>
+              {activeAgent && (
+                <>
+                  <Text color={dim}>{"│"}</Text>
+                  <Text color={warning}>{"🕵️ "}{activeAgent}</Text>
+                </>
+              )}
+              {activeSkill && (
+                <>
+                  <Text color={dim}>{"│"}</Text>
+                  <Text color={accent}>{"🎯 "}{activeSkill.name}</Text>
+                </>
+              )}
+              {vimMode && (
+                <>
+                  <Text color={dim}>{"│"}</Text>
+                  <Text color={accent}>VIM</Text>
+                </>
+              )}
+              {config.fast && (
+                <>
+                  <Text color={dim}>{"│"}</Text>
+                  <Text color={warning}>FAST</Text>
+                </>
+              )}
+              {debugMode && (
+                <>
+                  <Text color={dim}>{"│"}</Text>
+                  <Text color={errorColor}>DEBUG</Text>
+                </>
+              )}
+              {config.maxBudgetUsd && (
+                <>
+                  <Text color={dim}>{"│"}</Text>
+                  <Text color={info}>{"💰 $"}{getRemainingBudget(config.maxBudgetUsd).toFixed(2)}</Text>
+                </>
+              )}
+            </Box>
+            <Box marginLeft={1}>
+              <ContextRadar messages={messages} />
+            </Box>
+          </>
+        )}
       </Box>
     </>
   );

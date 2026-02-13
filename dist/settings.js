@@ -38,6 +38,14 @@ function mergeArrays(a, b) {
     return [...new Set([...(a || []), ...(b || [])])];
 }
 export function mergeSettings(global, local) {
+    // Merge hooks: combine arrays for same event
+    const mergedHooks = {};
+    for (const [event, hooks] of Object.entries(global.hooks || {})) {
+        mergedHooks[event] = [...hooks];
+    }
+    for (const [event, hooks] of Object.entries(local.hooks || {})) {
+        mergedHooks[event] = [...(mergedHooks[event] || []), ...hooks];
+    }
     return {
         permissions: {
             allow: mergeArrays(global.permissions?.allow, local.permissions?.allow),
@@ -51,6 +59,10 @@ export function mergeSettings(global, local) {
         maxTokens: local.maxTokens ?? global.maxTokens,
         customInstructions: [global.customInstructions, local.customInstructions].filter(Boolean).join("\n") || undefined,
         env: { ...(global.env || {}), ...(local.env || {}) },
+        allowedTools: mergeArrays(global.allowedTools, local.allowedTools),
+        deniedTools: mergeArrays(global.deniedTools, local.deniedTools),
+        hooks: Object.keys(mergedHooks).length > 0 ? mergedHooks : undefined,
+        mcpServers: { ...(global.mcpServers || {}), ...(local.mcpServers || {}) },
     };
 }
 export function loadSettings(cwd) {

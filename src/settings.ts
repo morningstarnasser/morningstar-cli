@@ -17,6 +17,11 @@ export interface MorningstarSettings {
   maxTokens?: number;
   customInstructions?: string;
   env?: Record<string, string>;
+  // Claude Code-compatible extensions:
+  allowedTools?: string[];
+  deniedTools?: string[];
+  hooks?: Record<string, Array<{ matcher?: string; command: string }>>;
+  mcpServers?: Record<string, { command: string; args?: string[] }>;
 }
 
 // ─── Paths ──────────────────────────────────────────────────
@@ -61,6 +66,15 @@ function mergeArrays(a?: string[], b?: string[]): string[] | undefined {
 }
 
 export function mergeSettings(global: MorningstarSettings, local: MorningstarSettings): MorningstarSettings {
+  // Merge hooks: combine arrays for same event
+  const mergedHooks: Record<string, Array<{ matcher?: string; command: string }>> = {};
+  for (const [event, hooks] of Object.entries(global.hooks || {})) {
+    mergedHooks[event] = [...hooks];
+  }
+  for (const [event, hooks] of Object.entries(local.hooks || {})) {
+    mergedHooks[event] = [...(mergedHooks[event] || []), ...hooks];
+  }
+
   return {
     permissions: {
       allow: mergeArrays(global.permissions?.allow, local.permissions?.allow),
@@ -74,6 +88,10 @@ export function mergeSettings(global: MorningstarSettings, local: MorningstarSet
     maxTokens: local.maxTokens ?? global.maxTokens,
     customInstructions: [global.customInstructions, local.customInstructions].filter(Boolean).join("\n") || undefined,
     env: { ...(global.env || {}), ...(local.env || {}) },
+    allowedTools: mergeArrays(global.allowedTools, local.allowedTools),
+    deniedTools: mergeArrays(global.deniedTools, local.deniedTools),
+    hooks: Object.keys(mergedHooks).length > 0 ? mergedHooks : undefined,
+    mcpServers: { ...(global.mcpServers || {}), ...(local.mcpServers || {}) },
   };
 }
 

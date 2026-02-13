@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Box, Text, useInput } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
 import { useCommandHistory } from "../hooks/useHistory.js";
@@ -12,9 +12,10 @@ interface InputProps {
   thinkMode: boolean;
   isProcessing: boolean;
   suggestions: Array<{ cmd: string; desc: string }>;
+  vimMode?: boolean;
 }
 
-export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing, suggestions }: InputProps) {
+export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing, suggestions, vimMode }: InputProps) {
   const { prompt, accent, warning, dim } = useTheme();
   const theme = getTheme();
   const [value, setValue] = useState("");
@@ -22,10 +23,32 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
   const [selectedSuggIdx, setSelectedSuggIdx] = useState(0);
   const { addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
 
+  // Queued message — typed while AI is processing
+  const [queued, setQueued] = useState<string | null>(null);
+  const queuedRef = useRef<string | null>(null);
+
+  // Vim mode state
+  const [vimModeState, setVimModeState] = useState<"normal" | "insert">("normal");
+
+  // When processing finishes and there's a queued message, auto-submit it
+  useEffect(() => {
+    if (!isProcessing && queuedRef.current) {
+      const msg = queuedRef.current;
+      queuedRef.current = null;
+      setQueued(null);
+      setValue("");
+      // Small delay to let UI settle
+      setTimeout(() => onSubmit(msg), 50);
+    }
+  }, [isProcessing, onSubmit]);
+
   // Compute prompt text
   let promptText = "> ";
   let promptColor = prompt;
-  if (activeAgent) {
+  if (vimMode) {
+    promptText = vimModeState === "normal" ? "[NORMAL] > " : "[INSERT] > ";
+    promptColor = vimModeState === "normal" ? accent : prompt;
+  } else if (activeAgent) {
     const allAgents = getAllAgents();
     const agent = allAgents[activeAgent];
     if (agent) {
@@ -40,17 +63,77 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
     promptColor = accent;
   }
 
-  // Filter suggestions
-  const filteredSuggestions = value.startsWith("/")
+  // Filter suggestions (only when not processing)
+  const filteredSuggestions = !isProcessing && value.startsWith("/")
     ? suggestions.filter((s) => s.cmd.startsWith(value)).slice(0, 8)
     : [];
 
   useInput((input, key) => {
-    if (isProcessing) return;
+    // ── While processing: allow typing + queue on Enter ──
+    if (isProcessing) {
+      // ctrl+c is handled by app.tsx, not here
+      if (key.ctrl) return;
+
+      if (key.return) {
+        const trimmed = value.trim();
+        if (trimmed) {
+          addToHistory(trimmed);
+          queuedRef.current = trimmed;
+          setQueued(trimmed);
+          setValue("");
+        }
+        return;
+      }
+
+      if (key.escape) {
+        // Cancel queued message
+        if (queuedRef.current) {
+          queuedRef.current = null;
+          setQueued(null);
+        }
+        setValue("");
+        return;
+      }
+
+      if (key.backspace || key.delete) {
+        setValue(prev => prev.slice(0, -1));
+        return;
+      }
+
+      if (input && !key.ctrl && !key.meta) {
+        setValue(prev => prev + input);
+      }
+      return;
+    }
+
+    // ── Normal mode (not processing) ──
+
+    // Vim mode key handling
+    if (vimMode && vimModeState === "normal") {
+      if (input === "i") { setVimModeState("insert"); return; }
+      if (input === "a") { setVimModeState("insert"); return; }
+      if (input === "A") { setValue(value); setVimModeState("insert"); return; }
+      if (input === "I") { setVimModeState("insert"); return; }
+      if (input === "d") { setValue(""); return; }
+      if (input === "c") { setValue(""); setVimModeState("insert"); return; }
+      if (key.return && value.trim()) {
+        addToHistory(value.trim());
+        onSubmit(value.trim());
+        setValue("");
+        setShowSuggestions(false);
+        setSelectedSuggIdx(0);
+        resetNavigation();
+        return;
+      }
+      if (input && !key.ctrl && !key.meta && !key.return) return;
+    }
+    if (vimMode && vimModeState === "insert" && key.escape) {
+      setVimModeState("normal");
+      return;
+    }
 
     if (key.return) {
       if (showSuggestions && filteredSuggestions.length > 0 && filteredSuggestions[selectedSuggIdx]?.cmd !== value) {
-        // Accept suggestion on Enter if suggestion list is open and selected != current
         setValue(filteredSuggestions[selectedSuggIdx].cmd);
         setShowSuggestions(false);
         setSelectedSuggIdx(0);
@@ -125,15 +208,36 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
     }
   });
 
-  if (isProcessing) return null;
-
   return (
     <Box flexDirection="column">
+      {/* Queued message indicator */}
+      {queued && isProcessing && (
+        <Box marginLeft={2} marginBottom={0}>
+          <Text color="#fbbf24">{"⏳ "}</Text>
+          <Text color={dim}>Queued: </Text>
+          <Text color="#fbbf24">{queued.length > 60 ? queued.slice(0, 57) + "..." : queued}</Text>
+          <Text color={dim}> (Esc to cancel)</Text>
+        </Box>
+      )}
+
+      {/* Input line — always visible */}
       <Box>
-        <Text color={promptColor} bold>{promptText}</Text>
-        <Text>{value}</Text>
-        <Text color={dim}>█</Text>
+        {isProcessing ? (
+          <>
+            <Text color={dim} bold>{promptText}</Text>
+            <Text color={dim}>{value}</Text>
+            <Text color="#4b5563">█</Text>
+          </>
+        ) : (
+          <>
+            <Text color={promptColor} bold>{promptText}</Text>
+            <Text>{value}</Text>
+            <Text color={dim}>█</Text>
+          </>
+        )}
       </Box>
+
+      {/* Autocomplete suggestions */}
       {showSuggestions && filteredSuggestions.length > 0 && (
         <Box flexDirection="column" marginLeft={2}>
           {filteredSuggestions.map((s, i) => (

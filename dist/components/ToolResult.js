@@ -1,6 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
+import { ClaudeCodeDiff } from "./ClaudeCodeDiff.js";
 // Tool display names — Claude Code style
 const TOOL_LABELS = {
     read: "Read",
@@ -99,13 +100,30 @@ function getSummary(tool, result, success, linesChanged, filePath) {
             return result.split("\n")[0]?.slice(0, 70) || "";
     }
 }
-export function ToolResult({ tool, result, success, diff, filePath, linesChanged, command }) {
-    const { primary, success: successColor, error, warning, dim, accent } = useTheme();
+// Tools that show full multi-line output (like Claude Code)
+const FULL_OUTPUT_TOOLS = new Set(["bash", "auto-bash", "auto-python", "grep", "glob", "ls", "git", "web", "fetch"]);
+const MAX_OUTPUT_LINES = 25;
+export function ToolResult({ tool, result, success, diff, filePath, linesChanged, command, startLineNumber }) {
+    const { primary, error, dim } = useTheme();
     const label = TOOL_LABELS[tool] || tool;
     const toolColor = success ? (TOOL_COLORS[tool] || primary) : error;
     const arg = getToolArg(tool, filePath, command, result);
-    const summary = getSummary(tool, result, success, linesChanged, filePath);
-    const maxDiffLines = 12;
-    return (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsxs(Text, { children: [_jsx(Text, { color: toolColor, bold: true, children: "  ⏺ " }), _jsx(Text, { color: toolColor, bold: true, children: label }), arg && _jsxs(Text, { color: dim, children: ["(", arg, ")"] })] }), _jsxs(Text, { children: [_jsx(Text, { color: dim, children: "    ⎿  " }), success ? (_jsx(Text, { children: summary })) : (_jsx(Text, { color: error, children: summary }))] }), diff && tool === "edit" && (_jsxs(Box, { flexDirection: "column", marginLeft: 6, children: [diff.oldStr.split("\n").slice(0, maxDiffLines).map((line, i) => (_jsx(Text, { children: _jsx(Text, { color: "#f87171", children: `      - ${line}` }) }, `old-${i}`))), diff.oldStr.split("\n").length > maxDiffLines && (_jsx(Text, { color: dim, children: `      ... (+${diff.oldStr.split("\n").length - maxDiffLines} lines)` })), diff.newStr.split("\n").slice(0, maxDiffLines).map((line, i) => (_jsx(Text, { children: _jsx(Text, { color: "#34d399", children: `      + ${line}` }) }, `new-${i}`))), diff.newStr.split("\n").length > maxDiffLines && (_jsx(Text, { color: dim, children: `      ... (+${diff.newStr.split("\n").length - maxDiffLines} lines)` }))] })), !diff && success && (tool === "bash" || tool === "auto-bash" || tool === "auto-python" || tool === "grep" || tool === "ls") && result.split("\n").length > 1 && (_jsxs(Box, { flexDirection: "column", marginLeft: 6, children: [result.split("\n").slice(0, 15).map((line, i) => (_jsx(Text, { color: dim, children: `      ${line}` }, i))), result.split("\n").length > 15 && (_jsx(Text, { color: dim, children: `      ... (+${result.split("\n").length - 15} lines)` }))] }))] }));
+    const showFullOutput = FULL_OUTPUT_TOOLS.has(tool);
+    const lines = result.split("\n");
+    // For edit diffs, compute a better summary
+    const hasDiff = diff && tool === "edit" && diff.oldStr && diff.newStr;
+    let diffSummary = "";
+    if (hasDiff) {
+        const addedLines = diff.newStr.split("\n").length;
+        const removedLines = diff.oldStr.split("\n").length;
+        diffSummary = `Added ${addedLines} line${addedLines !== 1 ? "s" : ""}, removed ${removedLines} line${removedLines !== 1 ? "s" : ""}`;
+    }
+    return (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsxs(Text, { children: [_jsx(Text, { color: toolColor, bold: true, children: "⏺ " }), _jsx(Text, { color: toolColor, bold: true, children: label }), arg && _jsxs(Text, { color: dim, children: ["(", arg, ")"] })] }), success && showFullOutput && lines.length > 0 ? (_jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { children: [_jsx(Text, { color: dim, children: "  ⎿  " }), _jsx(Text, { children: lines[0] })] }), lines.slice(1, MAX_OUTPUT_LINES).map((line, i) => (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { children: line || " " })] }, i))), lines.length > MAX_OUTPUT_LINES && (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { color: dim, children: `… (+${lines.length - MAX_OUTPUT_LINES} lines)` })] }))] })) : success && hasDiff ? (
+            /* Claude Code-style inline diff for edit tool */
+            _jsx(ClaudeCodeDiff, { oldStr: diff.oldStr, newStr: diff.newStr, startLineNumber: startLineNumber || 1 })) : success && !showFullOutput ? (
+            /* Short summary for file tools (read/write/delete) */
+            _jsxs(Text, { children: [_jsx(Text, { color: dim, children: "  ⎿  " }), _jsx(Text, { children: getSummary(tool, result, success, linesChanged, filePath) })] })) : !success ? (
+            /* Error output */
+            _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { children: [_jsx(Text, { color: dim, children: "  ⎿  " }), _jsx(Text, { color: error, children: lines[0] })] }), lines.slice(1, 10).map((line, i) => (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { color: error, children: line || " " })] }, i))), lines.length > 10 && (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { color: dim, children: `… (+${lines.length - 10} lines)` })] }))] })) : null] }));
 }
 //# sourceMappingURL=ToolResult.js.map

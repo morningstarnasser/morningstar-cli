@@ -14,6 +14,7 @@ export interface ToolResult {
     filePath?: string;
     linesChanged?: number;
     command?: string;
+    startLineNumber?: number;
 }
 export interface ProjectContext {
     cwd: string;
@@ -31,5 +32,25 @@ export interface CLIConfig {
     maxTokens: number;
     temperature: number;
     provider?: string;
+    outputFormat?: "text" | "json" | "stream-json";
+    verbose?: boolean;
+    quiet?: boolean;
+    allowedTools?: string[];
+    disallowedTools?: string[];
+    maxTurns?: number;
+    fallbackModel?: string;
+    fast?: boolean;
+    additionalDirs?: string[];
+    systemPromptOverride?: string;
+    dangerouslySkipPermissions?: boolean;
+    permissionMode?: string;
+    appendSystemPrompt?: string;
+    preSelectedAgents?: string[];
+    jsonSchema?: string;
+    debug?: boolean;
+    maxBudgetUsd?: number;
+    forkSession?: string;
+    sessionId?: string;
+    sandbox?: boolean;
 }
 //# sourceMappingURL=types.d.ts.map

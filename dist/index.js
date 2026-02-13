@@ -10,6 +10,8 @@ import { App } from "./app.js";
 import { detectProject, buildSystemPrompt } from "./context.js";
 import { detectProvider, getProviderBaseUrl, getProviderApiKeyEnv } from "./providers.js";
 import { loadSettings } from "./settings.js";
+import { getLastConversation, loadConversation } from "./history.js";
+import { runPrintMode } from "./print-mode.js";
 // ─── Config ──────────────────────────────────────────────
 const VERSION = "1.0.0";
 const CONFIG_DIR = join(homedir(), ".morningstar");
@@ -107,11 +109,39 @@ program
     .option("-d, --dir <path>", "Working directory")
     .option("--chat", "Chat-only mode (no tools)")
     .option("--skip-permissions", "Bypass all permission prompts")
+    // Claude Code-compatible flags:
+    .option("-p, --print [prompt]", "Print mode: query, respond, exit")
+    .option("-c, --continue", "Resume most recent session")
+    .option("-r, --resume <id>", "Resume session by ID")
+    .option("--output-format <fmt>", "Output: text, json, stream-json", "text")
+    .option("--verbose", "Expanded logging")
+    .option("--quiet", "Suppress non-essential output")
+    .option("--allowedTools <tools>", "Pre-approve tools (comma-separated)")
+    .option("--max-turns <n>", "Max agentic turns", parseInt)
+    .option("--system-prompt <text>", "Override system prompt")
+    .option("--system-prompt-file <path>", "System prompt from file")
+    .option("--add-dir <path>", "Additional working directory")
+    .option("--fallback-model <model>", "Auto-fallback model")
+    .option("--fast", "Fast mode (use lighter model)")
+    // Permission flags:
+    .option("--dangerously-skip-permissions", "Bypass ALL permission prompts (dangerous!)")
+    .option("--permission-mode <mode>", "Permission mode: auto|ask|strict|bypassPermissions|acceptEdits|plan|dontAsk|delegate")
+    // Enhanced CLI flags:
+    .option("--append-system-prompt <text>", "Append text to system prompt")
+    .option("--agents <agents>", "Pre-select agents (comma-separated)")
+    .option("--json-schema <schema>", "Structured output JSON schema")
+    .option("--debug", "Debug mode (show raw messages, token counts, timing)")
+    .option("--disallowed-tools <tools>", "Block specific tools (comma-separated)")
+    .option("--tools <tools>", "Whitelist tools (comma-separated)")
+    .option("--max-budget-usd <amount>", "Max session budget in USD", parseFloat)
+    .option("--fork-session <id>", "Fork from existing session")
+    .option("--session-id <id>", "Explicit session ID")
+    .option("--sandbox", "Run in sandboxed mode (filesystem restrictions)")
     .parse();
 const opts = program.opts();
 const cwd = resolve(opts.dir || process.cwd());
 const chatOnly = opts.chat || false;
-const skipPermissions = opts.skipPermissions || false;
+const skipPermissions = opts.skipPermissions || opts.dangerouslySkipPermissions || false;
 // ─── Settings ─────────────────────────────────────────────
 const projectSettings = loadSettings(cwd);
 if (projectSettings.env) {
@@ -131,7 +161,69 @@ const config = {
     apiKey: opts.apiKey || getStoredApiKey(selectedProvider),
     temperature: projectSettings.temperature ?? DEFAULT_CONFIG.temperature,
     maxTokens: projectSettings.maxTokens ?? DEFAULT_CONFIG.maxTokens,
+    // New Claude Code-compatible fields:
+    outputFormat: opts.outputFormat || "text",
+    verbose: opts.verbose || false,
+    quiet: opts.quiet || false,
+    allowedTools: (opts.tools || opts.allowedTools) ? (opts.tools || opts.allowedTools).split(",").map((s) => s.trim()) : undefined,
+    disallowedTools: opts.disallowedTools ? opts.disallowedTools.split(",").map((s) => s.trim()) : undefined,
+    maxTurns: opts.maxTurns ?? undefined,
+    fallbackModel: opts.fallbackModel || undefined,
+    fast: opts.fast || false,
+    additionalDirs: opts.addDir ? [resolve(opts.addDir)] : undefined,
+    // Permission flags:
+    dangerouslySkipPermissions: opts.dangerouslySkipPermissions || false,
+    permissionMode: opts.permissionMode || undefined,
+    // Enhanced CLI flags:
+    appendSystemPrompt: opts.appendSystemPrompt || undefined,
+    preSelectedAgents: opts.agents ? opts.agents.split(",").map((s) => s.trim()) : undefined,
+    jsonSchema: opts.jsonSchema || undefined,
+    debug: opts.debug || false,
+    maxBudgetUsd: opts.maxBudgetUsd ?? undefined,
+    forkSession: opts.forkSession || undefined,
+    sessionId: opts.sessionId || undefined,
+    sandbox: opts.sandbox || false,
 };
+// ─── System Prompt Override ─────────────────────────────
+let systemPromptOverride;
+if (opts.systemPrompt) {
+    systemPromptOverride = opts.systemPrompt;
+}
+else if (opts.systemPromptFile) {
+    try {
+        systemPromptOverride = readFileSync(resolve(opts.systemPromptFile), "utf-8");
+    }
+    catch (e) {
+        console.error(`Error reading system prompt file: ${e.message}`);
+        process.exit(1);
+    }
+}
+// ─── Session Resume ─────────────────────────────────────
+let resumedMessages;
+if (opts.continue) {
+    const last = getLastConversation();
+    if (last) {
+        resumedMessages = last.messages;
+        if (!opts.quiet)
+            console.log(`  Resuming session: ${last.name} (${last.messageCount} messages)`);
+    }
+    else {
+        if (!opts.quiet)
+            console.log("  No previous session found.");
+    }
+}
+else if (opts.resume) {
+    const conv = loadConversation(opts.resume);
+    if (conv) {
+        resumedMessages = conv.messages;
+        if (!opts.quiet)
+            console.log(`  Resuming session: ${conv.name} (${conv.messageCount} messages)`);
+    }
+    else {
+        console.error(`  Session "${opts.resume}" not found.`);
+        process.exit(1);
+    }
+}
 // ─── Interactive API Key Setup ───────────────────────────
 async function ensureApiKey() {
     if (config.apiKey && config.apiKey !== "ollama")
@@ -145,6 +237,11 @@ async function ensureApiKey() {
     if (stored) {
         config.apiKey = stored;
         return;
+    }
+    // In print mode, don't do interactive setup
+    if (opts.print !== undefined) {
+        console.error(`No API key for ${provName}. Set via --api-key or environment variable.`);
+        process.exit(1);
     }
     const envKey = getProviderApiKeyEnv(provName);
     console.log(`\n  Kein API Key fuer ${provName} gefunden!\n`);
@@ -172,9 +269,40 @@ async function ensureApiKey() {
 await ensureApiKey();
 // ─── Project Detection ───────────────────────────────────
 const ctx = detectProject(cwd);
-const baseSystemPrompt = chatOnly
+let baseSystemPrompt = chatOnly
     ? "Du bist Morningstar AI, ein hilfreicher Coding-Assistant. Antworte direkt und effizient."
     : buildSystemPrompt(ctx);
+// Apply system prompt override
+if (systemPromptOverride) {
+    baseSystemPrompt = systemPromptOverride;
+}
+// Append system prompt if flag set
+if (config.appendSystemPrompt) {
+    baseSystemPrompt += "\n\n" + config.appendSystemPrompt;
+}
+// Fork session: load messages from existing session
+if (config.forkSession) {
+    const forked = loadConversation(config.forkSession);
+    if (forked) {
+        resumedMessages = [...forked.messages];
+        if (!opts.quiet)
+            console.log(`  Forked from session: ${forked.name} (${forked.messageCount} messages)`);
+    }
+    else {
+        console.error(`  Session "${config.forkSession}" not found for forking.`);
+    }
+}
+// ─── Print Mode (non-interactive) ───────────────────────
+if (opts.print !== undefined) {
+    const prompt = typeof opts.print === "string" ? opts.print : "";
+    // If no prompt given and stdin is a TTY, show usage
+    if (!prompt && process.stdin.isTTY) {
+        console.error("Usage: morningstar -p \"your prompt\" or echo \"input\" | morningstar -p \"prompt\"");
+        process.exit(1);
+    }
+    await runPrintMode(prompt || "", baseSystemPrompt, config, cwd);
+    // runPrintMode calls process.exit internally
+}
 // ─── Render Ink App ──────────────────────────────────────
 render(React.createElement(App, {
     config,
@@ -186,5 +314,6 @@ render(React.createElement(App, {
     getStoredApiKey,
     storeApiKey,
     saveConfig,
+    resumedMessages,
 }));
 //# sourceMappingURL=index.js.map

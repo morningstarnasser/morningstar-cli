@@ -14,15 +14,17 @@ interface DemoLine {
 }
 
 const LINES: DemoLine[] = [
-  { text: "Model    DeepSeek R1 (Thinking) [deepseek]", color: "text-amber-400", type: "star" },
-  { text: "Projekt  my-app (TypeScript / Next.js)", color: "text-amber-400", type: "star" },
+  { text: "Model    DeepSeek R1 (Thinking) [deepseek]", color: "text-gray-400", type: "star" },
+  { text: "Projekt  my-app (TypeScript / Next.js)", color: "text-gray-400", type: "star" },
+  { text: "Branch   main", color: "text-gray-400", type: "star" },
+  { text: "Perms    ask", color: "text-gray-400", type: "star" },
   { text: "", color: "" },
   { text: "> Analysiere dieses Projekt und finde Bugs", color: "text-white", prefix: "  " },
   { text: "", color: "" },
-  { text: "\u250C\u2500 Plan \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510", color: "text-gray-600" },
-  { text: "\u2502 Ich schaue mir die Projektstruktur an,           \u2502", color: "text-gray-400" },
-  { text: "\u2502 dann lese ich die Hauptdateien...                \u2502", color: "text-gray-400" },
-  { text: "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 2.1s \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518", color: "text-gray-600" },
+  { text: "\u250C\u2500 Thinking (effort: high) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510", color: "text-gray-600" },
+  { text: "\u2502 Scanning project structure and reading        \u2502", color: "text-gray-400" },
+  { text: "\u2502 main files for potential issues...             \u2502", color: "text-gray-400" },
+  { text: "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 2.1s \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518", color: "text-gray-600" },
   { text: "", color: "" },
   { text: "\u23FA Read(src/app/page.tsx)", color: "text-blue-400", type: "check" },
   { text: "  \u23BF  42 lines", color: "text-gray-500" },
@@ -34,17 +36,17 @@ const LINES: DemoLine[] = [
   { text: "  \u23BF  - const data = fetchData()", color: "text-red-400" },
   { text: "     + const data = await fetchData()", color: "text-green-400" },
   { text: "", color: "" },
-  { text: "Ich habe 3 Probleme gefunden und 1 gefixt:", color: "text-amber-400", type: "star" },
+  { text: "\u23BF 3 issues found, 1 auto-fixed:", color: "text-white" },
   { text: "", color: "" },
   { text: "  1. \u2705 Missing 'await' in getData() — fixed", color: "text-green-400" },
-  { text: "  2. useEffect missing dependency array", color: "text-cyan-400" },
-  { text: "  3. No error boundary around async component", color: "text-cyan-400" },
+  { text: "  2. useEffect missing dependency array", color: "text-gray-300" },
+  { text: "  3. No error boundary around async component", color: "text-gray-300" },
   { text: "", color: "" },
   { text: "\u25D0 Context [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591] 34% \u00B7 Free 66%", color: "text-teal-400" },
 ];
 
 function LineIcon({ type }: { type?: LineType }) {
-  if (type === "star") return <Star size={12} fill="currentColor" strokeWidth={0} className="text-amber-400 shrink-0 mt-0.5" />;
+  if (type === "star") return <Star size={12} fill="currentColor" strokeWidth={0} className="text-gray-500 shrink-0 mt-0.5" />;
   if (type === "check") return <Check size={14} strokeWidth={2.5} className="text-green-400 shrink-0 mt-0.5" />;
   if (type === "arrow") return <ArrowRight size={12} strokeWidth={2} className="text-gray-400 shrink-0 mt-0.5" />;
   return null;

@@ -3,12 +3,11 @@ import { useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
 const SPINNER_TEXTS = [
-    "Hyperspacing", "Initialisiere", "Analysiere", "Denke nach",
-    "Verarbeite", "Kalkuliere", "Kompiliere", "Generiere",
-    "Synthetisiere", "Evaluiere", "Optimiere", "Strukturiere",
+    "Generating", "Analyzing", "Thinking", "Processing",
+    "Reasoning", "Evaluating", "Synthesizing", "Computing",
 ];
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-export function MorningstarSpinner({ startTime, streamedChars = 0 }) {
+export function MorningstarSpinner({ startTime, streamedChars = 0, thinkingTime, receivedTokens }) {
     const { dim, info } = useTheme();
     const [frame, setFrame] = useState(0);
     const [textIdx, setTextIdx] = useState(() => Math.floor(Math.random() * SPINNER_TEXTS.length));
@@ -16,7 +15,15 @@ export function MorningstarSpinner({ startTime, streamedChars = 0 }) {
     useEffect(() => {
         const interval = setInterval(() => {
             setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-            setElapsed(((Date.now() - startTime) / 1000).toFixed(1));
+            const secs = (Date.now() - startTime) / 1000;
+            if (secs >= 60) {
+                const mins = Math.floor(secs / 60);
+                const remSecs = Math.round(secs % 60);
+                setElapsed(`${mins}m ${remSecs}s`);
+            }
+            else {
+                setElapsed(`${secs.toFixed(1)}s`);
+            }
         }, 80);
         return () => clearInterval(interval);
     }, [startTime]);
@@ -26,8 +33,9 @@ export function MorningstarSpinner({ startTime, streamedChars = 0 }) {
         }, 3000);
         return () => clearInterval(interval);
     }, []);
-    const estTokens = Math.round(streamedChars / 4);
-    const tokenStr = estTokens >= 1000 ? `${(estTokens / 1000).toFixed(1)}k` : String(estTokens);
-    return (_jsxs(Box, { marginLeft: 2, children: [_jsx(Text, { color: info, children: SPINNER_FRAMES[frame] }), _jsxs(Text, { color: dim, children: [" ", SPINNER_TEXTS[textIdx], "\u2026 "] }), _jsxs(Text, { color: dim, children: [elapsed, "s"] }), streamedChars > 0 && (_jsxs(Text, { color: dim, children: [" \u00B7 ~", tokenStr, " tokens"] }))] }));
+    const tokens = receivedTokens ?? Math.round(streamedChars / 4);
+    const tokenStr = tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
+    // Claude Code style: ✢ Generating… (4m 24s · ↓ 13.2k tokens · thought for 17s)
+    return (_jsxs(Box, { marginLeft: 2, children: [_jsx(Text, { color: info, children: "✢ " }), _jsxs(Text, { color: dim, children: [SPINNER_TEXTS[textIdx], "\u2026 "] }), _jsx(Text, { color: dim, children: "(" }), _jsx(Text, { color: dim, children: elapsed }), tokens > 0 && (_jsxs(Text, { color: dim, children: [" \u00B7 \u2193 ", tokenStr, " tokens"] })), thinkingTime != null && thinkingTime > 0 && (_jsxs(Text, { color: dim, children: [" \u00B7 thought for ", thinkingTime, "s"] })), _jsx(Text, { color: dim, children: ")" })] }));
 }
 //# sourceMappingURL=Spinner.js.map

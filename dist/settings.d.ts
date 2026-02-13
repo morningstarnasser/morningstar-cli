@@ -11,6 +11,16 @@ export interface MorningstarSettings {
     maxTokens?: number;
     customInstructions?: string;
     env?: Record<string, string>;
+    allowedTools?: string[];
+    deniedTools?: string[];
+    hooks?: Record<string, Array<{
+        matcher?: string;
+        command: string;
+    }>>;
+    mcpServers?: Record<string, {
+        command: string;
+        args?: string[];
+    }>;
 }
 export declare function getGlobalSettingsPath(): string;
 export declare function getProjectSettingsPath(cwd: string): string;

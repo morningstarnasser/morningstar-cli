@@ -114,43 +114,51 @@ export default function Hero() {
           <span className="ml-3 text-gray-500 text-sm">morningstar</span>
         </div>
         <div className="p-6 font-mono text-sm leading-relaxed">
-          <div className="text-amber-400 flex items-center gap-2">
-            <Star size={12} fill="currentColor" strokeWidth={0} />
-            <span>Model</span>
-            <span className="ml-4 text-white">DeepSeek R1 (Thinking)</span>
-            <span className="text-gray-500">[deepseek]</span>
+          <div className="text-gray-500">{"╭────────────────────────────────────────────────────╮"}</div>
+          <div className="text-gray-500">
+            {"│ "}
+            <span className="text-white font-bold">{"✦ Morningstar CLI"}</span>
+            {"                                   │"}
           </div>
-          <div className="text-amber-400 flex items-center gap-2">
-            <Star size={12} fill="currentColor" strokeWidth={0} />
-            <span>Projekt</span>
-            <span className="ml-2 text-white">my-app</span>
-            <span className="text-gray-500">(TypeScript / Next.js)</span>
-          </div>
-          <div className="text-amber-400 flex items-center gap-2">
-            <Star size={12} fill="currentColor" strokeWidth={0} />
-            <span>Branch</span>
-            <span className="ml-3 text-white">main</span>
-          </div>
-          <div className="mt-3 text-gray-500">
-            {"  Tools     "}
-            <span className="text-cyan-400">
-              read · write · edit · bash · grep · glob · ls · git
-            </span>
+          <div className="text-gray-500">{"│                                                    │"}</div>
+          <div className="text-gray-500">
+            {"│  Model    "}
+            <span className="text-white">DeepSeek R1</span>
+            {" [deepseek]                    │"}
           </div>
           <div className="text-gray-500">
-            {"  Agents    "}
-            <span className="text-purple-400">
-              code · debug · review · refactor · architect · test
-            </span>
+            {"│  Project  "}
+            <span className="text-white">my-app</span>
+            {" (TypeScript / Next.js)          │"}
           </div>
+          <div className="text-gray-500">
+            {"│  Branch   "}
+            <span className="text-white">main</span>
+            {"                                   │"}
+          </div>
+          <div className="text-gray-500">
+            {"│  Perms    "}
+            <span className="text-white">ask</span>
+            {"                                    │"}
+          </div>
+          <div className="text-gray-500">{"│                                                    │"}</div>
+          <div className="text-gray-500">
+            {"│  Tools    "}
+            <span className="text-gray-300">read write edit bash grep glob ls git web fetch gh</span>
+            {" │"}
+          </div>
+          <div className="text-gray-500">
+            {"│  Agents   "}
+            <span className="text-gray-300">8 available</span>
+            {"                                │"}
+          </div>
+          <div className="text-gray-500">{"╰────────────────────────────────────────────────────╯"}</div>
           <div className="mt-2 text-gray-500 text-xs">
-            {" "}
-            <span className="text-teal-400">{"\u25D0"} Context</span>
-            {" "}
-            <span className="text-green-500">{"\u2588\u2588\u2588\u2588\u2588"}</span>
-            <span className="text-gray-700">{"\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591"}</span>
-            {" "}
-            <span className="text-gray-500">24% · Free 76%</span>
+            {"  Type "}
+            <span className="text-gray-300">/help</span>
+            {" for commands, "}
+            <span className="text-gray-300">/features</span>
+            {" for capabilities"}
           </div>
           <div className="mt-3 text-gray-400">
             {"  > "}

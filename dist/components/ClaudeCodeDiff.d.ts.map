@@ -1,0 +1,1 @@
+{"version":3,"file":"ClaudeCodeDiff.d.ts","sourceRoot":"","sources":["../../src/components/ClaudeCodeDiff.tsx"],"names":[],"mappings":"AAGA,UAAU,mBAAmB;IAC3B,MAAM,EAAE,MAAM,CAAC;IACf,MAAM,EAAE,MAAM,CAAC;IACf,eAAe,CAAC,EAAE,MAAM,CAAC;IACzB,QAAQ,CAAC,EAAE,MAAM,CAAC;CACnB;AAyGD,wBAAgB,cAAc,CAAC,EAAE,MAAM,EAAE,MAAM,EAAE,eAAmB,EAAE,QAAa,EAAE,EAAE,mBAAmB,2CAoGzG"}

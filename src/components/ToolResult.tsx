@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
-import { AnimatedDiff } from "./AnimatedDiff.js";
+import { ClaudeCodeDiff } from "./ClaudeCodeDiff.js";
 
 interface ToolResultProps {
   tool: string;
@@ -11,6 +11,7 @@ interface ToolResultProps {
   filePath?: string;
   linesChanged?: number;
   command?: string;
+  startLineNumber?: number;
 }
 
 // Tool display names — Claude Code style
@@ -116,9 +117,8 @@ function getSummary(tool: string, result: string, success: boolean, linesChanged
 // Tools that show full multi-line output (like Claude Code)
 const FULL_OUTPUT_TOOLS = new Set(["bash", "auto-bash", "auto-python", "grep", "glob", "ls", "git", "web", "fetch"]);
 const MAX_OUTPUT_LINES = 25;
-const MAX_DIFF_LINES = 15;
 
-export function ToolResult({ tool, result, success, diff, filePath, linesChanged, command }: ToolResultProps) {
+export function ToolResult({ tool, result, success, diff, filePath, linesChanged, command, startLineNumber }: ToolResultProps) {
   const { primary, error, dim } = useTheme();
 
   const label = TOOL_LABELS[tool] || tool;
@@ -126,6 +126,15 @@ export function ToolResult({ tool, result, success, diff, filePath, linesChanged
   const arg = getToolArg(tool, filePath, command, result);
   const showFullOutput = FULL_OUTPUT_TOOLS.has(tool);
   const lines = result.split("\n");
+
+  // For edit diffs, compute a better summary
+  const hasDiff = diff && tool === "edit" && diff.oldStr && diff.newStr;
+  let diffSummary = "";
+  if (hasDiff) {
+    const addedLines = diff.newStr.split("\n").length;
+    const removedLines = diff.oldStr.split("\n").length;
+    diffSummary = `Added ${addedLines} line${addedLines !== 1 ? "s" : ""}, removed ${removedLines} line${removedLines !== 1 ? "s" : ""}`;
+  }
 
   return (
     <Box flexDirection="column" marginLeft={2}>
@@ -158,8 +167,15 @@ export function ToolResult({ tool, result, success, diff, filePath, linesChanged
             </Text>
           )}
         </Box>
+      ) : success && hasDiff ? (
+        /* Claude Code-style inline diff for edit tool */
+        <ClaudeCodeDiff
+          oldStr={diff.oldStr}
+          newStr={diff.newStr}
+          startLineNumber={startLineNumber || 1}
+        />
       ) : success && !showFullOutput ? (
-        /* Short summary for file tools (read/write/edit/delete) */
+        /* Short summary for file tools (read/write/delete) */
         <Text>
           <Text color={dim}>{"  ⎿  "}</Text>
           <Text>{getSummary(tool, result, success, linesChanged, filePath)}</Text>
@@ -185,16 +201,6 @@ export function ToolResult({ tool, result, success, diff, filePath, linesChanged
           )}
         </Box>
       ) : null}
-
-      {/* Animated diff view for edit tool */}
-      {diff && tool === "edit" && (
-        <Box marginLeft={3}>
-          <AnimatedDiff
-            oldLines={diff.oldStr ? diff.oldStr.split("\n") : []}
-            newLines={diff.newStr ? diff.newStr.split("\n") : []}
-          />
-        </Box>
-      )}
     </Box>
   );
 }

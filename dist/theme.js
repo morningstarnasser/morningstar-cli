@@ -82,6 +82,19 @@ export const THEMES = {
         prompt: "#f43f5e",
         star: "#ec4899",
     },
+    claude: {
+        name: "Claude",
+        primary: "#e2e8f0",
+        secondary: "#94a3b8",
+        accent: "#e2e8f0",
+        success: "#10b981",
+        error: "#ef4444",
+        warning: "#f59e0b",
+        info: "#94a3b8",
+        dim: "#4b5563",
+        prompt: "#e2e8f0",
+        star: "#94a3b8",
+    },
 };
 let activeTheme = THEMES.default;
 export function loadTheme() {

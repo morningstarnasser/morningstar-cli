@@ -68,7 +68,7 @@ export function StreamingOutput({ text, reasoning, isStreaming, startTime }: Str
       {text && (
         <Box flexDirection="column" marginLeft={2}>
           <Box>
-            <Text color={star}>  * </Text>
+            <Text color={dim}>  ⎿ </Text>
           </Box>
           {blocks.map((block, i) => {
             if (block.type === "code") {

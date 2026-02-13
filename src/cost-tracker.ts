@@ -112,3 +112,17 @@ export function isFreeTier(model: string): boolean {
   const price = PRICING[model];
   return !price || (price.input === 0 && price.output === 0);
 }
+
+/**
+ * Check if session cost exceeds the budget limit.
+ */
+export function isBudgetExceeded(maxBudgetUsd: number): boolean {
+  return session.totalCost >= maxBudgetUsd;
+}
+
+/**
+ * Get remaining budget.
+ */
+export function getRemainingBudget(maxBudgetUsd: number): number {
+  return Math.max(0, maxBudgetUsd - session.totalCost);
+}

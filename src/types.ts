@@ -12,6 +12,7 @@ export interface ToolResult {
   filePath?: string;
   linesChanged?: number;
   command?: string;
+  startLineNumber?: number;
 }
 
 export interface ProjectContext {
@@ -31,4 +32,27 @@ export interface CLIConfig {
   maxTokens: number;
   temperature: number;
   provider?: string;
+  // Claude Code-compatible flags:
+  outputFormat?: "text" | "json" | "stream-json";
+  verbose?: boolean;
+  quiet?: boolean;
+  allowedTools?: string[];
+  disallowedTools?: string[];
+  maxTurns?: number;
+  fallbackModel?: string;
+  fast?: boolean;
+  additionalDirs?: string[];
+  systemPromptOverride?: string;
+  // Permission flags:
+  dangerouslySkipPermissions?: boolean;
+  permissionMode?: string;
+  // Enhanced CLI flags:
+  appendSystemPrompt?: string;
+  preSelectedAgents?: string[];
+  jsonSchema?: string;
+  debug?: boolean;
+  maxBudgetUsd?: number;
+  forkSession?: string;
+  sessionId?: string;
+  sandbox?: boolean;
 }

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
-export type PermissionMode = "auto" | "ask" | "strict";
+export type PermissionMode = "auto" | "ask" | "strict" | "bypassPermissions" | "acceptEdits" | "plan" | "dontAsk" | "delegate";
 export type ToolCategory = "safe" | "moderate" | "dangerous";
 
 const CONFIG_DIR = join(homedir(), ".morningstar");
@@ -20,23 +20,61 @@ const TOOL_CATEGORIES: Record<string, ToolCategory> = {
   bash: "dangerous",
 };
 
+const VALID_MODES: PermissionMode[] = ["auto", "ask", "strict", "bypassPermissions", "acceptEdits", "plan", "dontAsk", "delegate"];
+
+export function isValidPermissionMode(mode: string): mode is PermissionMode {
+  return VALID_MODES.includes(mode as PermissionMode);
+}
+
 export function getToolCategory(tool: string): ToolCategory {
   return TOOL_CATEGORIES[tool] || "dangerous";
 }
 
-export function shouldAskPermission(tool: string, mode: PermissionMode): boolean {
-  if (mode === "auto") return false;
-  const cat = getToolCategory(tool);
-  if (mode === "strict") return true;
-  // ask mode: moderate + dangerous
-  return cat === "moderate" || cat === "dangerous";
+export function shouldAskPermission(tool: string, mode: PermissionMode, allowList?: string[]): boolean {
+  switch (mode) {
+    case "auto":
+    case "bypassPermissions":
+      return false;
+    case "strict":
+      return true;
+    case "ask": {
+      const cat = getToolCategory(tool);
+      return cat === "moderate" || cat === "dangerous";
+    }
+    case "acceptEdits": {
+      const cat = getToolCategory(tool);
+      // Don't ask for write/edit, but ask for bash/delete
+      if (cat === "moderate" && (tool === "write" || tool === "edit")) return false;
+      return cat === "moderate" || cat === "dangerous";
+    }
+    case "plan":
+      // Plan mode always asks — triggers plan display
+      return true;
+    case "dontAsk":
+      // Never ask but deny if not in allow list
+      if (allowList && allowList.includes(tool)) return false;
+      return false; // silently deny non-allowed
+    case "delegate":
+      // AI decides — never ask user
+      return false;
+    default:
+      return false;
+  }
+}
+
+/**
+ * For "dontAsk" mode: check if tool should be denied (not in allow list)
+ */
+export function shouldDenyInDontAskMode(tool: string, allowList?: string[]): boolean {
+  if (!allowList) return false;
+  return !allowList.includes(tool);
 }
 
 export function getPermissionMode(): PermissionMode {
   try {
     if (existsSync(CONFIG_FILE)) {
       const data = JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
-      if (data.permissionMode && ["auto", "ask", "strict"].includes(data.permissionMode)) {
+      if (data.permissionMode && isValidPermissionMode(data.permissionMode)) {
         return data.permissionMode;
       }
     }
@@ -66,5 +104,19 @@ export function getCategoryColor(cat: ToolCategory): string {
     case "safe": return "#10b981";
     case "moderate": return "#f59e0b";
     case "dangerous": return "#ef4444";
+  }
+}
+
+export function getPermissionModeDescription(mode: PermissionMode): string {
+  switch (mode) {
+    case "auto": return "Alle Tools ohne Nachfrage";
+    case "ask": return "Bei write/edit/delete/bash nachfragen";
+    case "strict": return "Bei jedem Tool nachfragen";
+    case "bypassPermissions": return "Alle Permissions ueberspringen (gefaehrlich!)";
+    case "acceptEdits": return "Write/Edit erlauben, Bash/Delete nachfragen";
+    case "plan": return "Plan-Modus — zeigt Plan vor Ausfuehrung";
+    case "dontAsk": return "Nie fragen, nicht in Allow-List verweigern";
+    case "delegate": return "AI entscheidet ueber Permissions";
+    default: return "Unbekannt";
   }
 }

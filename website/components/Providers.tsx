@@ -6,7 +6,7 @@ const providers = [
   { name: "OpenAI", models: "o3, o4-mini, GPT-4.1, Codex", color: "#412991", cmd: "o3", css: "provider-openai" },
   { name: "Anthropic", models: "Claude Opus 4, Sonnet 4", color: "#D4A373", cmd: "claude-opus-4-20250514", css: "provider-anthropic" },
   { name: "Google", models: "Gemini 2.0 Flash / Pro", color: "#4285F4", cmd: "gemini-2.0-flash", css: "provider-google" },
-  { name: "Ollama", models: "Any local model", color: "#22C55E", cmd: "llama3", css: "provider-ollama" },
+  { name: "Ollama", models: "Morningstar 13B, LLaMA 3, Qwen, any local", color: "#22C55E", cmd: "morningstar", css: "provider-ollama" },
   { name: "Groq", models: "LLaMA 3.3, Mixtral", color: "#F55036", cmd: "llama-3.3-70b-versatile", css: "provider-groq" },
   { name: "OpenRouter", models: "Any model via API", color: "#6366F1", cmd: "openrouter/auto", css: "provider-openrouter" },
 ];

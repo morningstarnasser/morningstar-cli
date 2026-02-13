@@ -85,4 +85,16 @@ export function isFreeTier(model) {
     const price = PRICING[model];
     return !price || (price.input === 0 && price.output === 0);
 }
+/**
+ * Check if session cost exceeds the budget limit.
+ */
+export function isBudgetExceeded(maxBudgetUsd) {
+    return session.totalCost >= maxBudgetUsd;
+}
+/**
+ * Get remaining budget.
+ */
+export function getRemainingBudget(maxBudgetUsd) {
+    return Math.max(0, maxBudgetUsd - session.totalCost);
+}
 //# sourceMappingURL=cost-tracker.js.map

@@ -3,9 +3,8 @@ import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
 
 const SPINNER_TEXTS = [
-  "Hyperspacing", "Initialisiere", "Analysiere", "Denke nach",
-  "Verarbeite", "Kalkuliere", "Kompiliere", "Generiere",
-  "Synthetisiere", "Evaluiere", "Optimiere", "Strukturiere",
+  "Generating", "Analyzing", "Thinking", "Processing",
+  "Reasoning", "Evaluating", "Synthesizing", "Computing",
 ];
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -13,9 +12,11 @@ const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", 
 interface SpinnerProps {
   startTime: number;
   streamedChars?: number;
+  thinkingTime?: number;
+  receivedTokens?: number;
 }
 
-export function MorningstarSpinner({ startTime, streamedChars = 0 }: SpinnerProps) {
+export function MorningstarSpinner({ startTime, streamedChars = 0, thinkingTime, receivedTokens }: SpinnerProps) {
   const { dim, info } = useTheme();
   const [frame, setFrame] = useState(0);
   const [textIdx, setTextIdx] = useState(() => Math.floor(Math.random() * SPINNER_TEXTS.length));
@@ -24,7 +25,14 @@ export function MorningstarSpinner({ startTime, streamedChars = 0 }: SpinnerProp
   useEffect(() => {
     const interval = setInterval(() => {
       setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-      setElapsed(((Date.now() - startTime) / 1000).toFixed(1));
+      const secs = (Date.now() - startTime) / 1000;
+      if (secs >= 60) {
+        const mins = Math.floor(secs / 60);
+        const remSecs = Math.round(secs % 60);
+        setElapsed(`${mins}m ${remSecs}s`);
+      } else {
+        setElapsed(`${secs.toFixed(1)}s`);
+      }
     }, 80);
     return () => clearInterval(interval);
   }, [startTime]);
@@ -36,17 +44,23 @@ export function MorningstarSpinner({ startTime, streamedChars = 0 }: SpinnerProp
     return () => clearInterval(interval);
   }, []);
 
-  const estTokens = Math.round(streamedChars / 4);
-  const tokenStr = estTokens >= 1000 ? `${(estTokens / 1000).toFixed(1)}k` : String(estTokens);
+  const tokens = receivedTokens ?? Math.round(streamedChars / 4);
+  const tokenStr = tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
 
+  // Claude Code style: ✢ Generating… (4m 24s · ↓ 13.2k tokens · thought for 17s)
   return (
     <Box marginLeft={2}>
-      <Text color={info}>{SPINNER_FRAMES[frame]}</Text>
-      <Text color={dim}> {SPINNER_TEXTS[textIdx]}… </Text>
-      <Text color={dim}>{elapsed}s</Text>
-      {streamedChars > 0 && (
-        <Text color={dim}> · ~{tokenStr} tokens</Text>
+      <Text color={info}>{"✢ "}</Text>
+      <Text color={dim}>{SPINNER_TEXTS[textIdx]}… </Text>
+      <Text color={dim}>(</Text>
+      <Text color={dim}>{elapsed}</Text>
+      {tokens > 0 && (
+        <Text color={dim}> · ↓ {tokenStr} tokens</Text>
       )}
+      {thinkingTime != null && thinkingTime > 0 && (
+        <Text color={dim}> · thought for {thinkingTime}s</Text>
+      )}
+      <Text color={dim}>)</Text>
     </Box>
   );
 }

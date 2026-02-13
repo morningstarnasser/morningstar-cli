@@ -93,8 +93,11 @@ export function editFile(filePath, oldStr, newStr, cwd) {
         const removedLines = oldStr.split("\n").length;
         const delta = addedLines - removedLines;
         const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
+        // Compute 1-based line number where the edit starts
+        const editIndex = content.indexOf(oldStr);
+        const startLineNumber = editIndex >= 0 ? content.substring(0, editIndex).split("\n").length : 1;
         toolStats.filesEdited++;
-        return { tool: "edit", result: `Updated ${filePath} (${deltaStr} lines)`, success: true, diff: { filePath, oldStr, newStr }, filePath, linesChanged: addedLines };
+        return { tool: "edit", result: `Updated ${filePath} (${deltaStr} lines)`, success: true, diff: { filePath, oldStr, newStr }, filePath, linesChanged: addedLines, startLineNumber };
     }
     catch (e) {
         return { tool: "edit", result: `Fehler: ${e.message}`, success: false };
@@ -341,10 +344,11 @@ export async function executeToolCalls(response, cwd) {
                         const afterTool = response.slice((match.index ?? 0) + fullMatch.length);
                         // Check if there's a filename between </tool> and the code block (e.g. "index.html\n```html\n...")
                         const codeWithNameMatch = afterTool.match(/^\s*\n?([\w][\w.\-]*\.\w+)\s*\n```\w*\n([\s\S]*?)```/);
-                        // Check for ```lang\n...\n``` code blocks (allow whitespace/newlines before)
-                        const codeMatch = afterTool.match(/^\s*```\w*\n([\s\S]*?)```/);
+                        // Check for ```lang\n...\n``` code blocks — allow ANY text between </tool> and the code block
+                        // Models often write explanatory text before the code block
+                        const codeMatch = afterTool.match(/```\w*\n([\s\S]*?)```/);
                         // Check for <code>\n...\n</code> blocks (some models use this)
-                        const codeTagMatch = afterTool.match(/^\s*<code>\n?([\s\S]*?)<\/code>/);
+                        const codeTagMatch = afterTool.match(/<code>\n?([\s\S]*?)<\/code>/);
                         if (codeWithNameMatch) {
                             // Append the filename to the path (e.g. /tmp/snake-game + index.html)
                             const extraName = codeWithNameMatch[1];
@@ -443,7 +447,7 @@ export async function executeToolCalls(response, cwd) {
                     break;
                 }
                 default:
-                    result = { tool: toolName, result: `Unbekanntes Tool: ${toolName}`, success: false };
+                    result = { tool: toolName, result: `Unbekanntes Tool: ${toolName}. Verfuegbare Tools: read, write, edit, delete, bash, grep, glob, ls, git, web, fetch, gh. Fuer Verschieben nutze <tool:bash>mv quelle ziel</tool>, fuer Kopieren <tool:bash>cp quelle ziel</tool>.`, success: false };
             }
         }
         catch (e) {
@@ -539,6 +543,44 @@ export async function executeToolCalls(response, cwd) {
                     unlinkSync(tmpFile);
                 }
                 catch { }
+            }
+            cleanResponse = cleanResponse.replace(fullBlock, "");
+        }
+        // ─── Auto-Write HTML code blocks ONLY when it's real HTML ───
+        const htmlBlockRegex = /```html\n([\s\S]*?)```/g;
+        let htmlMatch;
+        while ((htmlMatch = htmlBlockRegex.exec(response)) !== null) {
+            const [fullBlock, code] = htmlMatch;
+            const trimmed = code.trim();
+            if (!trimmed || trimmed.length < 100)
+                continue;
+            if (/<tool:\w+>/.test(trimmed))
+                continue;
+            // Validate: must look like actual HTML, NOT React/JSX
+            const looksLikeHTML = /<!DOCTYPE|<html|<head|<body/i.test(trimmed);
+            const looksLikeReact = /import\s+React|from\s+['"]react|useState|useEffect|className=/i.test(trimmed);
+            if (!looksLikeHTML || looksLikeReact)
+                continue;
+            const beforeBlock = response.slice(0, htmlMatch.index);
+            const pathMatch = beforeBlock.match(/([\/~][\w\/\-. ]+\.(?:html|htm))/i)
+                || beforeBlock.match(/([\w][\w\-]*\.(?:html|htm))/i);
+            let targetPath;
+            if (pathMatch) {
+                const detected = pathMatch[1].trim();
+                targetPath = detected.startsWith("/") || detected.startsWith("~") ? detected : resolve(cwd, detected);
+            }
+            else {
+                targetPath = resolve(cwd, "index.html");
+            }
+            try {
+                const dir = dirname(targetPath);
+                if (!existsSync(dir))
+                    mkdirSync(dir, { recursive: true });
+                const r = writeFile(targetPath, trimmed, cwd);
+                results.push({ ...r, tool: "auto-html" });
+            }
+            catch (e) {
+                results.push({ tool: "auto-html", result: `Fehler: ${e.message}`, success: false });
             }
             cleanResponse = cleanResponse.replace(fullBlock, "");
         }

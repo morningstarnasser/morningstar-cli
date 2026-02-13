@@ -23,6 +23,8 @@ export declare const IMAGE_MODELS: readonly [{
     readonly resolution: "512x512";
 }];
 export declare const DEFAULT_IMAGE_MODEL = "sdxl-turbo";
+export declare function startImageServer(onProgress?: (s: string) => void): Promise<void>;
+export declare function stopImageServer(): Promise<void>;
 export declare function hasPython(): Promise<boolean>;
 export declare function isSetupComplete(): Promise<boolean>;
 export declare function setupImageGen(onProgress?: (s: string) => void): Promise<void>;
