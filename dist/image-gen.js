@@ -8,7 +8,7 @@ const SERVER_PORT = 7860;
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const PID_FILE = join(IMAGE_GEN_DIR, "server.pid");
 export const IMAGE_MODELS = [
-    { id: "gemini", name: "Gemini 2.0 Flash (Nano Banana)", size: "API", description: "Beste Qualitaet, Cloud-basiert (Standard)", steps: 0, resolution: "1024x1024" },
+    { id: "gemini", name: "Nano Banana (Gemini 2.5 Flash Image)", size: "API", description: "Beste Qualitaet, Cloud-basiert (Standard)", steps: 0, resolution: "1024x1024" },
     { id: "realvis", name: "RealVisXL V4.0", size: "~7GB", description: "Photorealistisch, lokal", steps: 40, resolution: "1024x1024" },
     { id: "sdxl", name: "Stable Diffusion XL", size: "~7GB", description: "Hohe Qualitaet, lokal", steps: 40, resolution: "1024x1024" },
     { id: "sdxl-turbo", name: "SDXL Turbo", size: "~7GB", description: "Schnell (1-4 Steps), lokal", steps: 4, resolution: "512x512" },
@@ -409,7 +409,7 @@ async function generateWithGemini(prompt, outPath) {
     if (!apiKey)
         throw new Error("Google API Key nicht gefunden.\n  Setze: export GOOGLE_API_KEY=dein_key\n  Oder:  morningstar → /config set apiKeys.google DEIN_KEY\n  Gratis: https://aistudio.google.com/apikey");
     const start = Date.now();
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`;
     const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

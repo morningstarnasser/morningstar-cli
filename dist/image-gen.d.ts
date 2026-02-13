@@ -2,7 +2,7 @@ export declare const IMAGE_GEN_DIR: string;
 export declare const IMAGE_OUTPUT_DIR: string;
 export declare const IMAGE_MODELS: readonly [{
     readonly id: "gemini";
-    readonly name: "Gemini 2.0 Flash (Nano Banana)";
+    readonly name: "Nano Banana (Gemini 2.5 Flash Image)";
     readonly size: "API";
     readonly description: "Beste Qualitaet, Cloud-basiert (Standard)";
     readonly steps: 0;
