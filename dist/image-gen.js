@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node
 import { join } from "node:path";
 import { homedir, totalmem } from "node:os";
 export const IMAGE_GEN_DIR = join(homedir(), ".morningstar", "image-gen");
-export const IMAGE_OUTPUT_DIR = join(homedir(), "morningstar-images");
+export const IMAGE_OUTPUT_DIR = join(homedir(), "Downloads");
 const SERVER_PORT = 7860;
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const PID_FILE = join(IMAGE_GEN_DIR, "server.pid");
@@ -103,10 +103,19 @@ class Handler(BaseHTTPRequestHandler):
 
             start = time.time()
             kw = {"prompt": prompt, "num_inference_steps": steps, "width": width, "height": height, "generator": generator}
-            if guidance > 0: kw["guidance_scale"] = guidance
+            kw["guidance_scale"] = guidance if guidance > 0 else (0.0 if model_id == "sdxl-turbo" else 7.5)
             if negative: kw["negative_prompt"] = negative
 
             image = pipe(**kw).images[0]
+
+            # Detect black/blank images
+            import numpy as np
+            arr = np.array(image)
+            if arr.mean() < 5:
+                # Retry with higher guidance
+                kw["guidance_scale"] = 2.0
+                image = pipe(**kw).images[0]
+
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             image.save(output_path)
             duration = round(time.time() - start, 1)
@@ -197,10 +206,18 @@ def main():
     print(f"Generating ({args.steps} steps, {args.width}x{args.height})...", file=sys.stderr)
 
     kw = {"prompt": args.prompt, "num_inference_steps": args.steps, "width": args.width, "height": args.height, "generator": generator}
-    if args.guidance > 0: kw["guidance_scale"] = args.guidance
+    kw["guidance_scale"] = args.guidance if args.guidance > 0 else (0.0 if args.model == "sdxl-turbo" else 7.5)
     if args.negative: kw["negative_prompt"] = args.negative
 
     image = pipe(**kw).images[0]
+
+    # Detect black/blank images and retry
+    import numpy as np
+    arr = np.array(image)
+    if arr.mean() < 5:
+        kw["guidance_scale"] = 2.0
+        image = pipe(**kw).images[0]
+
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     image.save(args.output)
 
@@ -343,7 +360,11 @@ export async function generateImage(prompt, options) {
     const seed = options?.seed ?? -1;
     mkdirSync(IMAGE_OUTPUT_DIR, { recursive: true });
     const outPath = join(IMAGE_OUTPUT_DIR, outputFilename(prompt));
-    // ── Try persistent server first (fast path: ~2-5s) ──
+    // ── Auto-start server if not running ──
+    if (!(await isServerRunning())) {
+        await startImageServer();
+    }
+    // ── Use persistent server (fast path: ~2-5s) ──
     if (await isServerRunning()) {
         const res = await fetch(`${SERVER_URL}/generate`, {
             method: "POST",

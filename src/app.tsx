@@ -973,8 +973,8 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
           try {
             const ready = await isSetupComplete();
             if (!ready) {
-              addOutput({ type: "error", content: "Image Generation nicht eingerichtet.\n  Nutze: /imagine setup" });
-              return;
+              addOutput({ type: "info", content: "Image Generation wird eingerichtet..." });
+              await setupImageGen((s) => addOutput({ type: "info", content: `  ${s}` }));
             }
             const result = await generateImage(imgPrompt, {
               model: imgModel, steps: imgSteps, width: imgWidth, height: imgHeight,
