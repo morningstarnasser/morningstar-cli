@@ -2,9 +2,16 @@ export declare const IMAGE_GEN_DIR: string;
 export declare const IMAGE_OUTPUT_DIR: string;
 export declare const IMAGE_MODELS: readonly [{
     readonly id: "gemini";
+    readonly name: "Nano Banana Pro (Gemini 3 Pro Image)";
+    readonly size: "API";
+    readonly description: "Allerbeste Qualitaet, Cloud (Standard)";
+    readonly steps: 0;
+    readonly resolution: "1408x1408";
+}, {
+    readonly id: "gemini-flash";
     readonly name: "Nano Banana (Gemini 2.5 Flash Image)";
     readonly size: "API";
-    readonly description: "Beste Qualitaet, Cloud-basiert (Standard)";
+    readonly description: "Schnell + hochwertig, Cloud";
     readonly steps: 0;
     readonly resolution: "1024x1024";
 }, {

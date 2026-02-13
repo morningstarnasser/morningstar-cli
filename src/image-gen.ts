@@ -10,7 +10,8 @@ const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const PID_FILE = join(IMAGE_GEN_DIR, "server.pid");
 
 export const IMAGE_MODELS = [
-  { id: "gemini", name: "Nano Banana (Gemini 2.5 Flash Image)", size: "API", description: "Beste Qualitaet, Cloud-basiert (Standard)", steps: 0, resolution: "1024x1024" },
+  { id: "gemini", name: "Nano Banana Pro (Gemini 3 Pro Image)", size: "API", description: "Allerbeste Qualitaet, Cloud (Standard)", steps: 0, resolution: "1408x1408" },
+  { id: "gemini-flash", name: "Nano Banana (Gemini 2.5 Flash Image)", size: "API", description: "Schnell + hochwertig, Cloud", steps: 0, resolution: "1024x1024" },
   { id: "realvis", name: "RealVisXL V4.0", size: "~7GB", description: "Photorealistisch, lokal", steps: 40, resolution: "1024x1024" },
   { id: "sdxl", name: "Stable Diffusion XL", size: "~7GB", description: "Hohe Qualitaet, lokal", steps: 40, resolution: "1024x1024" },
   { id: "sdxl-turbo", name: "SDXL Turbo", size: "~7GB", description: "Schnell (1-4 Steps), lokal", steps: 4, resolution: "512x512" },
@@ -406,12 +407,13 @@ function getGoogleApiKey(): string {
   return "";
 }
 
-async function generateWithGemini(prompt: string, outPath: string): Promise<{ path: string; seed: number; duration: number }> {
+async function generateWithGemini(prompt: string, outPath: string, modelVariant: string = "gemini"): Promise<{ path: string; seed: number; duration: number }> {
   const apiKey = getGoogleApiKey();
   if (!apiKey) throw new Error("Google API Key nicht gefunden.\n  Setze: export GOOGLE_API_KEY=dein_key\n  Oder:  morningstar → /config set apiKeys.google DEIN_KEY\n  Gratis: https://aistudio.google.com/apikey");
 
   const start = Date.now();
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`;
+  const geminiModel = modelVariant === "gemini-flash" ? "gemini-2.5-flash-image" : "gemini-3-pro-image-preview";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -420,6 +422,9 @@ async function generateWithGemini(prompt: string, outPath: string): Promise<{ pa
       contents: [{ parts: [{ text: `Generate a photorealistic, ultra high quality image: ${prompt}` }] }],
       generationConfig: {
         responseModalities: ["TEXT", "IMAGE"],
+        imageConfig: {
+          imageSize: "1024x1024",
+        },
       },
     }),
     signal: AbortSignal.timeout(120_000),
@@ -463,16 +468,17 @@ export async function generateImage(
   let modelId = options?.model ?? DEFAULT_IMAGE_MODEL;
 
   // Auto-fallback: if gemini requested but no API key, use local model
-  if (modelId === "gemini" && !hasGeminiKey()) {
+  if ((modelId === "gemini" || modelId === "gemini-flash") && !hasGeminiKey()) {
     modelId = "realvis";
   }
 
-  // ── Gemini path (Nano Banana quality) ──
-  if (modelId === "gemini") {
+  // ── Gemini path (Nano Banana / Nano Banana Pro) ──
+  if (modelId === "gemini" || modelId === "gemini-flash") {
     mkdirSync(IMAGE_OUTPUT_DIR, { recursive: true });
     const outPath = join(IMAGE_OUTPUT_DIR, outputFilename(prompt));
-    const result = await generateWithGemini(prompt, outPath);
-    return { path: result.path, model: "gemini", steps: 0, resolution: "1024x1024", seed: result.seed, duration: result.duration };
+    const result = await generateWithGemini(prompt, outPath, modelId);
+    const res = modelId === "gemini" ? "1408x1408" : "1024x1024";
+    return { path: result.path, model: modelId, steps: 0, resolution: res, seed: result.seed, duration: result.duration };
   }
 
   // ── Local model path ──
