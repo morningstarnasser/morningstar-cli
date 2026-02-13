@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Box, Text, useInput } from "ink";
+import { readdirSync, statSync } from "node:fs";
+import { join, dirname, basename } from "node:path";
 import { useTheme } from "../hooks/useTheme.js";
 import { useCommandHistory } from "../hooks/useHistory.js";
 import { getTheme } from "../theme.js";
@@ -13,9 +15,37 @@ interface InputProps {
   isProcessing: boolean;
   suggestions: Array<{ cmd: string; desc: string }>;
   vimMode?: boolean;
+  cwd?: string;
 }
 
-export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing, suggestions, vimMode }: InputProps) {
+// Get file/directory completions for a partial path
+function getFileCompletions(partial: string, cwd: string, maxResults = 8): string[] {
+  try {
+    const isAbsolute = partial.startsWith("/");
+    const basePath = isAbsolute ? partial : join(cwd, partial);
+    const dir = partial.endsWith("/") ? basePath : dirname(basePath);
+    const prefix = partial.endsWith("/") ? "" : basename(partial).toLowerCase();
+
+    const entries = readdirSync(dir).filter(e => !e.startsWith("."));
+    const matches: string[] = [];
+
+    for (const entry of entries) {
+      if (prefix && !entry.toLowerCase().startsWith(prefix)) continue;
+      const fullPath = join(dir, entry);
+      const isDir = (() => { try { return statSync(fullPath).isDirectory(); } catch { return false; } })();
+      // Return relative path from cwd
+      const relDir = isAbsolute ? dir : dir.replace(cwd + "/", "").replace(cwd, "");
+      const rel = relDir ? `${relDir}/${entry}` : entry;
+      matches.push(isDir ? rel + "/" : rel);
+      if (matches.length >= maxResults) break;
+    }
+    return matches;
+  } catch {
+    return [];
+  }
+}
+
+export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing, suggestions, vimMode, cwd }: InputProps) {
   const { prompt, accent, warning, dim } = useTheme();
   const theme = getTheme();
   const [value, setValue] = useState("");
@@ -67,6 +97,30 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
   const filteredSuggestions = !isProcessing && value.startsWith("/")
     ? suggestions.filter((s) => s.cmd.startsWith(value)).slice(0, 8)
     : [];
+
+  // @file mention completions
+  const [fileCompletions, setFileCompletions] = useState<string[]>([]);
+  const [selectedFileIdx, setSelectedFileIdx] = useState(0);
+  const showFileSuggestions = fileCompletions.length > 0 && !showSuggestions;
+
+  // Update file completions when value contains @
+  useEffect(() => {
+    if (!cwd || isProcessing) { setFileCompletions([]); return; }
+    const atIdx = value.lastIndexOf("@");
+    if (atIdx >= 0 && atIdx < value.length) {
+      const partial = value.slice(atIdx + 1);
+      // Only trigger if there's no space after @
+      if (!partial.includes(" ") && partial.length > 0) {
+        const completions = getFileCompletions(partial, cwd);
+        setFileCompletions(completions);
+        setSelectedFileIdx(0);
+      } else {
+        setFileCompletions([]);
+      }
+    } else {
+      setFileCompletions([]);
+    }
+  }, [value, cwd, isProcessing]);
 
   useInput((input, key) => {
     // ── While processing: allow typing + queue on Enter ──
@@ -184,6 +238,16 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
       return;
     }
 
+    if (key.tab && showFileSuggestions && fileCompletions.length > 0) {
+      // Complete @file mention
+      const atIdx = value.lastIndexOf("@");
+      const before = value.slice(0, atIdx + 1);
+      setValue(before + fileCompletions[selectedFileIdx]);
+      setFileCompletions([]);
+      setSelectedFileIdx(0);
+      return;
+    }
+
     if (key.tab && showSuggestions && filteredSuggestions.length > 0) {
       setValue(filteredSuggestions[selectedSuggIdx].cmd);
       setShowSuggestions(false);
@@ -252,6 +316,24 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
                   <Text color="#6b7280">  {s.cmd}</Text>
                   <Text color="#4b5563"> {s.desc}</Text>
                 </Text>
+              )}
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {/* @file mention autocomplete */}
+      {showFileSuggestions && (
+        <Box flexDirection="column" marginLeft={2}>
+          <Text color="#6b7280">  Dateien (Tab zum Vervollstaendigen):</Text>
+          {fileCompletions.map((f, i) => (
+            <Box key={f}>
+              {i === selectedFileIdx ? (
+                <Text backgroundColor="#3b3b3b">
+                  <Text color="#34d399" bold>  {f}</Text>
+                </Text>
+              ) : (
+                <Text color="#6b7280">  {f}</Text>
               )}
             </Box>
           ))}

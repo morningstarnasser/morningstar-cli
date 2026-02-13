@@ -34,8 +34,8 @@ export default function Tools() {
               <span className="text-amber-400">Full Control.</span>
             </h2>
             <p className="text-gray-400 mt-4 max-w-lg mx-auto">
-              The AI chains tool calls automatically — up to 5 rounds per
-              message. Every file change is undoable.
+              The AI chains tool calls automatically via native function calling — up to 10 agentic rounds per
+              message with auto-fix and auto-test. Every file change is undoable.
             </p>
           </div>
         </ScrollReveal>

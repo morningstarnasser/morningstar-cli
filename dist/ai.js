@@ -1,7 +1,7 @@
 import { getProvider } from "./providers.js";
-export async function* streamChat(messages, config, signal) {
+export async function* streamChat(messages, config, signal, enableTools) {
     const provider = getProvider(config);
-    yield* provider.streamChat(messages, config, signal);
+    yield* provider.streamChat(messages, config, signal, enableTools);
 }
 export async function chat(messages, config) {
     let full = "";

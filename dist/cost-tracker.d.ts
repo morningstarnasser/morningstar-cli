@@ -19,7 +19,11 @@ export interface SessionCosts {
 }
 export declare function estimateTokens(text: string): number;
 export declare function getCostPerMessage(model: string, inputTokens: number, outputTokens: number): number;
-export declare function trackUsage(model: string, inputText: string, outputText: string): TokenUsage;
+/**
+ * Track usage with real token counts from API, or estimate from text.
+ * If realInput/realOutput are provided (> 0), they are used instead of estimation.
+ */
+export declare function trackUsage(model: string, inputText: string, outputText: string, realInput?: number, realOutput?: number): TokenUsage;
 export declare function getSessionCosts(): SessionCosts;
 export declare function formatCostDisplay(): string;
 export declare function resetSessionCosts(): void;

@@ -24,4 +24,11 @@ export declare function executeToolCalls(response: string, cwd: string): Promise
     results: ToolResult[];
     cleanResponse: string;
 }>;
+export declare function executeNativeToolCall(name: string, args: Record<string, unknown>, cwd: string): ToolResult | Promise<ToolResult>;
+export interface NativeToolCall {
+    id: string;
+    name: string;
+    arguments: Record<string, unknown>;
+}
+export declare function executeNativeToolCallsParallel(calls: NativeToolCall[], cwd: string): Promise<ToolResult[]>;
 //# sourceMappingURL=tools.d.ts.map

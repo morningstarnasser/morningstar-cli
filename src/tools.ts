@@ -560,3 +560,103 @@ export async function executeToolCalls(response: string, cwd: string): Promise<{
 
   return { results, cleanResponse: cleanResponse.trim() };
 }
+
+// ─── Native Function Calling Executor ────────────────────────────────────────
+// Used by providers with native tool/function calling support (OpenAI, Anthropic, Google, Groq, OpenRouter).
+// Takes the parsed tool name and arguments object directly instead of regex-parsing from text.
+
+export function executeNativeToolCall(
+  name: string,
+  args: Record<string, unknown>,
+  cwd: string,
+): ToolResult | Promise<ToolResult> {
+  countTool(name);
+  switch (name) {
+    case "read":
+      return readFile(args.filePath as string, cwd);
+    case "write":
+      return writeFile(args.filePath as string, args.content as string, cwd);
+    case "edit":
+      return editFile(args.filePath as string, args.oldStr as string, args.newStr as string, cwd);
+    case "delete":
+      return deleteFile(args.filePath as string, cwd);
+    case "bash":
+      toolStats.bashCommands++;
+      return bash(args.command as string, cwd);
+    case "grep":
+      return grepSearch(args.pattern as string, cwd, (args.fileGlob as string) || undefined);
+    case "glob":
+      return globSearch(args.pattern as string, cwd);
+    case "ls":
+      return listDir((args.dirPath as string) || ".", cwd);
+    case "git":
+      return gitStatus(cwd);
+    case "web":
+      return webSearch(args.query as string);
+    case "fetch":
+      return fetchUrl(args.url as string);
+    case "gh":
+      return ghCli(args.command as string, cwd);
+    default:
+      return { tool: name, result: `Unbekanntes Tool: ${name}`, success: false };
+  }
+}
+
+// ─── Parallel Native Tool Execution ──────────────────────────────────────────
+// Executes safe/read-only tools in parallel, mutating tools sequentially.
+
+const SAFE_TOOLS = new Set(["read", "grep", "glob", "ls", "git", "web", "fetch"]);
+
+export interface NativeToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export async function executeNativeToolCallsParallel(
+  calls: NativeToolCall[],
+  cwd: string,
+): Promise<ToolResult[]> {
+  if (calls.length === 0) return [];
+  if (calls.length === 1) {
+    const c = calls[0];
+    const r = await Promise.resolve(executeNativeToolCall(c.name, c.arguments, cwd));
+    return [r];
+  }
+
+  // Split into safe (parallelizable) and mutating (sequential) batches
+  const results: ToolResult[] = new Array(calls.length);
+  const safeBatch: { index: number; call: NativeToolCall }[] = [];
+
+  for (let i = 0; i < calls.length; i++) {
+    const call = calls[i];
+    if (SAFE_TOOLS.has(call.name)) {
+      safeBatch.push({ index: i, call });
+    } else {
+      // Flush safe batch first (parallel)
+      if (safeBatch.length > 0) {
+        const safeResults = await Promise.all(
+          safeBatch.map(({ call: c }) => Promise.resolve(executeNativeToolCall(c.name, c.arguments, cwd)))
+        );
+        for (let j = 0; j < safeBatch.length; j++) {
+          results[safeBatch[j].index] = safeResults[j];
+        }
+        safeBatch.length = 0;
+      }
+      // Execute mutating tool sequentially
+      results[i] = await Promise.resolve(executeNativeToolCall(call.name, call.arguments, cwd));
+    }
+  }
+
+  // Flush remaining safe batch
+  if (safeBatch.length > 0) {
+    const safeResults = await Promise.all(
+      safeBatch.map(({ call: c }) => Promise.resolve(executeNativeToolCall(c.name, c.arguments, cwd)))
+    );
+    for (let j = 0; j < safeBatch.length; j++) {
+      results[safeBatch[j].index] = safeResults[j];
+    }
+  }
+
+  return results;
+}

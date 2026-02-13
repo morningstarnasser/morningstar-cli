@@ -20,7 +20,7 @@ const TOOL_COLORS: Record<string, string> = {
 
 function getToolArg(tool: string, filePath?: string, command?: string): string {
   if (filePath) return filePath;
-  if (command) return command.length > 50 ? command.slice(0, 47) + "..." : command;
+  if (command) return command.length > 60 ? command.slice(0, 57) + "..." : command;
   return "";
 }
 
@@ -28,7 +28,7 @@ function getShortSummary(r: ToolResultType): string {
   if (!r.success) return r.result.split("\n")[0]?.slice(0, 60) || "Failed";
   switch (r.tool) {
     case "read": return `${r.linesChanged || "?"} lines`;
-    case "write": return `${r.linesChanged || "?"} lines`;
+    case "write": return `${r.linesChanged || "?"} lines written`;
     case "edit": {
       if (r.diff) {
         const added = r.diff.newStr.split("\n").length;
@@ -44,18 +44,20 @@ function getShortSummary(r: ToolResultType): string {
     }
     case "grep": {
       const matches = r.result.split("\n").filter(l => l.trim()).length;
-      return `${matches} matches`;
+      return matches === 0 ? "No matches" : `${matches} matches`;
     }
     case "glob": {
       const files = r.result.split("\n").filter(l => l.trim()).length;
-      return `${files} files`;
+      return files === 0 ? "No files" : `${files} files`;
     }
     default: return "Done";
   }
 }
 
-// Limit output for full-output tools in expanded view
-const MAX_EXPANDED_LINES = 8;
+// Tools that show multi-line output
+const FULL_OUTPUT_TOOLS = new Set(["bash", "auto-bash", "auto-python", "grep", "glob", "ls", "git", "web", "fetch"]);
+const MAX_EXPANDED_LINES = 12;
+const MAX_SINGLE_LINES = 20;
 
 interface ToolGroupProps {
   results: ToolResultType[];
@@ -66,6 +68,81 @@ interface ToolGroupProps {
   toolUseCount: number;
 }
 
+// ─── Single Tool View (Claude Code style) ────────────────
+// Shows: ⏺ Read(src/app.tsx)
+//          ⎿  342 lines
+function SingleToolView({ r }: { r: ToolResultType }) {
+  const { primary, dim, error } = useTheme();
+  const toolLabel = TOOL_LABELS[r.tool] || r.tool;
+  const toolColor = r.success ? (TOOL_COLORS[r.tool] || primary) : error;
+  const arg = getToolArg(r.tool, r.filePath, r.command);
+  const hasDiff = r.tool === "edit" && r.diff && r.diff.oldStr && r.diff.newStr;
+  const isFullOutput = FULL_OUTPUT_TOOLS.has(r.tool);
+  const outputLines = r.result.split("\n").filter(l => l.trim());
+
+  return (
+    <Box flexDirection="column" marginLeft={2}>
+      {/* Header: ⏺ ToolName(arg) */}
+      <Text>
+        <Text color={toolColor} bold>{"⏺ "}</Text>
+        <Text color={toolColor} bold>{toolLabel}</Text>
+        {arg && <Text color={dim}>({arg})</Text>}
+      </Text>
+
+      {/* Diff view for edit tools */}
+      {hasDiff ? (
+        <ClaudeCodeDiff
+          oldStr={r.diff!.oldStr}
+          newStr={r.diff!.newStr}
+          startLineNumber={r.startLineNumber || 1}
+          maxLines={30}
+        />
+      ) : r.success && isFullOutput && outputLines.length > 0 ? (
+        /* Full output: bash, grep, etc */
+        <Box flexDirection="column">
+          <Text>
+            <Text color={dim}>{"  \u23BF  "}</Text>
+            <Text>{outputLines[0]}</Text>
+          </Text>
+          {outputLines.slice(1, MAX_SINGLE_LINES).map((line, i) => (
+            <Text key={i}>
+              <Text>{"     "}</Text>
+              <Text>{line || " "}</Text>
+            </Text>
+          ))}
+          {outputLines.length > MAX_SINGLE_LINES && (
+            <Text>
+              <Text>{"     "}</Text>
+              <Text color={dim}>{`\u2026 (+${outputLines.length - MAX_SINGLE_LINES} lines)`}</Text>
+            </Text>
+          )}
+        </Box>
+      ) : r.success ? (
+        /* Short summary */
+        <Text>
+          <Text color={dim}>{"  \u23BF  "}</Text>
+          <Text>{getShortSummary(r)}</Text>
+        </Text>
+      ) : (
+        /* Error */
+        <Box flexDirection="column">
+          <Text>
+            <Text color={dim}>{"  \u23BF  "}</Text>
+            <Text color={error}>{outputLines[0] || "Failed"}</Text>
+          </Text>
+          {outputLines.slice(1, 5).map((line, i) => (
+            <Text key={i}>
+              <Text>{"     "}</Text>
+              <Text color={error}>{line}</Text>
+            </Text>
+          ))}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+// ─── Main ToolGroup Component ────────────────────────────
 export function ToolGroup({ results, duration, tokenCount, expanded, label, toolUseCount }: ToolGroupProps) {
   const { primary, dim, info, error } = useTheme();
 
@@ -75,53 +152,62 @@ export function ToolGroup({ results, duration, tokenCount, expanded, label, tool
 
   const tokenStr = tokenCount >= 1000 ? `${(tokenCount / 1000).toFixed(1)}k` : String(tokenCount);
 
+  // ── For 1-2 tools: show each individually (like Claude Code) ──
+  if (results.length <= 2 && expanded) {
+    return (
+      <Box flexDirection="column">
+        {results.map((r, i) => (
+          <SingleToolView key={i} r={r} />
+        ))}
+      </Box>
+    );
+  }
+
+  // ── Collapsed group view ──
   if (!expanded) {
-    // Collapsed view
     return (
       <Box flexDirection="column" marginLeft={2}>
         <Text>
           <Text color={info} bold>{"⏺ "}</Text>
           <Text bold>{toolUseCount} tool use{toolUseCount !== 1 ? "s" : ""}</Text>
-          {label && <Text color={dim}> — {label}</Text>}
+          {label && <Text color={dim}> \u2014 {label}</Text>}
           <Text color={dim}> (ctrl+o to expand)</Text>
         </Text>
       </Box>
     );
   }
 
-  // Expanded tree view
+  // ── Expanded tree view (3+ tools) ──
   return (
     <Box flexDirection="column" marginLeft={2}>
       {/* Header */}
       <Text>
         <Text color={info} bold>{"⏺ "}</Text>
         <Text bold>{toolUseCount} tool use{toolUseCount !== 1 ? "s" : ""}</Text>
-        {label && <Text color={dim}> — {label}</Text>}
+        {label && <Text color={dim}> \u2014 {label}</Text>}
       </Text>
 
       {/* Tree items */}
       {results.map((r, i) => {
         const isLast = i === results.length - 1;
-        const prefix = isLast ? "└─" : "├─";
-        const continuePrefix = isLast ? "   " : "│  ";
+        const prefix = isLast ? "\u2514\u2500" : "\u251C\u2500";
+        const continuePrefix = isLast ? "   " : "\u2502  ";
         const toolLabel = TOOL_LABELS[r.tool] || r.tool;
         const toolColor = r.success ? (TOOL_COLORS[r.tool] || primary) : error;
         const arg = getToolArg(r.tool, r.filePath, r.command);
         const summary = getShortSummary(r);
         const hasDiff = r.tool === "edit" && r.diff && r.diff.oldStr && r.diff.newStr;
-
-        // For bash/grep/glob etc, show a few output lines
-        const isFullOutput = ["bash", "auto-bash", "auto-python", "grep", "glob", "ls", "git", "web", "fetch"].includes(r.tool);
+        const isFullOutput = FULL_OUTPUT_TOOLS.has(r.tool);
         const outputLines = r.result.split("\n").filter(l => l.trim());
 
         return (
           <Box key={i} flexDirection="column">
-            {/* Tool line: ├─ Read(file) · 42 lines */}
+            {/* Tool header: ├─ Read(file) · 42 lines */}
             <Text>
               <Text color={dim}>{"   "}{prefix} </Text>
               <Text color={toolColor} bold>{toolLabel}</Text>
               {arg && <Text color={dim}>({arg})</Text>}
-              <Text color={dim}> · {summary}</Text>
+              <Text color={dim}> \u00B7 {summary}</Text>
             </Text>
 
             {/* Diff view for edit tools */}
@@ -138,7 +224,7 @@ export function ToolGroup({ results, duration, tokenCount, expanded, label, tool
                 </Box>
               </Box>
             ) : r.success && isFullOutput && outputLines.length > 0 ? (
-              /* Show a few output lines for bash/grep etc */
+              /* Multi-line output for bash/grep etc */
               <Box flexDirection="column">
                 {outputLines.slice(0, MAX_EXPANDED_LINES).map((line, li) => (
                   <Text key={li}>
@@ -148,26 +234,32 @@ export function ToolGroup({ results, duration, tokenCount, expanded, label, tool
                 ))}
                 {outputLines.length > MAX_EXPANDED_LINES && (
                   <Text>
-                    <Text color={dim}>{"   "}{continuePrefix}  … (+{outputLines.length - MAX_EXPANDED_LINES} lines)</Text>
+                    <Text color={dim}>{"   "}{continuePrefix}  \u2026 (+{outputLines.length - MAX_EXPANDED_LINES} lines)</Text>
                   </Text>
                 )}
               </Box>
-            ) : (
-              /* Simple result line: │  ⎿  Done */
-              <Text>
-                <Text color={dim}>{"   "}{continuePrefix}⎿  </Text>
-                <Text color={r.success ? undefined : error}>
-                  {r.success ? "Done" : r.result.split("\n")[0]?.slice(0, 60) || "Failed"}
+            ) : !r.success ? (
+              /* Error output */
+              <Box flexDirection="column">
+                <Text>
+                  <Text color={dim}>{"   "}{continuePrefix}\u23BF  </Text>
+                  <Text color={error}>{outputLines[0] || "Failed"}</Text>
                 </Text>
-              </Text>
-            )}
+                {outputLines.slice(1, 4).map((line, li) => (
+                  <Text key={li}>
+                    <Text color={dim}>{"   "}{continuePrefix}   </Text>
+                    <Text color={error}>{line}</Text>
+                  </Text>
+                ))}
+              </Box>
+            ) : null}
           </Box>
         );
       })}
 
       {/* Footer with stats */}
       <Text color={dim}>
-        {"   "}({durationStr} · ↓ {tokenStr} tokens)
+        {"   "}({durationStr} \u00B7 \u2193 {tokenStr} tokens)
       </Text>
     </Box>
   );

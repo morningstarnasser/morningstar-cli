@@ -1,11 +1,45 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useState, useRef, useEffect } from "react";
 import { Box, Text, useInput } from "ink";
+import { readdirSync, statSync } from "node:fs";
+import { join, dirname, basename } from "node:path";
 import { useTheme } from "../hooks/useTheme.js";
 import { useCommandHistory } from "../hooks/useHistory.js";
 import { getTheme } from "../theme.js";
 import { getAllAgents } from "../custom-agents.js";
-export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing, suggestions, vimMode }) {
+// Get file/directory completions for a partial path
+function getFileCompletions(partial, cwd, maxResults = 8) {
+    try {
+        const isAbsolute = partial.startsWith("/");
+        const basePath = isAbsolute ? partial : join(cwd, partial);
+        const dir = partial.endsWith("/") ? basePath : dirname(basePath);
+        const prefix = partial.endsWith("/") ? "" : basename(partial).toLowerCase();
+        const entries = readdirSync(dir).filter(e => !e.startsWith("."));
+        const matches = [];
+        for (const entry of entries) {
+            if (prefix && !entry.toLowerCase().startsWith(prefix))
+                continue;
+            const fullPath = join(dir, entry);
+            const isDir = (() => { try {
+                return statSync(fullPath).isDirectory();
+            }
+            catch {
+                return false;
+            } })();
+            // Return relative path from cwd
+            const relDir = isAbsolute ? dir : dir.replace(cwd + "/", "").replace(cwd, "");
+            const rel = relDir ? `${relDir}/${entry}` : entry;
+            matches.push(isDir ? rel + "/" : rel);
+            if (matches.length >= maxResults)
+                break;
+        }
+        return matches;
+    }
+    catch {
+        return [];
+    }
+}
+export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing, suggestions, vimMode, cwd }) {
     const { prompt, accent, warning, dim } = useTheme();
     const theme = getTheme();
     const [value, setValue] = useState("");
@@ -55,6 +89,33 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
     const filteredSuggestions = !isProcessing && value.startsWith("/")
         ? suggestions.filter((s) => s.cmd.startsWith(value)).slice(0, 8)
         : [];
+    // @file mention completions
+    const [fileCompletions, setFileCompletions] = useState([]);
+    const [selectedFileIdx, setSelectedFileIdx] = useState(0);
+    const showFileSuggestions = fileCompletions.length > 0 && !showSuggestions;
+    // Update file completions when value contains @
+    useEffect(() => {
+        if (!cwd || isProcessing) {
+            setFileCompletions([]);
+            return;
+        }
+        const atIdx = value.lastIndexOf("@");
+        if (atIdx >= 0 && atIdx < value.length) {
+            const partial = value.slice(atIdx + 1);
+            // Only trigger if there's no space after @
+            if (!partial.includes(" ") && partial.length > 0) {
+                const completions = getFileCompletions(partial, cwd);
+                setFileCompletions(completions);
+                setSelectedFileIdx(0);
+            }
+            else {
+                setFileCompletions([]);
+            }
+        }
+        else {
+            setFileCompletions([]);
+        }
+    }, [value, cwd, isProcessing]);
     useInput((input, key) => {
         // ── While processing: allow typing + queue on Enter ──
         if (isProcessing) {
@@ -185,6 +246,15 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
             setSelectedSuggIdx(0);
             return;
         }
+        if (key.tab && showFileSuggestions && fileCompletions.length > 0) {
+            // Complete @file mention
+            const atIdx = value.lastIndexOf("@");
+            const before = value.slice(0, atIdx + 1);
+            setValue(before + fileCompletions[selectedFileIdx]);
+            setFileCompletions([]);
+            setSelectedFileIdx(0);
+            return;
+        }
         if (key.tab && showSuggestions && filteredSuggestions.length > 0) {
             setValue(filteredSuggestions[selectedSuggIdx].cmd);
             setShowSuggestions(false);
@@ -206,6 +276,6 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
             resetNavigation();
         }
     });
-    return (_jsxs(Box, { flexDirection: "column", children: [queued && isProcessing && (_jsxs(Box, { marginLeft: 2, marginBottom: 0, children: [_jsx(Text, { color: "#fbbf24", children: "⏳ " }), _jsx(Text, { color: dim, children: "Queued: " }), _jsx(Text, { color: "#fbbf24", children: queued.length > 60 ? queued.slice(0, 57) + "..." : queued }), _jsx(Text, { color: dim, children: " (Esc to cancel)" })] })), _jsx(Box, { children: isProcessing ? (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, bold: true, children: promptText }), _jsx(Text, { color: dim, children: value }), _jsx(Text, { color: "#4b5563", children: "\u2588" })] })) : (_jsxs(_Fragment, { children: [_jsx(Text, { color: promptColor, bold: true, children: promptText }), _jsx(Text, { children: value }), _jsx(Text, { color: dim, children: "\u2588" })] })) }), showSuggestions && filteredSuggestions.length > 0 && (_jsx(Box, { flexDirection: "column", marginLeft: 2, children: filteredSuggestions.map((s, i) => (_jsx(Box, { children: i === selectedSuggIdx ? (_jsxs(Text, { backgroundColor: "#3b3b3b", children: [_jsxs(Text, { color: "#22d3ee", bold: true, children: ["  ", s.cmd] }), _jsxs(Text, { color: "#6b7280", children: [" ", s.desc] })] })) : (_jsxs(Text, { children: [_jsxs(Text, { color: "#6b7280", children: ["  ", s.cmd] }), _jsxs(Text, { color: "#4b5563", children: [" ", s.desc] })] })) }, s.cmd))) }))] }));
+    return (_jsxs(Box, { flexDirection: "column", children: [queued && isProcessing && (_jsxs(Box, { marginLeft: 2, marginBottom: 0, children: [_jsx(Text, { color: "#fbbf24", children: "⏳ " }), _jsx(Text, { color: dim, children: "Queued: " }), _jsx(Text, { color: "#fbbf24", children: queued.length > 60 ? queued.slice(0, 57) + "..." : queued }), _jsx(Text, { color: dim, children: " (Esc to cancel)" })] })), _jsx(Box, { children: isProcessing ? (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, bold: true, children: promptText }), _jsx(Text, { color: dim, children: value }), _jsx(Text, { color: "#4b5563", children: "\u2588" })] })) : (_jsxs(_Fragment, { children: [_jsx(Text, { color: promptColor, bold: true, children: promptText }), _jsx(Text, { children: value }), _jsx(Text, { color: dim, children: "\u2588" })] })) }), showSuggestions && filteredSuggestions.length > 0 && (_jsx(Box, { flexDirection: "column", marginLeft: 2, children: filteredSuggestions.map((s, i) => (_jsx(Box, { children: i === selectedSuggIdx ? (_jsxs(Text, { backgroundColor: "#3b3b3b", children: [_jsxs(Text, { color: "#22d3ee", bold: true, children: ["  ", s.cmd] }), _jsxs(Text, { color: "#6b7280", children: [" ", s.desc] })] })) : (_jsxs(Text, { children: [_jsxs(Text, { color: "#6b7280", children: ["  ", s.cmd] }), _jsxs(Text, { color: "#4b5563", children: [" ", s.desc] })] })) }, s.cmd))) })), showFileSuggestions && (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsx(Text, { color: "#6b7280", children: "  Dateien (Tab zum Vervollstaendigen):" }), fileCompletions.map((f, i) => (_jsx(Box, { children: i === selectedFileIdx ? (_jsx(Text, { backgroundColor: "#3b3b3b", children: _jsxs(Text, { color: "#34d399", bold: true, children: ["  ", f] }) })) : (_jsxs(Text, { color: "#6b7280", children: ["  ", f] })) }, f)))] }))] }));
 }
 //# sourceMappingURL=Input.js.map

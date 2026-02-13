@@ -1,7 +1,8 @@
 import {
   Globe, Wrench, Sparkles, Bot, Lock, Brain, Paintbrush, Eye, Palette,
   Radar, GitCompare, Network, ArrowUpCircle, Zap, FileText, Shield,
-  Terminal, Puzzle, BookOpen, Cpu, Layers
+  Terminal, Puzzle, BookOpen, Cpu, Layers, ListChecks, FlaskConical,
+  Users, Activity, Hash, FolderSearch, GitBranch, MonitorPlay, RefreshCw, LayoutDashboard
 } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 import type { LucideIcon } from "lucide-react";
@@ -76,6 +77,48 @@ const features: { icon: LucideIcon; title: string; desc: string; color: string; 
     badge: "NEW",
   },
   {
+    icon: Zap,
+    title: "Native Function Calling",
+    desc: "API-level tool definitions — OpenAI tools format, Anthropic tool_use blocks, Google functionCall — no regex parsing",
+    color: "text-lime-400",
+    badge: "NEW",
+  },
+  {
+    icon: Activity,
+    title: "Real Token Counting",
+    desc: "Actual token usage from provider APIs with reasoning tokens, cache hits — not estimates. Per-model cost breakdown",
+    color: "text-cyan-400",
+    badge: "NEW",
+  },
+  {
+    icon: ListChecks,
+    title: "Task Progress Checklist",
+    desc: "Live Claude Code-style checklist — ✔ completed, ◼ in-progress, ◻ pending — with duration, tokens, turn counter",
+    color: "text-blue-400",
+    badge: "NEW",
+  },
+  {
+    icon: FlaskConical,
+    title: "Auto-Test After Changes",
+    desc: "Detects vitest, jest, pytest, cargo test, go test — runs relevant tests after file writes and feeds results back to AI",
+    color: "text-green-400",
+    badge: "NEW",
+  },
+  {
+    icon: Users,
+    title: "Sub-Agent Delegation",
+    desc: "/delegate <agent> <task> — specialized agents execute autonomously with own conversation, tools, and turn limits",
+    color: "text-violet-400",
+    badge: "NEW",
+  },
+  {
+    icon: Hash,
+    title: "Parallel Tool Execution",
+    desc: "Independent tool calls execute concurrently — up to 10 agentic turns with auto-fix on errors",
+    color: "text-amber-400",
+    badge: "NEW",
+  },
+  {
     icon: Radar,
     title: "Context Radar",
     desc: "Real-time context window monitor — see token usage per segment (System, Chat, Code, Tools) with color-coded bar",
@@ -138,6 +181,41 @@ const features: { icon: LucideIcon; title: string; desc: string; color: string; 
     title: "AI Image Generation",
     desc: "Nano Banana Pro (Gemini 3) + RealVisXL local fallback — 6 models, auto-fallback, no content filters, saves to ~/Downloads",
     color: "text-pink-400",
+    badge: "NEW",
+  },
+  {
+    icon: FolderSearch,
+    title: "File Watcher",
+    desc: "Watches project files for external changes — auto-triggers tests, notifies AI of modified files with debouncing",
+    color: "text-lime-400",
+    badge: "NEW",
+  },
+  {
+    icon: GitBranch,
+    title: "Conversation Branching",
+    desc: "Fork conversations at any point, create named branches, switch between them, merge insights back",
+    color: "text-sky-400",
+    badge: "NEW",
+  },
+  {
+    icon: MonitorPlay,
+    title: "Streaming Diffs",
+    desc: "Real-time diff preview as the AI generates edit operations — see changes character by character",
+    color: "text-rose-400",
+    badge: "NEW",
+  },
+  {
+    icon: RefreshCw,
+    title: "Self-Update",
+    desc: "/update check + /update run — pulls latest from GitHub, rebuilds, notifies of new versions",
+    color: "text-yellow-400",
+    badge: "NEW",
+  },
+  {
+    icon: LayoutDashboard,
+    title: "Web Dashboard",
+    desc: "Browser-based dashboard at /dashboard — session stats, cost tracking, tool usage, conversation history",
+    color: "text-fuchsia-400",
     badge: "NEW",
   },
   {

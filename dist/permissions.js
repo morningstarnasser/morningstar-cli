@@ -95,6 +95,40 @@ export function formatPermissionPrompt(tool, args) {
     const preview = args.length > 80 ? args.slice(0, 77) + "..." : args;
     return `${icon} [${tool}] ${preview}`;
 }
+/**
+ * Generate a colored diff preview for edit operations.
+ * Returns a formatted string with - (red) and + (green) lines.
+ */
+export function generateDiffPreview(filePath, oldStr, newStr) {
+    const oldLines = oldStr.split("\n");
+    const newLines = newStr.split("\n");
+    let diff = `  Datei: ${filePath}\n`;
+    // Show removed lines
+    for (const line of oldLines) {
+        diff += `  - ${line}\n`;
+    }
+    // Show added lines
+    for (const line of newLines) {
+        diff += `  + ${line}\n`;
+    }
+    return diff;
+}
+/**
+ * Generate a preview for write operations showing what will be written.
+ */
+export function generateWritePreview(filePath, content, isNew) {
+    const lines = content.split("\n");
+    const previewLines = lines.slice(0, 15);
+    let preview = `  Datei: ${filePath} (${isNew ? "NEU" : "UEBERSCHREIBEN"})\n`;
+    preview += `  ${lines.length} Zeilen\n`;
+    for (const line of previewLines) {
+        preview += `  + ${line}\n`;
+    }
+    if (lines.length > 15) {
+        preview += `  ... +${lines.length - 15} weitere Zeilen\n`;
+    }
+    return preview;
+}
 export function getCategoryColor(cat) {
     switch (cat) {
         case "safe": return "#10b981";

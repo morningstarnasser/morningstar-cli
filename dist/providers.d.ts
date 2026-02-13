@@ -1,11 +1,26 @@
 import type { Message, CLIConfig } from "./types.js";
+export interface ToolCallData {
+    id: string;
+    name: string;
+    arguments: string;
+}
+export interface UsageData {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+    reasoningTokens?: number;
+    cacheHitTokens?: number;
+}
 export interface StreamToken {
-    type: "reasoning" | "content";
+    type: "reasoning" | "content" | "tool_call" | "usage";
     text: string;
+    toolCall?: ToolCallData;
+    usage?: UsageData;
 }
 export interface LLMProvider {
     name: string;
-    streamChat(messages: Message[], config: CLIConfig, signal?: AbortSignal): AsyncGenerator<StreamToken>;
+    supportsTools: boolean;
+    streamChat(messages: Message[], config: CLIConfig, signal?: AbortSignal, enableTools?: boolean): AsyncGenerator<StreamToken>;
 }
 export declare function detectProvider(model: string): string;
 export declare function getProviderBaseUrl(provider: string): string;

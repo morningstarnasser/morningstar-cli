@@ -42,12 +42,10 @@ const LINES: DemoLine[] = [
   { text: "  2. useEffect missing dependency array", color: "text-gray-300" },
   { text: "  3. No error boundary around async component", color: "text-gray-300" },
   { text: "", color: "" },
-  { text: "\u25D0 Context [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591] 34% \u00B7 Free 66%", color: "text-teal-400" },
+  { text: "\u2714 Auto-Test [vitest] PASSED (0.8s)", color: "text-green-400", type: "check" },
+  { text: "  \u23BF  Tests: 12 passed, 0 failed", color: "text-gray-500" },
   { text: "", color: "" },
-  { text: "> /imagine a futuristic city at sunset, 8k", color: "text-white", prefix: "  " },
-  { text: "", color: "" },
-  { text: "\u23FA Nano Banana Pro (Gemini 3)", color: "text-pink-400", type: "check" },
-  { text: "  \u23BF  ~/Downloads/2026-02-13_futuristic-city.png (1408\u00D7768)", color: "text-gray-500" },
+  { text: "\u25D0 Context [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591] 34% \u00B7 Free 66% \u00B7 Tokens: 1,847", color: "text-teal-400" },
 ];
 
 function LineIcon({ type }: { type?: LineType }) {

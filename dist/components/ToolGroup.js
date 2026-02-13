@@ -18,7 +18,7 @@ function getToolArg(tool, filePath, command) {
     if (filePath)
         return filePath;
     if (command)
-        return command.length > 50 ? command.slice(0, 47) + "..." : command;
+        return command.length > 60 ? command.slice(0, 57) + "..." : command;
     return "";
 }
 function getShortSummary(r) {
@@ -26,7 +26,7 @@ function getShortSummary(r) {
         return r.result.split("\n")[0]?.slice(0, 60) || "Failed";
     switch (r.tool) {
         case "read": return `${r.linesChanged || "?"} lines`;
-        case "write": return `${r.linesChanged || "?"} lines`;
+        case "write": return `${r.linesChanged || "?"} lines written`;
         case "edit": {
             if (r.diff) {
                 const added = r.diff.newStr.split("\n").length;
@@ -44,45 +44,70 @@ function getShortSummary(r) {
         }
         case "grep": {
             const matches = r.result.split("\n").filter(l => l.trim()).length;
-            return `${matches} matches`;
+            return matches === 0 ? "No matches" : `${matches} matches`;
         }
         case "glob": {
             const files = r.result.split("\n").filter(l => l.trim()).length;
-            return `${files} files`;
+            return files === 0 ? "No files" : `${files} files`;
         }
         default: return "Done";
     }
 }
-// Limit output for full-output tools in expanded view
-const MAX_EXPANDED_LINES = 8;
+// Tools that show multi-line output
+const FULL_OUTPUT_TOOLS = new Set(["bash", "auto-bash", "auto-python", "grep", "glob", "ls", "git", "web", "fetch"]);
+const MAX_EXPANDED_LINES = 12;
+const MAX_SINGLE_LINES = 20;
+// ─── Single Tool View (Claude Code style) ────────────────
+// Shows: ⏺ Read(src/app.tsx)
+//          ⎿  342 lines
+function SingleToolView({ r }) {
+    const { primary, dim, error } = useTheme();
+    const toolLabel = TOOL_LABELS[r.tool] || r.tool;
+    const toolColor = r.success ? (TOOL_COLORS[r.tool] || primary) : error;
+    const arg = getToolArg(r.tool, r.filePath, r.command);
+    const hasDiff = r.tool === "edit" && r.diff && r.diff.oldStr && r.diff.newStr;
+    const isFullOutput = FULL_OUTPUT_TOOLS.has(r.tool);
+    const outputLines = r.result.split("\n").filter(l => l.trim());
+    return (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsxs(Text, { children: [_jsx(Text, { color: toolColor, bold: true, children: "⏺ " }), _jsx(Text, { color: toolColor, bold: true, children: toolLabel }), arg && _jsxs(Text, { color: dim, children: ["(", arg, ")"] })] }), hasDiff ? (_jsx(ClaudeCodeDiff, { oldStr: r.diff.oldStr, newStr: r.diff.newStr, startLineNumber: r.startLineNumber || 1, maxLines: 30 })) : r.success && isFullOutput && outputLines.length > 0 ? (
+            /* Full output: bash, grep, etc */
+            _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { children: [_jsx(Text, { color: dim, children: "  \u23BF  " }), _jsx(Text, { children: outputLines[0] })] }), outputLines.slice(1, MAX_SINGLE_LINES).map((line, i) => (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { children: line || " " })] }, i))), outputLines.length > MAX_SINGLE_LINES && (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { color: dim, children: `\u2026 (+${outputLines.length - MAX_SINGLE_LINES} lines)` })] }))] })) : r.success ? (
+            /* Short summary */
+            _jsxs(Text, { children: [_jsx(Text, { color: dim, children: "  \u23BF  " }), _jsx(Text, { children: getShortSummary(r) })] })) : (
+            /* Error */
+            _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { children: [_jsx(Text, { color: dim, children: "  \u23BF  " }), _jsx(Text, { color: error, children: outputLines[0] || "Failed" })] }), outputLines.slice(1, 5).map((line, i) => (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { color: error, children: line })] }, i)))] }))] }));
+}
+// ─── Main ToolGroup Component ────────────────────────────
 export function ToolGroup({ results, duration, tokenCount, expanded, label, toolUseCount }) {
     const { primary, dim, info, error } = useTheme();
     const durationStr = duration >= 60000
         ? `${Math.floor(duration / 60000)}m ${Math.round((duration % 60000) / 1000)}s`
         : `${(duration / 1000).toFixed(1)}s`;
     const tokenStr = tokenCount >= 1000 ? `${(tokenCount / 1000).toFixed(1)}k` : String(tokenCount);
-    if (!expanded) {
-        // Collapsed view
-        return (_jsx(Box, { flexDirection: "column", marginLeft: 2, children: _jsxs(Text, { children: [_jsx(Text, { color: info, bold: true, children: "⏺ " }), _jsxs(Text, { bold: true, children: [toolUseCount, " tool use", toolUseCount !== 1 ? "s" : ""] }), label && _jsxs(Text, { color: dim, children: [" \u2014 ", label] }), _jsx(Text, { color: dim, children: " (ctrl+o to expand)" })] }) }));
+    // ── For 1-2 tools: show each individually (like Claude Code) ──
+    if (results.length <= 2 && expanded) {
+        return (_jsx(Box, { flexDirection: "column", children: results.map((r, i) => (_jsx(SingleToolView, { r: r }, i))) }));
     }
-    // Expanded tree view
-    return (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsxs(Text, { children: [_jsx(Text, { color: info, bold: true, children: "⏺ " }), _jsxs(Text, { bold: true, children: [toolUseCount, " tool use", toolUseCount !== 1 ? "s" : ""] }), label && _jsxs(Text, { color: dim, children: [" \u2014 ", label] })] }), results.map((r, i) => {
+    // ── Collapsed group view ──
+    if (!expanded) {
+        return (_jsx(Box, { flexDirection: "column", marginLeft: 2, children: _jsxs(Text, { children: [_jsx(Text, { color: info, bold: true, children: "⏺ " }), _jsxs(Text, { bold: true, children: [toolUseCount, " tool use", toolUseCount !== 1 ? "s" : ""] }), label && _jsxs(Text, { color: dim, children: [" \\u2014 ", label] }), _jsx(Text, { color: dim, children: " (ctrl+o to expand)" })] }) }));
+    }
+    // ── Expanded tree view (3+ tools) ──
+    return (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsxs(Text, { children: [_jsx(Text, { color: info, bold: true, children: "⏺ " }), _jsxs(Text, { bold: true, children: [toolUseCount, " tool use", toolUseCount !== 1 ? "s" : ""] }), label && _jsxs(Text, { color: dim, children: [" \\u2014 ", label] })] }), results.map((r, i) => {
                 const isLast = i === results.length - 1;
-                const prefix = isLast ? "└─" : "├─";
-                const continuePrefix = isLast ? "   " : "│  ";
+                const prefix = isLast ? "\u2514\u2500" : "\u251C\u2500";
+                const continuePrefix = isLast ? "   " : "\u2502  ";
                 const toolLabel = TOOL_LABELS[r.tool] || r.tool;
                 const toolColor = r.success ? (TOOL_COLORS[r.tool] || primary) : error;
                 const arg = getToolArg(r.tool, r.filePath, r.command);
                 const summary = getShortSummary(r);
                 const hasDiff = r.tool === "edit" && r.diff && r.diff.oldStr && r.diff.newStr;
-                // For bash/grep/glob etc, show a few output lines
-                const isFullOutput = ["bash", "auto-bash", "auto-python", "grep", "glob", "ls", "git", "web", "fetch"].includes(r.tool);
+                const isFullOutput = FULL_OUTPUT_TOOLS.has(r.tool);
                 const outputLines = r.result.split("\n").filter(l => l.trim());
-                return (_jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { children: [_jsxs(Text, { color: dim, children: ["   ", prefix, " "] }), _jsx(Text, { color: toolColor, bold: true, children: toolLabel }), arg && _jsxs(Text, { color: dim, children: ["(", arg, ")"] }), _jsxs(Text, { color: dim, children: [" \u00B7 ", summary] })] }), hasDiff ? (_jsxs(Box, { marginLeft: 3, flexDirection: "column", children: [_jsxs(Text, { color: dim, children: ["   ", continuePrefix] }), _jsx(Box, { marginLeft: 3, children: _jsx(ClaudeCodeDiff, { oldStr: r.diff.oldStr, newStr: r.diff.newStr, startLineNumber: r.startLineNumber || 1, maxLines: 20 }) })] })) : r.success && isFullOutput && outputLines.length > 0 ? (
-                        /* Show a few output lines for bash/grep etc */
-                        _jsxs(Box, { flexDirection: "column", children: [outputLines.slice(0, MAX_EXPANDED_LINES).map((line, li) => (_jsxs(Text, { children: [_jsxs(Text, { color: dim, children: ["   ", continuePrefix, "  "] }), _jsx(Text, { children: line })] }, li))), outputLines.length > MAX_EXPANDED_LINES && (_jsx(Text, { children: _jsxs(Text, { color: dim, children: ["   ", continuePrefix, "  \u2026 (+", outputLines.length - MAX_EXPANDED_LINES, " lines)"] }) }))] })) : (
-                        /* Simple result line: │  ⎿  Done */
-                        _jsxs(Text, { children: [_jsxs(Text, { color: dim, children: ["   ", continuePrefix, "\u23BF  "] }), _jsx(Text, { color: r.success ? undefined : error, children: r.success ? "Done" : r.result.split("\n")[0]?.slice(0, 60) || "Failed" })] }))] }, i));
-            }), _jsxs(Text, { color: dim, children: ["   ", "(", durationStr, " \u00B7 \u2193 ", tokenStr, " tokens)"] })] }));
+                return (_jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { children: [_jsxs(Text, { color: dim, children: ["   ", prefix, " "] }), _jsx(Text, { color: toolColor, bold: true, children: toolLabel }), arg && _jsxs(Text, { color: dim, children: ["(", arg, ")"] }), _jsxs(Text, { color: dim, children: [" \\u00B7 ", summary] })] }), hasDiff ? (_jsxs(Box, { marginLeft: 3, flexDirection: "column", children: [_jsxs(Text, { color: dim, children: ["   ", continuePrefix] }), _jsx(Box, { marginLeft: 3, children: _jsx(ClaudeCodeDiff, { oldStr: r.diff.oldStr, newStr: r.diff.newStr, startLineNumber: r.startLineNumber || 1, maxLines: 20 }) })] })) : r.success && isFullOutput && outputLines.length > 0 ? (
+                        /* Multi-line output for bash/grep etc */
+                        _jsxs(Box, { flexDirection: "column", children: [outputLines.slice(0, MAX_EXPANDED_LINES).map((line, li) => (_jsxs(Text, { children: [_jsxs(Text, { color: dim, children: ["   ", continuePrefix, "  "] }), _jsx(Text, { children: line })] }, li))), outputLines.length > MAX_EXPANDED_LINES && (_jsx(Text, { children: _jsxs(Text, { color: dim, children: ["   ", continuePrefix, "  \\u2026 (+", outputLines.length - MAX_EXPANDED_LINES, " lines)"] }) }))] })) : !r.success ? (
+                        /* Error output */
+                        _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { children: [_jsxs(Text, { color: dim, children: ["   ", continuePrefix, "\\u23BF  "] }), _jsx(Text, { color: error, children: outputLines[0] || "Failed" })] }), outputLines.slice(1, 4).map((line, li) => (_jsxs(Text, { children: [_jsxs(Text, { color: dim, children: ["   ", continuePrefix, "   "] }), _jsx(Text, { color: error, children: line })] }, li)))] })) : null] }, i));
+            }), _jsxs(Text, { color: dim, children: ["   ", "(", durationStr, " \\u00B7 \\u2193 ", tokenStr, " tokens)"] })] }));
 }
 //# sourceMappingURL=ToolGroup.js.map

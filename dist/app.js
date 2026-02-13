@@ -14,6 +14,7 @@ import { MorningstarSpinner } from "./components/Spinner.js";
 import { ToolResult as ToolResultBox } from "./components/ToolResult.js";
 import { ToolGroup } from "./components/ToolGroup.js";
 import { ContextRadar } from "./components/ContextRadar.js";
+import { TaskProgress, createTaskStep } from "./components/TaskProgress.js";
 import { buildDepGraph, renderDepGraphAscii } from "./dep-graph.js";
 import { useTheme } from "./hooks/useTheme.js";
 import { streamChat } from "./ai.js";
@@ -30,6 +31,8 @@ import { getPermissionMode, setPermissionMode } from "./permissions.js";
 import { loadSettings, initProjectSettings, projectSettingsExist, getProjectSettingsPath, getGlobalSettingsPath } from "./settings.js";
 import { loadProjectMemory } from "./project-memory.js";
 import { trackUsage, getSessionCosts, formatCostDisplay, isFreeTier } from "./cost-tracker.js";
+import { executeSubAgent, formatSubAgentResults, getAvailableSubAgents } from "./sub-agents.js";
+import { detectTestRunner, shouldAutoTest, runTests, formatTestResult } from "./auto-test.js";
 import { getRepoMap, generateOnboarding, generateProjectScore, generateCodeRoast } from "./repo-map.js";
 import { parseMentions, formatMentionContext } from "./mentions.js";
 import { getFastModel, getDefaultModel } from "./fast-model-map.js";
@@ -49,12 +52,17 @@ import { getChromeStatus, launchChrome } from "./chrome.js";
 import { getThinkingConfig, setEffortLevel, toggleThinking, getThinkingStatus, getThinkingPromptPrefix } from "./thinking.js";
 import { isBudgetExceeded, getRemainingBudget } from "./cost-tracker.js";
 import { isValidPermissionMode, getPermissionModeDescription } from "./permissions.js";
+import { createFileWatcher, detectWatchDirs } from "./file-watcher.js";
+import { createBranch, listBranches, switchBranch, mergeBranch, deleteBranch, formatBranchesList, saveBranch } from "./conversation-branch.js";
+import { checkForUpdate, performUpdate, formatUpdateInfo, formatUpdateResult } from "./self-update.js";
+import { startDashboard, formatDashboardStatus } from "./web-dashboard.js";
 function buildSlashCommands(customCommands) {
     const cmds = [
         { cmd: "/help", desc: "Alle Befehle" },
         { cmd: "/features", desc: "Alle Features" },
         { cmd: "/clear", desc: "Konversation zuruecksetzen" },
         { cmd: "/compact", desc: "Komprimieren" },
+        { cmd: "/max-turns", desc: "Max Auto-Fix Durchlaeufe (1-50)" },
         { cmd: "/stats", desc: "Session-Statistiken" },
         { cmd: "/plan", desc: "Plan-Modus an/aus" },
         { cmd: "/think", desc: "Think-Modus" },
@@ -134,6 +142,18 @@ function buildSlashCommands(customCommands) {
         { cmd: "/effort", desc: "Thinking Effort-Level" },
         { cmd: "/ultrathink", desc: "Ultra-Think Modus" },
         { cmd: "/agent:migrate", desc: "Agents zu .md migrieren" },
+        { cmd: "/delegate", desc: "Task an Sub-Agent delegieren" },
+        { cmd: "/delegate:list", desc: "Verfuegbare Sub-Agents" },
+        // Tier 3 Features:
+        { cmd: "/watch", desc: "File Watcher an/aus" },
+        { cmd: "/branch", desc: "Konversation verzweigen" },
+        { cmd: "/branch list", desc: "Branches anzeigen" },
+        { cmd: "/branch switch", desc: "Branch wechseln" },
+        { cmd: "/branch merge", desc: "Branch mergen" },
+        { cmd: "/branch delete", desc: "Branch loeschen" },
+        { cmd: "/update", desc: "Self-Update pruefen/ausfuehren" },
+        { cmd: "/update check", desc: "Auf Updates pruefen" },
+        { cmd: "/dashboard", desc: "Web Dashboard starten" },
         { cmd: "/quit", desc: "Beenden" },
     ];
     // Add custom commands
@@ -168,6 +188,7 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
     const [showStatusLine, setShowStatusLine] = useState(true);
     const [activeSkill, setActiveSkill] = useState(null);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [pendingCdChoices, setPendingCdChoices] = useState([]);
     const [output, setOutput] = useState([{ id: 0, type: "banner" }]);
     const [customCommands] = useState(() => loadCustomCommands(cwd));
     const [slashCommands] = useState(() => buildSlashCommands(customCommands));
@@ -180,9 +201,80 @@ export function App({ config: initialConfig, ctx, chatOnly, skipPermissions, bas
     const [streamStart, setStreamStart] = useState(0);
     const [streamedChars, setStreamedChars] = useState(0);
     const [thinkingStartTime, setThinkingStartTime] = useState(0);
+    // Task progress state (for Claude Code-style checklist during agentic loop)
+    const [taskSteps, setTaskSteps] = useState([]);
+    const [taskLabel, setTaskLabel] = useState("");
+    const [taskTurn, setTaskTurn] = useState(0);
+    const [taskMaxTurns, setTaskMaxTurns] = useState(10);
+    const [taskTokens, setTaskTokens] = useState(0);
+    const [taskStartTime, setTaskStartTime] = useState(0);
+    const [showTaskProgress, setShowTaskProgress] = useState(false);
+    // Tier 3 feature state
+    const fileWatcherRef = useRef(null);
+    const dashboardRef = useRef(null);
+    const [currentBranchId, setCurrentBranchId] = useState(null);
     let nextId = useRef(1);
     function addOutput(item) {
         setOutput(prev => [...prev, { ...item, id: nextId.current++ }]);
+    }
+    // ── Smart CD: find directories by name across common locations ──
+    function findDirectorySmart(name) {
+        const home = homedir();
+        const searchRoots = [
+            home,
+            joinPath(home, "Downloads"),
+            joinPath(home, "Desktop"),
+            joinPath(home, "Documents"),
+            joinPath(home, "Dokumente"),
+            joinPath(home, "Projects"),
+            joinPath(home, "Projekte"),
+            joinPath(home, "Developer"),
+            joinPath(home, "dev"),
+            joinPath(home, "code"),
+            joinPath(home, "workspace"),
+            joinPath(home, "repos"),
+            cwd,
+        ];
+        const lowerName = name.toLowerCase();
+        const matches = [];
+        const seen = new Set();
+        for (const root of searchRoots) {
+            if (!existsSync(root))
+                continue;
+            try {
+                const entries = readdirSync(root);
+                for (const entry of entries) {
+                    if (entry.startsWith("."))
+                        continue; // skip hidden directories
+                    const full = joinPath(root, entry);
+                    try {
+                        if (!statSync(full).isDirectory())
+                            continue;
+                    }
+                    catch {
+                        continue;
+                    }
+                    const entryLower = entry.toLowerCase();
+                    // Exact match (case-insensitive) or starts-with / contains match
+                    if (entryLower === lowerName || entryLower.startsWith(lowerName) || entryLower.includes(lowerName)) {
+                        if (!seen.has(full)) {
+                            seen.add(full);
+                            matches.push(full);
+                        }
+                    }
+                }
+            }
+            catch { /* skip unreadable dirs */ }
+        }
+        // Sort: exact matches first, then startsWith, then contains
+        matches.sort((a, b) => {
+            const aName = a.split("/").pop().toLowerCase();
+            const bName = b.split("/").pop().toLowerCase();
+            const aExact = aName === lowerName ? 0 : aName.startsWith(lowerName) ? 1 : 2;
+            const bExact = bName === lowerName ? 0 : bName.startsWith(lowerName) ? 1 : 2;
+            return aExact - bExact;
+        });
+        return matches;
     }
     function getFullSystemPrompt() {
         let prompt = baseSystemPrompt + getMemoryContext();
@@ -266,30 +358,48 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                     target = arg;
                 else
                     target = resolvePath(cwd, arg);
-                if (!existsSync(target) || !statSync(target).isDirectory()) {
-                    // Case-insensitive fallback: try to find matching directory
-                    const parentDir = resolvePath(target, "..");
-                    const baseName = target.split("/").pop() || "";
-                    if (baseName && existsSync(parentDir)) {
-                        try {
-                            const entries = readdirSync(parentDir);
-                            const match = entries.find(e => e.toLowerCase() === baseName.toLowerCase() && statSync(joinPath(parentDir, e)).isDirectory());
-                            if (match) {
-                                const corrected = joinPath(parentDir, match);
-                                setCwd(corrected);
-                                process.chdir(corrected);
-                                addOutput({ type: "success", content: `Verzeichnis gewechselt: ${corrected}` });
-                                return true;
-                            }
-                        }
-                        catch { }
-                    }
-                    addOutput({ type: "error", content: `Verzeichnis nicht gefunden: ${target}` });
+                // Direct path exists → navigate
+                if (existsSync(target) && statSync(target).isDirectory()) {
+                    setCwd(target);
+                    process.chdir(target);
+                    addOutput({ type: "success", content: `Verzeichnis gewechselt: ${target}` });
                     return true;
                 }
-                setCwd(target);
-                process.chdir(target);
-                addOutput({ type: "success", content: `Verzeichnis gewechselt: ${target}` });
+                // Case-insensitive fallback in parent directory
+                const parentDir = resolvePath(target, "..");
+                const baseName = target.split("/").pop() || "";
+                if (baseName && existsSync(parentDir)) {
+                    try {
+                        const entries = readdirSync(parentDir);
+                        const match = entries.find(e => e.toLowerCase() === baseName.toLowerCase() && statSync(joinPath(parentDir, e)).isDirectory());
+                        if (match) {
+                            const corrected = joinPath(parentDir, match);
+                            setCwd(corrected);
+                            process.chdir(corrected);
+                            addOutput({ type: "success", content: `Verzeichnis gewechselt: ${corrected}` });
+                            return true;
+                        }
+                    }
+                    catch { }
+                }
+                // Smart search: find matching directories across common locations
+                const smartMatches = findDirectorySmart(arg);
+                if (smartMatches.length === 1) {
+                    // Single match → navigate directly
+                    const found = smartMatches[0];
+                    setCwd(found);
+                    process.chdir(found);
+                    addOutput({ type: "success", content: `Verzeichnis gewechselt: ${found}` });
+                    return true;
+                }
+                else if (smartMatches.length > 1) {
+                    // Multiple matches → ask user to choose
+                    setPendingCdChoices(smartMatches);
+                    const list = smartMatches.map((p, i) => `  ${i + 1}) ${p}`).join("\n");
+                    addOutput({ type: "info", content: `Mehrere Treffer fuer "${arg}":\n${list}\n\nGib die Nummer ein (1-${smartMatches.length}):` });
+                    return true;
+                }
+                addOutput({ type: "error", content: `Verzeichnis nicht gefunden: ${arg}` });
                 return true;
             }
             case "/clear":
@@ -306,6 +416,20 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                 });
                 addOutput({ type: "success", content: "Konversation komprimiert." });
                 return true;
+            case "/max-turns": {
+                if (!arg) {
+                    addOutput({ type: "info", content: `Max Turns: ${config.maxTurns ?? 10}` });
+                    return true;
+                }
+                const mt = parseInt(arg, 10);
+                if (isNaN(mt) || mt < 1 || mt > 50) {
+                    addOutput({ type: "error", content: "Max Turns muss zwischen 1 und 50 liegen." });
+                    return true;
+                }
+                setConfig(prev => ({ ...prev, maxTurns: mt }));
+                addOutput({ type: "success", content: `Max Turns auf ${mt} gesetzt.` });
+                return true;
+            }
             case "/plan":
                 setPlanMode(prev => {
                     const next = !prev;
@@ -1283,12 +1407,190 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                 }
                 return true;
             }
+            // ── /delegate — Sub-Agent Task Delegation ──
+            case "/delegate": {
+                if (!arg) {
+                    addOutput({ type: "info", content: "Usage: /delegate <agent> <task>\n  /delegate code Implementiere Login-Feature\n  /delegate debug Finde den Bug in src/app.tsx\n  /delegate:list — Verfuegbare Agents" });
+                    return true;
+                }
+                const delegateParts = arg.split(" ");
+                const delegateAgent = delegateParts[0];
+                const delegateTask = delegateParts.slice(1).join(" ");
+                if (!delegateTask) {
+                    addOutput({ type: "error", content: "Bitte gib eine Aufgabe an: /delegate <agent> <task>" });
+                    return true;
+                }
+                const allAgentsCheck = getAllAgents();
+                if (!allAgentsCheck[delegateAgent]) {
+                    const available = Object.keys(allAgentsCheck).join(", ");
+                    addOutput({ type: "error", content: `Agent "${delegateAgent}" nicht gefunden. Verfuegbar: ${available}` });
+                    return true;
+                }
+                addOutput({ type: "info", content: `Sub-Agent [${allAgentsCheck[delegateAgent].name}] gestartet: ${delegateTask.slice(0, 80)}...` });
+                (async () => {
+                    const ac = new AbortController();
+                    abortRef.current = ac;
+                    setIsProcessing(true);
+                    try {
+                        const result = await executeSubAgent(delegateAgent, delegateTask, config, cwd, getFullSystemPrompt(), ac.signal, 5, (status) => setTaskLabel(status));
+                        addOutput({ type: result.task.status === "completed" ? "success" : "error", content: formatSubAgentResults([result]) });
+                        if (result.fullResponse) {
+                            addOutput({ type: "ai-response", streamingText: result.fullResponse, streamingReasoning: "", startTime: result.task.startTime });
+                            setMessages(prev => [...prev, { role: "assistant", content: `[Sub-Agent ${delegateAgent}]: ${result.fullResponse}` }]);
+                        }
+                    }
+                    catch (e) {
+                        addOutput({ type: "error", content: `Sub-Agent Fehler: ${e.message}` });
+                    }
+                    finally {
+                        setIsProcessing(false);
+                        abortRef.current = null;
+                    }
+                })();
+                return true;
+            }
+            case "/delegate:list": {
+                const subAgents = getAvailableSubAgents();
+                const list = subAgents.map(a => `  ${a.id.padEnd(15)} ${a.name} — ${a.description}`).join("\n");
+                addOutput({ type: "info", content: `Verfuegbare Sub-Agents:\n${list}` });
+                return true;
+            }
+            // ── /watch — File Watcher ──
+            case "/watch": {
+                if (fileWatcherRef.current && fileWatcherRef.current.isRunning()) {
+                    fileWatcherRef.current.stop();
+                    fileWatcherRef.current = null;
+                    addOutput({ type: "success", content: "File Watcher gestoppt." });
+                }
+                else {
+                    const dirs = detectWatchDirs(cwd);
+                    const watcher = createFileWatcher(cwd, { dirs });
+                    watcher.onEvent((event) => {
+                        addOutput({ type: "info", content: `  [Watch] ${event.type === "create" ? "+" : event.type === "delete" ? "-" : "~"} ${event.relativePath}` });
+                    });
+                    watcher.start();
+                    fileWatcherRef.current = watcher;
+                    addOutput({ type: "success", content: `File Watcher aktiv — ${dirs.join(", ")}` });
+                }
+                return true;
+            }
+            // ── /branch — Conversation Branching ──
+            case "/branch": {
+                if (!arg) {
+                    // Create a new branch from current state
+                    const name = `branch-${Date.now().toString(36)}`;
+                    const sessionId = config.sessionId || ctx.projectName;
+                    const branch = createBranch(sessionId, name, messages);
+                    setCurrentBranchId(branch.id);
+                    addOutput({ type: "success", content: `Branch "${name}" erstellt (${branch.id.slice(0, 8)}) ab Message ${messages.length}.` });
+                }
+                else if (arg === "list") {
+                    const sessionId = config.sessionId || ctx.projectName;
+                    const branches = listBranches(sessionId);
+                    addOutput({ type: "info", content: `Branches:\n${formatBranchesList(branches, currentBranchId ?? undefined)}` });
+                }
+                else if (arg.startsWith("switch ")) {
+                    const branchId = arg.slice(7).trim();
+                    const sessionId = config.sessionId || ctx.projectName;
+                    const branchMessages = switchBranch(sessionId, branchId);
+                    if (branchMessages) {
+                        setMessages(branchMessages);
+                        setCurrentBranchId(branchId);
+                        addOutput({ type: "success", content: `Zu Branch ${branchId.slice(0, 8)} gewechselt (${branchMessages.length} Messages).` });
+                    }
+                    else {
+                        addOutput({ type: "error", content: `Branch "${branchId}" nicht gefunden.` });
+                    }
+                }
+                else if (arg.startsWith("merge ")) {
+                    const branchId = arg.slice(6).trim();
+                    const sessionId = config.sessionId || ctx.projectName;
+                    const result = mergeBranch(sessionId, branchId, messages);
+                    if (result) {
+                        setMessages(result.merged);
+                        addOutput({ type: "success", content: result.summary });
+                    }
+                    else {
+                        addOutput({ type: "error", content: `Branch "${branchId}" nicht gefunden.` });
+                    }
+                }
+                else if (arg.startsWith("delete ")) {
+                    const branchId = arg.slice(7).trim();
+                    const sessionId = config.sessionId || ctx.projectName;
+                    if (deleteBranch(sessionId, branchId)) {
+                        if (currentBranchId === branchId)
+                            setCurrentBranchId(null);
+                        addOutput({ type: "success", content: `Branch ${branchId.slice(0, 8)} geloescht.` });
+                    }
+                    else {
+                        addOutput({ type: "error", content: `Branch "${branchId}" nicht gefunden.` });
+                    }
+                }
+                else {
+                    // Named branch
+                    const sessionId = config.sessionId || ctx.projectName;
+                    const branch = createBranch(sessionId, arg, messages);
+                    setCurrentBranchId(branch.id);
+                    addOutput({ type: "success", content: `Branch "${arg}" erstellt (${branch.id.slice(0, 8)}).` });
+                }
+                return true;
+            }
+            // ── /update — Self-Update ──
+            case "/update": {
+                if (!arg || arg === "check") {
+                    addOutput({ type: "info", content: "Pruefe auf Updates..." });
+                    const info = checkForUpdate(true);
+                    addOutput({ type: "info", content: formatUpdateInfo(info) });
+                }
+                else if (arg === "run" || arg === "install") {
+                    addOutput({ type: "info", content: "Starte Self-Update..." });
+                    const result = performUpdate();
+                    addOutput({ type: result.success ? "success" : "error", content: formatUpdateResult(result) });
+                }
+                else {
+                    addOutput({ type: "info", content: "Nutzung: /update [check|run]" });
+                }
+                return true;
+            }
+            // ── /dashboard — Web Dashboard ──
+            case "/dashboard": {
+                if (dashboardRef.current?.isRunning) {
+                    addOutput({ type: "info", content: formatDashboardStatus(dashboardRef.current) });
+                }
+                else {
+                    const port = arg ? parseInt(arg, 10) : 3030;
+                    addOutput({ type: "info", content: "Starte Web Dashboard..." });
+                    startDashboard({
+                        port: isNaN(port) ? 3030 : port,
+                        host: "0.0.0.0",
+                        cliConfig: config,
+                        getMessages: () => messages,
+                        getSessionStart: () => sessionStart,
+                    }).then(state => {
+                        dashboardRef.current = state;
+                        addOutput({ type: "success", content: `Dashboard aktiv: ${state.url}/dashboard` });
+                    }).catch((e) => {
+                        addOutput({ type: "error", content: `Dashboard Fehler: ${e.message}` });
+                    });
+                }
+                return true;
+            }
             case "/quit":
             case "/exit":
             case "/q":
+                // Stop file watcher on quit
+                if (fileWatcherRef.current?.isRunning()) {
+                    fileWatcherRef.current.stop();
+                }
                 // Auto-save on quit
                 if (messages.length > 2) {
                     autoSave(messages, ctx.projectName, config.model);
+                }
+                // Save branch state
+                if (currentBranchId) {
+                    const sessionId = config.sessionId || ctx.projectName;
+                    const branch = { id: currentBranchId, name: "", parentId: sessionId, parentBranch: null, forkPoint: 0, messages, createdAt: "", updatedAt: "" };
+                    saveBranch(sessionId, branch);
                 }
                 addOutput({ type: "text", content: "* Bis bald!" });
                 setTimeout(() => exit(), 100);
@@ -1414,6 +1716,23 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
     const processInput = useCallback(async (input) => {
         if (!input.trim())
             return;
+        // ── Pending CD choice: user picks a number ──
+        if (pendingCdChoices.length > 0) {
+            const num = parseInt(input.trim(), 10);
+            if (num >= 1 && num <= pendingCdChoices.length) {
+                const chosen = pendingCdChoices[num - 1];
+                setPendingCdChoices([]);
+                setCwd(chosen);
+                process.chdir(chosen);
+                addOutput({ type: "success", content: `Verzeichnis gewechselt: ${chosen}` });
+                return;
+            }
+            else {
+                setPendingCdChoices([]);
+                addOutput({ type: "info", content: "Auswahl abgebrochen." });
+                // Don't return — let the input be processed normally
+            }
+        }
         // Handle slash commands
         if (input.startsWith("/")) {
             const handled = handleSlashCommand(input);
@@ -1555,11 +1874,13 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
             setStreamText("");
             setStreamReasoning("");
         };
-        const maxTurns = activeConfig.maxTurns ?? 5;
+        const maxTurns = activeConfig.maxTurns ?? 10;
         try {
             let fullResponse = "";
             let fullReasoning = "";
             let reasoningStart = 0;
+            let realInputTokens = 0;
+            let realOutputTokens = 0;
             for await (const token of streamChat(newMessages, activeConfig, signal)) {
                 if (signal.aborted)
                     break;
@@ -1568,6 +1889,11 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                         reasoningStart = Date.now();
                     fullReasoning += token.text;
                     setStreamReasoning(prev => prev + token.text);
+                }
+                else if (token.type === "usage" && token.usage) {
+                    // Capture real token counts from API
+                    realInputTokens = token.usage.inputTokens;
+                    realOutputTokens = token.usage.outputTokens;
                 }
                 else {
                     fullResponse += token.text;
@@ -1585,7 +1911,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                 setIsStreaming(false);
                 return;
             }
-            trackUsage(activeConfig.model, userContent, fullResponse);
+            trackUsage(activeConfig.model, userContent, fullResponse, realInputTokens, realOutputTokens);
             // Execute tools
             if (!chatOnly) {
                 let toolResults = null;
@@ -1606,6 +1932,23 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                             return r.tool === pattern;
                         }));
                     }
+                    // ── Initialize Task Progress Checklist ──
+                    const initialSteps = toolResults.results.map(r => {
+                        const step = createTaskStep(r.tool, r.filePath || r.command || "");
+                        step.status = r.success ? "completed" : "failed";
+                        step.detail = r.success
+                            ? (r.linesChanged ? `${r.linesChanged} lines` : "done")
+                            : (r.result.split("\n")[0]?.slice(0, 40) || "failed");
+                        step.duration = Date.now() - roundStart;
+                        return step;
+                    });
+                    setTaskSteps(initialSteps);
+                    setTaskLabel("Executing tools...");
+                    setTaskTurn(1);
+                    setTaskMaxTurns(maxTurns);
+                    setTaskTokens(Math.round(fullResponse.length / 4));
+                    setTaskStartTime(roundStart);
+                    setShowTaskProgress(true);
                     // Save initial AI response to output BEFORE showing tool results
                     saveResponseToOutput(fullResponse, fullReasoning, streamStart);
                     setIsStreaming(false);
@@ -1620,12 +1963,34 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                         toolCount: toolResults.results.length,
                         expanded: toolResults.results.length <= 3,
                     });
+                    // ── Auto-Test: Run tests after write/edit ──
+                    const writtenFiles = toolResults.results
+                        .filter(r => r.success && (r.tool === "write" || r.tool === "edit") && r.filePath)
+                        .map(r => r.filePath);
+                    let autoTestFeedback = "";
+                    if (writtenFiles.length > 0 && detectTestRunner(cwd)) {
+                        for (const file of writtenFiles) {
+                            const testInfo = shouldAutoTest(file, cwd);
+                            if (testInfo.testFile || testInfo.runAll) {
+                                const testResult = runTests(cwd, testInfo.testFile || undefined, 30000);
+                                if (testResult) {
+                                    addOutput({ type: testResult.passed ? "success" : "error", content: formatTestResult(testResult) });
+                                    autoTestFeedback += `\n\nAuto-Test [${testResult.runner}]: ${testResult.passed ? "BESTANDEN" : "FEHLGESCHLAGEN"}\n${testResult.output.slice(-500)}`;
+                                }
+                                break; // Only run tests once per round
+                            }
+                        }
+                    }
                     const failedTools = toolResults.results.filter(r => !r.success);
                     const successTools = toolResults.results.filter(r => r.success);
                     const toolFeedback = toolResults.results.map(r => `[Tool: ${r.tool}] ${r.success ? "ERFOLG" : "FEHLGESCHLAGEN"}: ${r.result}`).join("\n\n");
-                    let followUpInstruction = `Tool-Ergebnisse:\n${toolFeedback}\n\n`;
+                    let followUpInstruction = `Tool-Ergebnisse:\n${toolFeedback}${autoTestFeedback}\n\n`;
                     if (failedTools.length > 0) {
-                        followUpInstruction += `ACHTUNG: ${failedTools.length} Tool(s) sind FEHLGESCHLAGEN! Sag dem User EHRLICH was nicht funktioniert hat und WARUM. Behaupte NICHT dass alles geklappt hat wenn Tools Fehler hatten. `;
+                        followUpInstruction += `\n\nAUTO-FIX: ${failedTools.length} Tool(s) FEHLGESCHLAGEN. Analysiere den Fehler und versuche eine Korrektur. Details:\n`;
+                        for (const ft of failedTools) {
+                            followUpInstruction += `- [${ft.tool}] ${ft.result}\n`;
+                        }
+                        followUpInstruction += `\nVersuche den Fehler zu beheben und die Aufgabe abzuschliessen. `;
                         if (failedTools.some(r => r.result?.includes("Unbekanntes Tool"))) {
                             followUpInstruction += `Du hast ein Tool benutzt das NICHT EXISTIERT. Nutze NUR: read, write, edit, delete, bash, grep, glob, ls, git, web, fetch, gh. Fuer Verschieben/Kopieren nutze <tool:bash>mv/cp</tool>. `;
                         }
@@ -1637,6 +2002,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                     const msgsWithAssistant = [...newMessages, { role: "assistant", content: fullResponse }, { role: "user", content: followUpInstruction }];
                     setMessages(msgsWithAssistant);
                     // Follow-up streaming
+                    setTaskLabel("AI analysiert Ergebnisse...");
                     setIsStreaming(true);
                     setStreamStart(Date.now());
                     let currentResponse = "";
@@ -1653,6 +2019,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                             else {
                                 currentResponse += token.text;
                                 setStreamText(prev => prev + token.text);
+                                setTaskTokens(prev => prev + Math.round(token.text.length / 4));
                             }
                         }
                     }
@@ -1665,6 +2032,8 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                     while (depth < maxTurns && currentResponse && !signal.aborted) {
                         let nested = null;
                         const nestedStart = Date.now();
+                        setTaskLabel(`Turn ${depth + 2}/${maxTurns} — Executing tools...`);
+                        setTaskTurn(depth + 2);
                         try {
                             nested = await executeToolCalls(currentResponse, cwd);
                         }
@@ -1686,6 +2055,17 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                             if (nested.results.length === 0)
                                 break;
                         }
+                        // ── Update Task Progress: add new steps ──
+                        const newSteps = nested.results.map(r => {
+                            const step = createTaskStep(r.tool, r.filePath || r.command || "");
+                            step.status = r.success ? "completed" : "failed";
+                            step.detail = r.success
+                                ? (r.linesChanged ? `${r.linesChanged} lines` : "done")
+                                : (r.result.split("\n")[0]?.slice(0, 40) || "failed");
+                            step.duration = Date.now() - nestedStart;
+                            return step;
+                        });
+                        setTaskSteps(prev => [...prev, ...newSteps]);
                         // Track consecutive failures
                         const allFailed = nested.results.every(r => !r.success);
                         if (allFailed) {
@@ -1694,14 +2074,21 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                         else {
                             consecutiveFailures = 0;
                         }
-                        // Break on 2+ consecutive all-fail rounds
-                        if (consecutiveFailures >= 2) {
-                            addOutput({ type: "info", content: "Wiederholte Fehler erkannt — Tool-Kette gestoppt." });
+                        // Break on 4+ consecutive all-fail rounds
+                        if (consecutiveFailures >= 4) {
+                            setTaskLabel("Gestoppt: Wiederholte Fehler");
+                            addOutput({ type: "info", content: "Wiederholte Fehler erkannt — Tool-Kette nach 4 Versuchen gestoppt." });
                             break;
+                        }
+                        // Show auto-fix status when retrying after failure
+                        if (allFailed) {
+                            setTaskLabel(`Auto-Fix: Versuch ${depth + 1}/${maxTurns}...`);
+                            addOutput({ type: "info", content: `Auto-Fix: Versuch ${depth + 1}/${maxTurns} — Fehler erkannt, AI versucht Korrektur...` });
                         }
                         // Loop detection: break if same tools are being called repeatedly
                         const toolSig = nested.results.map(r => `${r.tool}:${r.filePath || r.command || ""}`).join("|");
                         if (toolSig === lastToolSig) {
+                            setTaskLabel("Gestoppt: Loop erkannt");
                             addOutput({ type: "info", content: "Loop erkannt — Tool-Kette gestoppt." });
                             break;
                         }
@@ -1724,7 +2111,11 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                         const nestedFeedback = nested.results.map(r => `[Tool: ${r.tool}] ${r.success ? "ERFOLG" : "FEHLGESCHLAGEN"}: ${r.result}`).join("\n\n");
                         let nestedInstruction = `Tool-Ergebnisse:\n${nestedFeedback}\n\n`;
                         if (nestedFailed.length > 0) {
-                            nestedInstruction += `ACHTUNG: ${nestedFailed.length} Tool(s) FEHLGESCHLAGEN! Sag EHRLICH was nicht funktioniert hat. Behaupte NICHT dass es geklappt hat. `;
+                            nestedInstruction += `\nFEHLER AUFGETRETEN! Analysiere und behebe:\n`;
+                            for (const ft of nestedFailed) {
+                                nestedInstruction += `- [${ft.tool}] ${ft.result}\n`;
+                            }
+                            nestedInstruction += `\nBitte versuche den Fehler zu beheben. Du hast noch ${maxTurns - depth - 1} Versuche. `;
                             if (nestedFailed.some(r => r.result?.includes("Unbekanntes Tool"))) {
                                 nestedInstruction += `Du hast ein NICHT EXISTIERENDES Tool benutzt! Nutze NUR: read, write, edit, delete, bash, grep, glob, ls, git, web, fetch, gh. `;
                             }
@@ -1733,6 +2124,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                         latestMessages = [...latestMessages, { role: "assistant", content: currentResponse }, { role: "user", content: nestedInstruction }];
                         setMessages(latestMessages);
                         // Start new streaming round
+                        setTaskLabel(`Turn ${depth + 2}/${maxTurns} — AI denkt nach...`);
                         setIsStreaming(true);
                         setStreamStart(Date.now());
                         currentResponse = "";
@@ -1748,6 +2140,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                                 else {
                                     currentResponse += token.text;
                                     setStreamText(prev => prev + token.text);
+                                    setTaskTokens(prev => prev + Math.round(token.text.length / 4));
                                 }
                             }
                         }
@@ -1756,7 +2149,9 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                         }
                         depth++;
                     }
-                    // Save final response
+                    // Hide task progress and save final response
+                    setShowTaskProgress(false);
+                    setTaskSteps([]);
                     if (currentResponse) {
                         saveResponseToOutput(currentResponse, currentReasoning, followUpStart);
                         setMessages(prev => [...prev, { role: "assistant", content: currentResponse }]);
@@ -1784,6 +2179,11 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
             setIsStreaming(false);
             setStreamText("");
             setStreamReasoning("");
+            setShowTaskProgress(false);
+            setTaskSteps([]);
+            setTaskLabel("");
+            setTaskTurn(0);
+            setTaskTokens(0);
             abortRef.current = null;
         }
     }, [messages, config, activeAgent, activeSkill, planMode, thinkMode, debugMode, chatOnly, cwd, customCommands]);
@@ -1817,6 +2217,6 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
         }
     }
     // ── Render ──
-    return (_jsxs(_Fragment, { children: [_jsx(Static, { items: output, children: (item) => renderOutputItem(item) }), _jsxs(Box, { flexDirection: "column", children: [isStreaming && !streamText && !streamReasoning && (_jsx(MorningstarSpinner, { startTime: streamStart, streamedChars: streamedChars, thinkingTime: thinkingStartTime > 0 ? thinkingStartTime : undefined })), (streamText || streamReasoning) && (_jsx(StreamingOutput, { text: streamText, reasoning: streamReasoning, isStreaming: isStreaming, startTime: streamStart })), _jsx(Box, { marginTop: 0, children: _jsx(Input, { onSubmit: processInput, activeAgent: activeAgent, planMode: planMode, thinkMode: thinkMode, isProcessing: isProcessing, suggestions: slashCommands, vimMode: vimMode }) }), showStatusLine && (_jsxs(_Fragment, { children: [_jsx(Box, { marginLeft: 0, marginTop: 0, children: _jsx(Text, { color: dim, children: "─".repeat(70) }) }), _jsxs(Box, { marginLeft: 1, gap: 1, children: [_jsxs(Text, { color: accent, bold: true, children: ["📁 ", cwd.replace(homedir(), "~")] }), _jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: primary, bold: true, children: ["🤖 ", config.model.length > 25 ? config.model.slice(0, 25) + "…" : config.model] }), _jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: (config.provider || "deepseek") === "ollama" ? successColor : info, children: (config.provider || "deepseek") === "ollama" ? "⚡ lokal" : `☁️  ${config.provider || "deepseek"}` }), activeAgent && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: warning, children: ["🕵️ ", activeAgent] })] })), activeSkill && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: accent, children: ["🎯 ", activeSkill.name] })] })), vimMode && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: accent, children: "VIM" })] })), config.fast && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: warning, children: "FAST" })] })), debugMode && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: errorColor, children: "DEBUG" })] })), config.maxBudgetUsd && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: info, children: ["💰 $", getRemainingBudget(config.maxBudgetUsd).toFixed(2)] })] }))] }), _jsx(Box, { marginLeft: 1, children: _jsx(ContextRadar, { messages: messages }) })] }))] })] }));
+    return (_jsxs(_Fragment, { children: [_jsx(Static, { items: output, children: (item) => renderOutputItem(item) }), _jsxs(Box, { flexDirection: "column", children: [isStreaming && !streamText && !streamReasoning && (_jsx(MorningstarSpinner, { startTime: streamStart, streamedChars: streamedChars, thinkingTime: thinkingStartTime > 0 ? thinkingStartTime : undefined })), (streamText || streamReasoning) && (_jsx(StreamingOutput, { text: streamText, reasoning: streamReasoning, isStreaming: isStreaming, startTime: streamStart })), showTaskProgress && taskSteps.length > 0 && (_jsx(TaskProgress, { steps: taskSteps, currentLabel: taskLabel, startTime: taskStartTime, tokenCount: taskTokens, turnNumber: taskTurn, maxTurns: taskMaxTurns })), _jsx(Box, { marginTop: 0, children: _jsx(Input, { onSubmit: processInput, activeAgent: activeAgent, planMode: planMode, thinkMode: thinkMode, isProcessing: isProcessing, suggestions: slashCommands, vimMode: vimMode, cwd: cwd }) }), showStatusLine && (_jsxs(_Fragment, { children: [_jsx(Box, { marginLeft: 0, marginTop: 0, children: _jsx(Text, { color: dim, children: "─".repeat(70) }) }), _jsxs(Box, { marginLeft: 1, gap: 1, children: [_jsxs(Text, { color: accent, bold: true, children: ["📁 ", cwd.replace(homedir(), "~")] }), _jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: primary, bold: true, children: ["🤖 ", config.model.length > 25 ? config.model.slice(0, 25) + "…" : config.model] }), _jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: (config.provider || "deepseek") === "ollama" ? successColor : info, children: (config.provider || "deepseek") === "ollama" ? "⚡ lokal" : `☁️  ${config.provider || "deepseek"}` }), activeAgent && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: warning, children: ["🕵️ ", activeAgent] })] })), activeSkill && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: accent, children: ["🎯 ", activeSkill.name] })] })), vimMode && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: accent, children: "VIM" })] })), config.fast && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: warning, children: "FAST" })] })), debugMode && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: errorColor, children: "DEBUG" })] })), config.maxBudgetUsd && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: info, children: ["💰 $", getRemainingBudget(config.maxBudgetUsd).toFixed(2)] })] }))] }), _jsx(Box, { marginLeft: 1, children: _jsx(ContextRadar, { messages: messages }) })] }))] })] }));
 }
 //# sourceMappingURL=app.js.map

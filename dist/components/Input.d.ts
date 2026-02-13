@@ -9,7 +9,8 @@ interface InputProps {
         desc: string;
     }>;
     vimMode?: boolean;
+    cwd?: string;
 }
-export declare function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing, suggestions, vimMode }: InputProps): import("react/jsx-runtime").JSX.Element;
+export declare function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing, suggestions, vimMode, cwd }: InputProps): import("react/jsx-runtime").JSX.Element;
 export {};
 //# sourceMappingURL=Input.d.ts.map

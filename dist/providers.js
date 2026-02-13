@@ -1,4 +1,7 @@
 import { execSync } from "child_process";
+import { TOOL_DEFINITIONS, ANTHROPIC_TOOL_DEFINITIONS, GOOGLE_TOOL_DEFINITIONS } from "./tool-definitions.js";
+// Providers that support native function calling
+const NATIVE_TOOL_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", "openrouter"]);
 // ─── Provider Detection ──────────────────────────────────
 // Cache for Ollama model names (avoid repeated shell calls)
 let _ollamaModels = null;
@@ -137,14 +140,21 @@ export function getModelDisplayName(model) {
 }
 // ─── OpenAI-Compatible SSE Parser ────────────────────────
 // Works for: OpenAI, DeepSeek, Ollama, Groq, OpenRouter
-async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxTokens, temperature, signal) {
+async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxTokens, temperature, signal, enableTools, providerName) {
+    const body = { model, messages, max_tokens: maxTokens, temperature, stream: true };
+    // Request usage data in stream (OpenAI-compatible)
+    body.stream_options = { include_usage: true };
+    // Add native function calling tools for supported providers
+    if (enableTools && providerName && NATIVE_TOOL_PROVIDERS.has(providerName)) {
+        body.tools = TOOL_DEFINITIONS;
+    }
     const res = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature, stream: true }),
+        body: JSON.stringify(body),
         signal,
     });
     if (!res.ok) {
@@ -157,6 +167,8 @@ async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxToke
     const decoder = new TextDecoder();
     let buffer = "";
     let insideThink = false;
+    // Accumulator for streamed tool calls (OpenAI sends them incrementally)
+    const toolCallAccumulators = new Map();
     try {
         while (true) {
             if (signal?.aborted)
@@ -178,6 +190,21 @@ async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxToke
                     return;
                 try {
                     const parsed = JSON.parse(data);
+                    // Parse usage data (sent in final chunk with empty choices)
+                    if (parsed.usage) {
+                        const u = parsed.usage;
+                        yield {
+                            type: "usage",
+                            text: "",
+                            usage: {
+                                inputTokens: u.prompt_tokens || 0,
+                                outputTokens: u.completion_tokens || 0,
+                                totalTokens: u.total_tokens || (u.prompt_tokens || 0) + (u.completion_tokens || 0),
+                                reasoningTokens: u.completion_tokens_details?.reasoning_tokens || undefined,
+                                cacheHitTokens: u.prompt_tokens_details?.cached_tokens || undefined,
+                            },
+                        };
+                    }
                     const choice = parsed.choices?.[0];
                     if (!choice)
                         continue;
@@ -224,6 +251,32 @@ async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxToke
                         }
                         yield { type: "content", text: token };
                     }
+                    // ─── Native Tool Calls (streamed incrementally) ───
+                    if (choice.delta?.tool_calls) {
+                        for (const tc of choice.delta.tool_calls) {
+                            const idx = tc.index ?? 0;
+                            if (!toolCallAccumulators.has(idx)) {
+                                toolCallAccumulators.set(idx, { id: tc.id || "", name: tc.function?.name || "", arguments: tc.function?.arguments || "" });
+                            }
+                            else {
+                                const acc = toolCallAccumulators.get(idx);
+                                if (tc.id)
+                                    acc.id = tc.id;
+                                if (tc.function?.name)
+                                    acc.name = tc.function.name;
+                                if (tc.function?.arguments)
+                                    acc.arguments += tc.function.arguments;
+                            }
+                        }
+                    }
+                    // Flush tool calls when finish_reason indicates completion
+                    if (choice.finish_reason === "tool_calls" || (choice.finish_reason === "stop" && toolCallAccumulators.size > 0)) {
+                        const sorted = [...toolCallAccumulators.entries()].sort(([a], [b]) => a - b);
+                        for (const [, tc] of sorted) {
+                            yield { type: "tool_call", text: "", toolCall: { id: tc.id, name: tc.name, arguments: tc.arguments } };
+                        }
+                        toolCallAccumulators.clear();
+                    }
                 }
                 catch {
                     // skip malformed JSON
@@ -232,6 +285,13 @@ async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxToke
         }
     }
     finally {
+        // Flush any remaining tool calls on stream end
+        if (toolCallAccumulators.size > 0) {
+            const sorted = [...toolCallAccumulators.entries()].sort(([a], [b]) => a - b);
+            for (const [, tc] of sorted) {
+                yield { type: "tool_call", text: "", toolCall: { id: tc.id, name: tc.name, arguments: tc.arguments } };
+            }
+        }
         try {
             reader.cancel();
         }
@@ -239,7 +299,7 @@ async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxToke
     }
 }
 // ─── Anthropic Provider ──────────────────────────────────
-async function* anthropicStream(apiKey, model, messages, maxTokens, temperature, signal) {
+async function* anthropicStream(apiKey, model, messages, maxTokens, temperature, signal, enableTools) {
     // Convert messages: system role handled separately
     const systemMsg = messages.find(m => m.role === "system");
     const chatMsgs = messages.filter(m => m.role !== "system").map(m => ({
@@ -257,6 +317,9 @@ async function* anthropicStream(apiKey, model, messages, maxTokens, temperature,
     // Only set temperature for non-thinking models
     if (temperature > 0 && !model.includes("opus"))
         body.temperature = temperature;
+    // Native function calling
+    if (enableTools)
+        body.tools = ANTHROPIC_TOOL_DEFINITIONS;
     const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -276,6 +339,10 @@ async function* anthropicStream(apiKey, model, messages, maxTokens, temperature,
         throw new Error("Kein Stream-Reader verfuegbar.");
     const decoder = new TextDecoder();
     let buffer = "";
+    // Tool call accumulation for Anthropic
+    let currentToolId = "";
+    let currentToolName = "";
+    let currentToolArgs = "";
     try {
         while (true) {
             if (signal?.aborted)
@@ -295,6 +362,12 @@ async function* anthropicStream(apiKey, model, messages, maxTokens, temperature,
                 const data = trimmed.slice(6);
                 try {
                     const parsed = JSON.parse(data);
+                    // Tool use block starts
+                    if (parsed.type === "content_block_start" && parsed.content_block?.type === "tool_use") {
+                        currentToolId = parsed.content_block.id || "";
+                        currentToolName = parsed.content_block.name || "";
+                        currentToolArgs = "";
+                    }
                     if (parsed.type === "content_block_delta") {
                         const delta = parsed.delta;
                         if (delta.type === "thinking_delta" || delta.type === "signature_delta") {
@@ -305,6 +378,43 @@ async function* anthropicStream(apiKey, model, messages, maxTokens, temperature,
                             if (delta.text)
                                 yield { type: "content", text: delta.text };
                         }
+                        else if (delta.type === "input_json_delta" && delta.partial_json !== undefined) {
+                            currentToolArgs += delta.partial_json;
+                        }
+                    }
+                    // Tool use block ends — yield the accumulated tool call
+                    if (parsed.type === "content_block_stop" && currentToolName) {
+                        yield { type: "tool_call", text: "", toolCall: { id: currentToolId, name: currentToolName, arguments: currentToolArgs } };
+                        currentToolId = "";
+                        currentToolName = "";
+                        currentToolArgs = "";
+                    }
+                    // Anthropic sends usage in message_delta event
+                    if (parsed.type === "message_delta" && parsed.usage) {
+                        const u = parsed.usage;
+                        yield {
+                            type: "usage",
+                            text: "",
+                            usage: {
+                                inputTokens: u.input_tokens || 0,
+                                outputTokens: u.output_tokens || 0,
+                                totalTokens: (u.input_tokens || 0) + (u.output_tokens || 0),
+                            },
+                        };
+                    }
+                    // Anthropic also sends usage in message_start
+                    if (parsed.type === "message_start" && parsed.message?.usage) {
+                        const u = parsed.message.usage;
+                        yield {
+                            type: "usage",
+                            text: "",
+                            usage: {
+                                inputTokens: u.input_tokens || 0,
+                                outputTokens: u.output_tokens || 0,
+                                totalTokens: (u.input_tokens || 0) + (u.output_tokens || 0),
+                                cacheHitTokens: u.cache_read_input_tokens || undefined,
+                            },
+                        };
                     }
                     if (parsed.type === "message_stop")
                         return;
@@ -323,7 +433,7 @@ async function* anthropicStream(apiKey, model, messages, maxTokens, temperature,
     }
 }
 // ─── Google Gemini Provider ──────────────────────────────
-async function* googleStream(apiKey, model, messages, maxTokens, temperature, signal) {
+async function* googleStream(apiKey, model, messages, maxTokens, temperature, signal, enableTools) {
     // Convert messages to Gemini format
     const systemMsg = messages.find(m => m.role === "system");
     const contents = messages.filter(m => m.role !== "system").map(m => ({
@@ -337,6 +447,9 @@ async function* googleStream(apiKey, model, messages, maxTokens, temperature, si
     if (systemMsg) {
         body.systemInstruction = { parts: [{ text: systemMsg.content }] };
     }
+    // Native function calling
+    if (enableTools)
+        body.tools = GOOGLE_TOOL_DEFINITIONS;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
     const res = await fetch(url, {
         method: "POST",
@@ -372,9 +485,40 @@ async function* googleStream(apiKey, model, messages, maxTokens, temperature, si
                 const data = trimmed.slice(6);
                 try {
                     const parsed = JSON.parse(data);
-                    const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text;
-                    if (text)
-                        yield { type: "content", text };
+                    const parts = parsed.candidates?.[0]?.content?.parts;
+                    if (parts) {
+                        for (const part of parts) {
+                            // Function call from Gemini
+                            if (part.functionCall) {
+                                yield {
+                                    type: "tool_call",
+                                    text: "",
+                                    toolCall: {
+                                        id: `gemini-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                                        name: part.functionCall.name,
+                                        arguments: JSON.stringify(part.functionCall.args || {}),
+                                    },
+                                };
+                            }
+                            else if (part.text) {
+                                yield { type: "content", text: part.text };
+                            }
+                        }
+                    }
+                    // Gemini sends usageMetadata in response chunks
+                    if (parsed.usageMetadata) {
+                        const u = parsed.usageMetadata;
+                        yield {
+                            type: "usage",
+                            text: "",
+                            usage: {
+                                inputTokens: u.promptTokenCount || 0,
+                                outputTokens: u.candidatesTokenCount || 0,
+                                totalTokens: u.totalTokenCount || 0,
+                                reasoningTokens: u.thoughtsTokenCount || undefined,
+                            },
+                        };
+                    }
                 }
                 catch {
                     // skip
@@ -393,11 +537,12 @@ async function* googleStream(apiKey, model, messages, maxTokens, temperature, si
 function createOpenAICompatible(name, defaultBaseUrl) {
     return {
         name,
-        async *streamChat(messages, config, signal) {
+        supportsTools: NATIVE_TOOL_PROVIDERS.has(name),
+        async *streamChat(messages, config, signal, enableTools) {
             const baseUrl = config.baseUrl !== "https://api.deepseek.com/v1" ? config.baseUrl : defaultBaseUrl;
             const apiKey = resolveApiKey(name, config.apiKey);
             const actualModel = resolveModelName(config.model, name);
-            yield* openaiCompatibleStream(baseUrl, apiKey, actualModel, messages, config.maxTokens, config.temperature, signal);
+            yield* openaiCompatibleStream(baseUrl, apiKey, actualModel, messages, config.maxTokens, config.temperature, signal, enableTools, name);
         },
     };
 }
@@ -409,16 +554,18 @@ const PROVIDERS = {
     openrouter: createOpenAICompatible("openrouter", "https://openrouter.ai/api/v1"),
     anthropic: {
         name: "anthropic",
-        async *streamChat(messages, config, signal) {
+        supportsTools: true,
+        async *streamChat(messages, config, signal, enableTools) {
             const apiKey = resolveApiKey("anthropic", config.apiKey);
-            yield* anthropicStream(apiKey, config.model, messages, config.maxTokens, config.temperature, signal);
+            yield* anthropicStream(apiKey, config.model, messages, config.maxTokens, config.temperature, signal, enableTools);
         },
     },
     google: {
         name: "google",
-        async *streamChat(messages, config, signal) {
+        supportsTools: true,
+        async *streamChat(messages, config, signal, enableTools) {
             const apiKey = resolveApiKey("google", config.apiKey);
-            yield* googleStream(apiKey, config.model, messages, config.maxTokens, config.temperature, signal);
+            yield* googleStream(apiKey, config.model, messages, config.maxTokens, config.temperature, signal, enableTools);
         },
     },
 };

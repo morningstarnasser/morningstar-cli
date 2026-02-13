@@ -10,6 +10,15 @@ export declare function shouldDenyInDontAskMode(tool: string, allowList?: string
 export declare function getPermissionMode(): PermissionMode;
 export declare function setPermissionMode(mode: PermissionMode): void;
 export declare function formatPermissionPrompt(tool: string, args: string): string;
+/**
+ * Generate a colored diff preview for edit operations.
+ * Returns a formatted string with - (red) and + (green) lines.
+ */
+export declare function generateDiffPreview(filePath: string, oldStr: string, newStr: string): string;
+/**
+ * Generate a preview for write operations showing what will be written.
+ */
+export declare function generateWritePreview(filePath: string, content: string, isNew: boolean): string;
 export declare function getCategoryColor(cat: ToolCategory): string;
 export declare function getPermissionModeDescription(mode: PermissionMode): string;
 //# sourceMappingURL=permissions.d.ts.map

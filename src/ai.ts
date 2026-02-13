@@ -1,18 +1,17 @@
 import type { Message, CLIConfig } from "./types.js";
 import { getProvider } from "./providers.js";
+import type { StreamToken, ToolCallData, UsageData } from "./providers.js";
 
-export interface StreamToken {
-  type: "reasoning" | "content";
-  text: string;
-}
+export type { StreamToken, ToolCallData, UsageData };
 
 export async function* streamChat(
   messages: Message[],
   config: CLIConfig,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  enableTools?: boolean,
 ): AsyncGenerator<StreamToken> {
   const provider = getProvider(config);
-  yield* provider.streamChat(messages, config, signal);
+  yield* provider.streamChat(messages, config, signal, enableTools);
 }
 
 export async function chat(

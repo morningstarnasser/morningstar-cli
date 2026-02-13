@@ -65,9 +65,13 @@ export function getCostPerMessage(model: string, inputTokens: number, outputToke
   return (inputTokens * price.input + outputTokens * price.output) / 1_000_000;
 }
 
-export function trackUsage(model: string, inputText: string, outputText: string): TokenUsage {
-  const inputTokens = estimateTokens(inputText);
-  const outputTokens = estimateTokens(outputText);
+/**
+ * Track usage with real token counts from API, or estimate from text.
+ * If realInput/realOutput are provided (> 0), they are used instead of estimation.
+ */
+export function trackUsage(model: string, inputText: string, outputText: string, realInput?: number, realOutput?: number): TokenUsage {
+  const inputTokens = (realInput && realInput > 0) ? realInput : estimateTokens(inputText);
+  const outputTokens = (realOutput && realOutput > 0) ? realOutput : estimateTokens(outputText);
   const cost = getCostPerMessage(model, inputTokens, outputTokens);
 
   session.totalInput += inputTokens;

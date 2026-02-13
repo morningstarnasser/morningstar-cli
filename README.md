@@ -33,20 +33,21 @@
 [![Ink 5](https://img.shields.io/badge/Ink_5-React_Terminal-61DAFB?style=flat-square&logo=react&logoColor=white)](https://github.com/vadimdemedes/ink)
 [![Shiki](https://img.shields.io/badge/Shiki-VS_Code_Highlighting-8B5CF6?style=flat-square&logo=visualstudiocode&logoColor=white)](https://shiki.style)
 [![7 Providers](https://img.shields.io/badge/Providers-7-8B5CF6?style=flat-square&logo=cloud&logoColor=white)](.)
-[![9 Tools](https://img.shields.io/badge/Tools-9-06B6D4?style=flat-square&logo=wrench&logoColor=white)](.)
+[![12 Tools](https://img.shields.io/badge/Tools-12-06B6D4?style=flat-square&logo=wrench&logoColor=white)](.)
 [![6+ Agents](https://img.shields.io/badge/Agents-6%2B_Custom-A855F7?style=flat-square&logo=robot&logoColor=white)](.)
-[![50+ Commands](https://img.shields.io/badge/Commands-50+-F59E0B?style=flat-square&logo=terminal&logoColor=white)](.)
-[![6 Themes](https://img.shields.io/badge/Themes-6-EC4899?style=flat-square&logo=palette&logoColor=white)](.)
-[![Vision](https://img.shields.io/badge/Vision-Image_Analysis-10B981?style=flat-square&logo=eye&logoColor=white)](.)
-[![Image Gen](https://img.shields.io/badge/Image_Gen-Stable_Diffusion-EF4444?style=flat-square&logo=pytorch&logoColor=white)](.)
+[![65+ Commands](https://img.shields.io/badge/Commands-65+-F59E0B?style=flat-square&logo=terminal&logoColor=white)](.)
+[![7 Themes](https://img.shields.io/badge/Themes-7-EC4899?style=flat-square&logo=palette&logoColor=white)](.)
+[![Native Tools](https://img.shields.io/badge/Native-Function_Calling-10B981?style=flat-square&logo=lightning&logoColor=white)](.)
+[![Auto-Test](https://img.shields.io/badge/Auto--Test-After_Changes-EF4444?style=flat-square&logo=check&logoColor=white)](.)
+[![Sub-Agents](https://img.shields.io/badge/Sub--Agents-Task_Delegation-8B5CF6?style=flat-square&logo=robot&logoColor=white)](.)
 
 <br/>
 
 **A fully-featured AI coding assistant that lives in your terminal — inspired by Claude Code.**
 
 Built with **Ink** (React for Terminal) and **Shiki** (VS Code Syntax Highlighting).<br/>
-Streams responses in real-time with visible AI thinking, provides 50+ slash commands, 9 tools,<br/>
-custom agents, memory, permissions, project settings, image generation, vision, and more.
+Native function calling, real token counting, auto-test after changes, sub-agent delegation,<br/>
+12 tools, 60+ commands, custom agents, memory, permissions, task progress tracking, and more.
 
 <br/>
 
@@ -68,9 +69,9 @@ custom agents, memory, permissions, project settings, image generation, vision, 
 
 ## What is Morningstar CLI?
 
-Morningstar CLI is an **open-source terminal AI coding assistant** — like Claude Code, but with **7 AI providers**, **custom agents**, **local image generation**, **vision analysis**, and a full permission system with per-project settings.
+Morningstar CLI is an **open-source terminal AI coding assistant** — like Claude Code, but with **7 AI providers**, **native function calling**, **real token counting**, **sub-agent task delegation**, **auto-test after changes**, and a full permission system with per-project settings.
 
-Built on **Ink** (React for the terminal) with **Shiki** syntax highlighting — the same engine that powers VS Code. Every UI element is a React component: the banner, input field, autocomplete suggestions, streaming output, code blocks, tool results, and the AI thinking display.
+Built on **Ink** (React for the terminal) with **Shiki** syntax highlighting — the same engine that powers VS Code. Every UI element is a React component: the banner, input, streaming output, code blocks, tool results with Claude Code-style `⏺` headers, LCS-based diffs with line numbers, and a live task progress checklist.
 
 One tool. Any model. Maximum control.
 
@@ -105,55 +106,65 @@ One tool. Any model. Maximum control.
 │  ★ Theme    Morningstar Default                          │
 └──────────────────────────────────────────────────────────┘
 
-  Tools     read · write · edit · bash · grep · glob · ls · git
+  Tools     read · write · edit · bash · grep · glob · ls · git · web · fetch · gh
   Agents    code · debug · review · refactor · architect · test
   Settings  ~/.morningstar/settings.json + .morningstar/settings.local.json
   Hilfe     /help · /features · /settings · /agents · /quit
 ```
 
-**AI Thinking (Plan Display):**
+**Claude Code-Style Tool Output:**
 
 ```
 > Analysiere dieses Projekt und finde Probleme
 
-  ┌─ Plan ──────────────────────────────────────────────────┐
-  │ Ich schaue mir zuerst die Projektstruktur an,           │
-  │ dann lese ich die Hauptdateien um Probleme zu finden... │
-  └─────────────────────────────────────────────────────────┘
+  ┌─ Thinking (effort: high) ──────────────────────────────┐
+  │ Scanning project structure and reading main files       │
+  │ for potential issues...                                 │
+  └──────────────────────────────────── 2.1s ──────────────┘
 
-  ★ Ich analysiere die Struktur...
+  ⏺ Read(src/app/page.tsx)
+    ⎿  42 lines
 
-  ✓ [ls]
-    src/  package.json  tsconfig.json  ...
+  ⏺ Search("useEffect")
+    ⎿  3 matches in 2 files
 
-  ★ Jetzt lese ich die Hauptdateien...
-
-  ✓ [read] src/app/page.tsx
-    1│ import { getData } from './lib/api'
-    2│ export default function Home() {
-    ...
+  ⏺ Update(src/app/page.tsx)
+    ⎿  - const data = fetchData()
+       + const data = await fetchData()
 ```
 
-**Bash Tool with Streaming Output:**
+**Task Progress Checklist (Agentic Loop):**
 
 ```
-  ✓ [bash] npm run build
-    Building: Compiling TypeScript...
-    Building: Generating routes...
-    Building: Optimizing bundles...
-    +17 more lines (21s · timeout 2m)
+  ◼ Analysing project structure...                     Turn 2/10
+  ─────────────────────────────────────────────────────
+  ✔ Read  src/app/page.tsx                             0.2s
+  ✔ Grep  useEffect                                    0.1s
+  ◼ Edit  src/app/page.tsx                             ...
+  ◻ Bash  npm test
+  ─────────────────────────────────────────────────────
+  ⏱ 3.2s  ⎸  Tokens: 1,847  ⎸  Turn 2/10
 ```
 
-**Colored Diffs (Edit Operations):**
+**Auto-Test After File Changes:**
+
+```
+  ⏺ Update(src/utils.ts)
+    ⎿  Applied 2 changes
+
+  ✔ Auto-Test [vitest] PASSED (1.2s)
+    Datei: src/utils.test.ts
+    Tests: 8 passed, 0 failed
+```
+
+**LCS-Based Diffs with Line Numbers:**
 
 ```diff
-  ✓ [edit] src/app/page.tsx
-
-- const data = fetchData()
-+ const data = await fetchData()
-
-- console.log(data)
-+ console.log("Loaded:", data)
+  ⏺ Update(src/app/page.tsx)
+     3 │  import { getData } from './lib/api'
+  -  7 │  const data = fetchData()
+  +  7 │  const data = await fetchData()
+    10 │  return <main>
 ```
 
 ---
@@ -165,21 +176,31 @@ One tool. Any model. Maximum control.
 | Feature | Description |
 |:--------|:------------|
 | **7 AI Providers** | DeepSeek, OpenAI, Anthropic, Google, Ollama, Groq, OpenRouter |
-| **Plan Display** | Visible AI reasoning in styled box (like Claude Code) |
+| **Native Function Calling** | API-level tool definitions for OpenAI, Anthropic, and Google Gemini |
+| **Real Token Counting** | Actual token usage from provider APIs (not estimates) — with reasoning & cache tokens |
+| **Auto-Test** | Detects test runners (vitest/jest/pytest/cargo/go) and runs tests after file changes |
+| **Sub-Agent Delegation** | Delegate tasks to specialized agents with `/delegate <agent> <task>` |
+| **Task Progress Checklist** | Live Claude Code-style checklist with `✔`/`◼`/`◻` icons, duration, tokens, turns |
+| **Parallel Tool Execution** | Execute independent tool calls concurrently for faster responses |
+| **Multi-Turn Agentic Loop** | AI chains tool calls automatically (configurable up to 10 rounds) with auto-fix |
+| **Claude Code-Style Output** | `⏺` tool headers, `⎿` continuation lines, LCS-based diffs with line numbers |
+| **File Watcher** | Watches project files for external changes, notifies AI, triggers auto-test |
+| **Conversation Branching** | Fork conversations, create named branches, switch, merge insights back |
+| **Streaming Diffs** | Real-time diff preview as the AI generates edit operations |
+| **Self-Update** | Check for updates from GitHub, pull latest, rebuild with `/update` |
+| **Web Dashboard** | Browser-based dashboard with session stats, cost tracking, tool usage |
+| **Plan Display** | Visible AI reasoning in styled box with extended thinking (4 effort levels) |
 | **Real-time Streaming** | Responses appear token-by-token |
-| **Multi-Turn Tools** | AI chains tool calls automatically (up to 5 rounds) |
 | **Project Detection** | Auto-detects language, framework, git branch |
-| **Per-Project Settings** | `.morningstar/settings.local.json` with permissions, model overrides |
-| **Permission System** | Allow/deny tools and commands per project (like Claude Code) |
+| **Per-Project Settings** | `.morningstar/settings.local.json` with 8 permission modes |
 | **Custom Agents** | Create, edit, delete, import/export your own agents |
+| **Smart CD** | Change working directory mid-session with auto-detection |
+| **@File Autocomplete** | Reference files with `@path/to/file` for inline context |
 | **Memory System** | Persistent notes across sessions |
-| **Todo System** | Task management with priorities |
-| **Session History** | Save and restore conversations |
 | **Undo System** | Revert file changes with full undo stack |
-| **Image Generation** | Local Stable Diffusion (txt2img) |
-| **Vision Analysis** | Analyze images with LLaVA / multimodal models |
-| **6 Themes** | Customizable terminal color themes |
-| **Cost Tracking** | Estimated token usage and costs per session |
+| **Image Generation** | Nano Banana Pro (Gemini 3) + local RealVisXL fallback |
+| **7 Themes** | Default, Ocean, Hacker, Sunset, Nord, Rose, Claude |
+| **Cost Tracking** | Real token counting with per-model cost breakdown |
 | **API Server** | Expose Morningstar as HTTP API |
 | **Crash-Proof** | Global error handlers prevent any crash |
 
@@ -201,12 +222,16 @@ Morningstar's terminal UI is built with modern React-based rendering:
 | Component | Description |
 |:----------|:------------|
 | `<Banner/>` | ASCII star logo + project info box |
-| `<Input/>` | Terminal input with autocomplete (replaces readline) |
+| `<Input/>` | Terminal input with autocomplete & @file mentions |
 | `<Suggestions/>` | Slash command autocomplete dropdown |
 | `<StreamingOutput/>` | Real-time AI response with code block detection |
 | `<CodeBlock/>` | Shiki-highlighted code with language label |
 | `<PlanBox/>` | AI reasoning/thinking display with word-wrap |
-| `<ToolResult/>` | Tool output box with diff view for edits |
+| `<ToolResult/>` | Claude Code-style `⏺` tool headers with `⎿` continuation |
+| `<ToolGroup/>` | Grouped tool display (1-2: individual, 3+: tree view) |
+| `<ClaudeCodeDiff/>` | LCS-based diffs with line numbers and context hunks |
+| `<TaskProgress/>` | Live task checklist with `✔`/`◼`/`◻` icons, turns, tokens |
+| `<ContextRadar/>` | Real-time context window usage monitor |
 | `<Spinner/>` | Claude-style animated spinner with status text |
 | `<Help/>` | Structured `/help` output |
 | `<Features/>` | Feature list for `/features` |
@@ -258,6 +283,11 @@ Project settings override global settings. Tools and commands are checked agains
 | `auto` | All tools auto-allowed (no prompts) |
 | `ask` | Moderate + dangerous tools require confirmation |
 | `strict` | Every tool requires confirmation |
+| `bypassPermissions` | Skip all permission checks |
+| `acceptEdits` | Auto-accept edits, ask for others |
+| `plan` | Plan mode — think before acting |
+| `dontAsk` | Never ask, deny if not allowed |
+| `delegate` | Sub-agent delegation mode |
 
 Tools are categorized:
 
@@ -269,19 +299,24 @@ Tools are categorized:
 
 ---
 
-## 9 Built-in Tools
+## 12 Built-in Tools
 
 | Tool | Description | Undo |
 |:----:|:------------|:----:|
 | ![](https://img.shields.io/badge/read-06b6d4?style=flat-square) | Read files with line numbers | — |
 | ![](https://img.shields.io/badge/write-10b981?style=flat-square) | Create/overwrite files (auto-creates dirs) | Yes |
-| ![](https://img.shields.io/badge/edit-f59e0b?style=flat-square) | Find & replace with colored diff output | Yes |
+| ![](https://img.shields.io/badge/edit-f59e0b?style=flat-square) | Find & replace with LCS-based colored diff output | Yes |
 | ![](https://img.shields.io/badge/delete-ef4444?style=flat-square) | Delete files | Yes |
 | ![](https://img.shields.io/badge/bash-a855f7?style=flat-square) | Execute commands (streaming output, 2min timeout) | — |
 | ![](https://img.shields.io/badge/grep-3b82f6?style=flat-square) | Search for patterns across files | — |
 | ![](https://img.shields.io/badge/glob-ec4899?style=flat-square) | Find files by glob pattern | — |
 | ![](https://img.shields.io/badge/ls-f97316?style=flat-square) | List directory contents with file sizes | — |
 | ![](https://img.shields.io/badge/git-6366f1?style=flat-square) | Git status + last 5 commits | — |
+| ![](https://img.shields.io/badge/web-14b8a6?style=flat-square) | Fetch & parse web pages into readable text | — |
+| ![](https://img.shields.io/badge/fetch-0ea5e9?style=flat-square) | HTTP requests (GET/POST) with headers & body | — |
+| ![](https://img.shields.io/badge/gh-7c3aed?style=flat-square) | GitHub CLI integration (issues, PRs, repos) | — |
+
+Tools are invoked via **native function calling** (OpenAI tools format, Anthropic `tool_use` blocks, Google `functionCall`) — not regex parsing.
 
 ---
 
@@ -466,7 +501,7 @@ morningstar --model claude-opus-4-20250514  # Use Claude Opus 4
 
 ---
 
-## All Commands (50+)
+## All Commands (60+)
 
 <details>
 <summary><b>General</b></summary>
@@ -506,9 +541,48 @@ morningstar --model claude-opus-4-20250514  # Use Claude Opus 4
 | `/model <id>` | Switch model (auto-detects provider) |
 | `/providers` | List all providers with their models |
 | `/context` | Show detected project info |
-| `/cost` | Show estimated token usage and cost |
+| `/cost` | Show real token usage and cost (per-model breakdown) |
 | `/stats` | Session statistics |
 | `/plan` | Toggle plan mode (think before acting) |
+| `/max-turns <n>` | Set max agentic loop turns (1-10) |
+| `/effort <level>` | Set thinking effort (low/medium/high/ultra) |
+
+</details>
+
+<details>
+<summary><b>Sub-Agents & Delegation</b></summary>
+
+| Command | Description |
+|---------|-------------|
+| `/delegate <agent> <task>` | Delegate a task to a specialized sub-agent |
+| `/delegate:list` | List available sub-agents |
+
+</details>
+
+<details>
+<summary><b>File Watcher & Branching</b></summary>
+
+| Command | Description |
+|---------|-------------|
+| `/watch` | Toggle file watcher (auto-detects directories) |
+| `/branch` | Create a new conversation branch |
+| `/branch <name>` | Create a named branch |
+| `/branch list` | List all branches |
+| `/branch switch <id>` | Switch to a branch |
+| `/branch merge <id>` | Merge branch insights back |
+| `/branch delete <id>` | Delete a branch |
+
+</details>
+
+<details>
+<summary><b>Updates & Dashboard</b></summary>
+
+| Command | Description |
+|---------|-------------|
+| `/update` | Check for available updates |
+| `/update run` | Pull latest, rebuild, self-update |
+| `/dashboard` | Start web dashboard (default port 3030) |
+| `/dashboard <port>` | Start dashboard on specific port |
 
 </details>
 
@@ -613,6 +687,7 @@ morningstar --model claude-opus-4-20250514  # Use Claude Opus 4
 | ![](https://img.shields.io/badge/sunset-ef4444?style=flat-square) | Warm orange/red |
 | ![](https://img.shields.io/badge/nord-88c0d0?style=flat-square) | Arctic blue/frost |
 | ![](https://img.shields.io/badge/rose-ec4899?style=flat-square) | Pink/rose elegance |
+| ![](https://img.shields.io/badge/claude-d4a373?style=flat-square) | Minimalist monochrome (Claude Code style) |
 
 ---
 
@@ -646,7 +721,7 @@ your-project/
 
 ## Architecture
 
-The UI is built entirely with **Ink** (React for Terminal) — 10 components, 3 hooks, 1 context provider.
+The UI is built entirely with **Ink** (React for Terminal) — 14 components, 3 hooks, 1 context provider.
 
 ```
 morningstar-cli/
@@ -654,18 +729,22 @@ morningstar-cli/
 │   └── morningstar.js                ← Entry point
 ├── src/
 │   ├── index.ts                      ← CLI setup (commander) + render(<App/>)
-│   ├── app.tsx                       ← Main Ink app (state, commands, AI loop)
+│   ├── app.tsx                       ← Main Ink app (state, commands, agentic loop)
 │   │
 │   ├── components/                   ← React UI Components
 │   │   ├── Banner.tsx                ← ASCII logo + project info
 │   │   ├── Help.tsx                  ← /help output
 │   │   ├── Features.tsx              ← /features output
-│   │   ├── Input.tsx                 ← Terminal input (replaces readline)
+│   │   ├── Input.tsx                 ← Terminal input with @file autocomplete
 │   │   ├── Suggestions.tsx           ← Autocomplete dropdown
 │   │   ├── StreamingOutput.tsx       ← AI response renderer
 │   │   ├── CodeBlock.tsx             ← Shiki syntax highlighting
 │   │   ├── PlanBox.tsx               ← AI reasoning display
-│   │   ├── ToolResult.tsx            ← Tool result display
+│   │   ├── ToolResult.tsx            ← Claude Code-style ⏺ tool display
+│   │   ├── ToolGroup.tsx             ← Grouped tool results (tree view)
+│   │   ├── ClaudeCodeDiff.tsx        ← LCS-based diffs with line numbers
+│   │   ├── TaskProgress.tsx          ← Live task progress checklist
+│   │   ├── ContextRadar.tsx          ← Context window usage monitor
 │   │   └── Spinner.tsx               ← Animated spinner
 │   │
 │   ├── context/
@@ -677,24 +756,43 @@ morningstar-cli/
 │   │   └── useHistory.ts             ← Command history
 │   │
 │   ├── ai.ts                         ← Multi-provider streaming
-│   ├── providers.ts                  ← 7 providers
-│   ├── tools.ts                      ← 9 tools + parser
+│   ├── providers.ts                  ← 7 providers + native function calling
+│   ├── tool-definitions.ts           ← Tool schemas (OpenAI/Anthropic/Google formats)
+│   ├── tools.ts                      ← 12 tools + executor
+│   ├── sub-agents.ts                 ← Sub-agent task delegation
+│   ├── auto-test.ts                  ← Auto-test after file changes
 │   ├── settings.ts                   ← Per-project + global settings
-│   ├── permissions.ts                ← Tool & command permissions
+│   ├── permissions.ts                ← 8 permission modes
 │   ├── agents.ts                     ← 6 built-in agents
 │   ├── custom-agents.ts              ← Custom agent CRUD
+│   ├── file-agents.ts                ← File-based agents (.md with frontmatter)
+│   ├── agent-teams.ts                ← Agent team orchestration
+│   ├── skills.ts                     ← Skill system (.md-based)
+│   ├── rules.ts                      ← Project rules system
+│   ├── hooks-system.ts               ← 14 hook events
 │   ├── memory.ts                     ← Persistent notes
 │   ├── project-memory.ts             ← MORNINGSTAR.md context
 │   ├── todo.ts                       ← Task management
 │   ├── history.ts                    ← Session save/load
+│   ├── input-history.ts              ← Persistent input history
 │   ├── undo.ts                       ← Undo stack
-│   ├── theme.ts                      ← 6 color themes
+│   ├── checkpoints.ts                ← Git checkpoint/rewind
+│   ├── theme.ts                      ← 7 color themes
+│   ├── thinking.ts                   ← Extended thinking (4 effort levels)
 │   ├── context.ts                    ← Project auto-detection
-│   ├── cost-tracker.ts               ← Token usage & cost
+│   ├── cost-tracker.ts               ← Real token counting & cost
+│   ├── dep-graph.ts                  ← Dependency graph visualization
 │   ├── repo-map.ts                   ← Repository analysis
 │   ├── mentions.ts                   ← @file mentions
-│   ├── vision.ts                     ← Image analysis (LLaVA)
-│   ├── image-gen.ts                  ← Stable Diffusion
+│   ├── sandbox.ts                    ← OS-level sandboxing
+│   ├── mcp-client.ts                 ← MCP protocol client
+│   ├── plugins.ts                    ← Plugin system
+│   ├── file-watcher.ts               ← File watcher (watch mode)
+│   ├── conversation-branch.ts        ← Conversation branching
+│   ├── streaming-diff.ts             ← Real-time streaming diffs
+│   ├── self-update.ts                ← Self-update from GitHub
+│   ├── web-dashboard.ts              ← Browser-based dashboard
+│   ├── image-gen.ts                  ← AI image generation
 │   ├── git-integration.ts            ← Smart commits
 │   ├── server.ts                     ← HTTP API server
 │   └── types.ts                      ← TypeScript interfaces
@@ -710,22 +808,30 @@ morningstar-cli/
 ```
  ┌─────────────┐    ┌───────────┐    ┌──────────────┐    ┌──────────────┐
  │  <Input/>    │───→│  Router    │───→│  7 Providers │───→│ <Streaming   │
- │  Ink React   │    │ 50+ cmds   │    │  SSE/REST    │    │  Output/>    │
+ │  @file auto  │    │ 60+ cmds   │    │  SSE + Tools │    │  Output/>    │
  └─────────────┘    └───────────┘    └──────────────┘    └──────────────┘
        │                 │                    │                   │
        ▼                 ▼                    ▼                   ▼
  ┌───────────┐    ┌───────────┐       ┌──────────────┐   ┌──────────────┐
- │ <Suggest  │    │ Settings   │       │  Tool Calls  │   │ <CodeBlock/> │
- │  ions/>   │    │ .morningstar│      │ read/write/  │   │  Shiki HL    │
- │ Autocomp  │    │ permissions│       │ edit/bash/.. │   │ <PlanBox/>   │
+ │ <Suggest  │    │ Settings   │       │ Native Func  │   │ <CodeBlock/> │
+ │  ions/>   │    │ 8 perm     │       │  Calling     │   │  Shiki HL    │
+ │ Tab comp  │    │  modes     │       │ 12 tools     │   │ <PlanBox/>   │
  └───────────┘    └───────────┘       └──────────────┘   └──────────────┘
                                             │
-                                            ▼
-                                     ┌──────────────┐
-                                     │ <ToolResult/> │
-                                     │  Multi-Turn   │
-                                     │  (up to 5x)   │
-                                     └──────────────┘
+                                     ┌──────┴──────┐
+                                     ▼             ▼
+                              ┌────────────┐ ┌────────────┐
+                              │<ToolResult>│ │<AutoTest/> │
+                              │ ⏺ headers  │ │ vitest/jest│
+                              │ LCS diffs  │ │ pytest/go  │
+                              └────────────┘ └────────────┘
+                                     │
+                                     ▼
+                              ┌──────────────┐
+                              │<TaskProgress>│
+                              │ ✔/◼/◻ turns │
+                              │  up to 10x   │
+                              └──────────────┘
 ```
 
 ---

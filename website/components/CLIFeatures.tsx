@@ -3,7 +3,8 @@
 import {
   Keyboard, Waves, GitCompare, Command, Brain, RotateCcw,
   PenTool, Terminal, BookOpen, Puzzle, Shield, Download,
-  Image, History
+  Image, History, FlaskConical, Users, ListChecks, Zap,
+  FolderSearch, GitBranch, RefreshCw, LayoutDashboard
 } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 import type { LucideIcon } from "lucide-react";
@@ -99,6 +100,54 @@ const cliFeatures: CLIFeature[] = [
     title: "Persistent History",
     description: "Input history persists across sessions. Arrow keys to navigate.",
     detail: "Ctrl+R search \u00B7 case-insensitive cd \u00B7 ~/Downloads",
+  },
+  {
+    icon: FlaskConical,
+    title: "Auto-Test",
+    description: "Detects test runners and runs relevant tests after file changes.",
+    detail: "vitest \u00B7 jest \u00B7 pytest \u00B7 cargo test \u00B7 go test",
+  },
+  {
+    icon: Users,
+    title: "Sub-Agent Delegation",
+    description: "Delegate tasks to specialized agents with own conversation context.",
+    detail: "/delegate <agent> <task> \u00B7 /delegate:list",
+  },
+  {
+    icon: ListChecks,
+    title: "Task Progress",
+    description: "Live checklist tracking agentic loop turns, tokens, and duration.",
+    detail: "\u2714 done \u00B7 \u25FC running \u00B7 \u25FB pending \u00B7 up to 10 turns",
+  },
+  {
+    icon: Zap,
+    title: "Native Function Calling",
+    description: "API-level tool definitions instead of regex parsing.",
+    detail: "OpenAI tools \u00B7 Anthropic tool_use \u00B7 Google functionCall",
+  },
+  {
+    icon: FolderSearch,
+    title: "File Watcher",
+    description: "Auto-detects directories, watches for external changes.",
+    detail: "/watch \u00B7 debounced \u00B7 auto-test trigger",
+  },
+  {
+    icon: GitBranch,
+    title: "Conversation Branching",
+    description: "Fork, switch, and merge conversation branches.",
+    detail: "/branch \u00B7 /branch switch \u00B7 /branch merge",
+  },
+  {
+    icon: RefreshCw,
+    title: "Self-Update",
+    description: "Check for updates and pull latest from GitHub.",
+    detail: "/update check \u00B7 /update run \u00B7 auto-rebuild",
+  },
+  {
+    icon: LayoutDashboard,
+    title: "Web Dashboard",
+    description: "Browser-based session dashboard with live stats.",
+    detail: "/dashboard \u00B7 costs \u00B7 tools \u00B7 conversation",
   },
 ];
 
