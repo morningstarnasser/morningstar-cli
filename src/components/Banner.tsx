@@ -6,7 +6,7 @@ import { getModelDisplayName, detectProvider } from "../providers.js";
 import { getAllAgents } from "../custom-agents.js";
 import { getPermissionMode } from "../permissions.js";
 import { projectSettingsExist } from "../settings.js";
-import { getTheme } from "../theme.js";
+import { getTheme, getThemeId } from "../theme.js";
 import { getTodoStats } from "../todo.js";
 import { loadMemories } from "../memory.js";
 
@@ -17,90 +17,107 @@ interface BannerProps {
 }
 
 export function Banner({ config, ctx, skipPermissions }: BannerProps) {
-  const { primary, secondary, accent, info, dim, error } = useTheme();
+  const { primary, secondary, accent, info, dim, star } = useTheme();
+  const theme = getTheme();
 
   const modelName = getModelDisplayName(config.model);
   const provDisplay = config.provider || detectProvider(config.model);
   const langInfo = ctx.language
     ? ctx.language + (ctx.framework ? " / " + ctx.framework : "")
-    : "unknown";
-  const cwdShort = ctx.cwd.length > 40 ? "..." + ctx.cwd.slice(-37) : ctx.cwd;
+    : "unbekannt";
+  const cwdShort = ctx.cwd.length > 42 ? "..." + ctx.cwd.slice(-39) : ctx.cwd;
   const permLabel = skipPermissions ? "BYPASS" : getPermissionMode();
+  const settingsTag = projectSettingsExist(ctx.cwd) ? "active" : "none";
   const allAgents = getAllAgents();
-  const agentCount = Object.keys(allAgents).length;
-  const agentNames = Object.entries(allAgents).slice(0, 6).map(([id, a]) => ({ id, color: a.color }));
+  const agentNames = Object.entries(allAgents).map(([id, a]) => ({ id, color: a.color }));
   const todoStats = getTodoStats();
   const memCount = loadMemories().length;
 
-  const w = 58;
-  const sep = "═".repeat(w);
-  const thinSep = "─".repeat(w);
-
   return (
     <Box flexDirection="column" marginTop={1}>
-      {/* ══ Premium Double-Border Frame ══ */}
-      <Box flexDirection="column" marginLeft={1}>
-        <Text color={primary}>╔{sep}╗</Text>
-        <Text color={primary}>║<Text color={dim}>{" ".repeat(w)}</Text>║</Text>
+      {/* Star Logo */}
+      <Box flexDirection="column" alignItems="center">
+        <Box borderStyle="double" borderColor={dim} paddingX={2} flexDirection="column" alignItems="center">
+          <Text> </Text>
+          <Text color={secondary}>. .  <Text color={accent} bold>&#9733;</Text>  . .</Text>
+          <Text color={secondary}>.  .<Text color={primary} bold>/</Text> . <Text color={primary} bold>\</Text>.  .</Text>
+          <Text color={secondary}>.  <Text color={primary} bold>/</Text>  . <Text color="#f0abfc" bold>|</Text> .  <Text color={primary} bold>\</Text>  .</Text>
+          <Text color={secondary}>── <Text color={primary} bold>*</Text> ─────<Text color={accent} bold>+</Text>───── <Text color={primary} bold>*</Text> ──</Text>
+          <Text color={secondary}>.  <Text color={primary} bold>\</Text>  . <Text color="#f0abfc" bold>|</Text> .  <Text color={primary} bold>/</Text>  .</Text>
+          <Text color={secondary}>.  .<Text color={primary} bold>\</Text> . <Text color={primary} bold>/</Text>.  .</Text>
+          <Text color={secondary}>. .  <Text color={accent} bold>&#9733;</Text>  . .</Text>
+          <Text> </Text>
+          <Text color={primary} bold>M O R N I N G S T A R</Text>
+          <Text color={dim}>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</Text>
+          <Text color="#f0abfc">Terminal AI Coding Assistant</Text>
+          <Text><Text color={dim}>Powered by</Text> <Text color={accent} bold>Mr.Morningstar</Text></Text>
+          <Text color={info}>github.com/morningstarnasser</Text>
+          <Text> </Text>
+        </Box>
+      </Box>
 
-        {/* Brand Header */}
-        <Text color={primary}>║<Text>{"   "}<Text color={primary} bold>✦</Text>{"  "}<Text color={primary} bold>M O R N I N G S T A R</Text>{" ".repeat(w - 30)}</Text>║</Text>
-        <Text color={primary}>║<Text>{"      "}<Text color={dim}>Terminal AI Coding Assistant</Text>{" ".repeat(w - 34)}</Text>║</Text>
-
-        <Text color={primary}>║<Text color={dim}>{" ".repeat(w)}</Text>║</Text>
-        <Text color={primary}>╠{thinSep}╣</Text>
-        <Text color={primary}>║<Text color={dim}>{" ".repeat(w)}</Text>║</Text>
-
-        {/* Info Section */}
-        <Text color={primary}>║<Text>{"   "}<Text color={dim}>Model     </Text><Text color={accent} bold>{modelName}</Text><Text color={dim}>{" ".repeat(Math.max(1, w - 16 - modelName.length - provDisplay.length))}[{provDisplay}]</Text></Text>║</Text>
-        <Text color={primary}>║<Text>{"   "}<Text color={dim}>Project   </Text><Text bold>{ctx.projectName}</Text><Text color={dim}>{" ".repeat(Math.max(1, w - 16 - ctx.projectName.length - langInfo.length))}({langInfo})</Text></Text>║</Text>
+      {/* Info Box */}
+      <Box flexDirection="column" marginTop={1} marginLeft={2} borderStyle="single" borderColor={dim} paddingX={1}>
+        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Model    </Text><Text color={info}>{modelName}</Text> <Text color={dim}>[</Text><Text color={accent}>{provDisplay}</Text><Text color={dim}>]</Text></Text>
+        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Projekt  </Text><Text bold>{ctx.projectName}</Text> <Text color={dim}>(</Text><Text>{langInfo}</Text><Text color={dim}>)</Text></Text>
         {ctx.hasGit && (
-          <Text color={primary}>║<Text>{"   "}<Text color={dim}>Branch    </Text><Text color={accent}>{ctx.gitBranch || "unknown"}</Text>{" ".repeat(Math.max(0, w - 13 - (ctx.gitBranch || "unknown").length))}</Text>║</Text>
+          <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Branch   </Text><Text color={accent}>{ctx.gitBranch || "unknown"}</Text></Text>
         )}
-        <Text color={primary}>║<Text>{"   "}<Text color={dim}>CWD       </Text><Text>{cwdShort}</Text>{" ".repeat(Math.max(0, w - 13 - cwdShort.length))}</Text>║</Text>
-        <Text color={primary}>║<Text>{"   "}<Text color={dim}>Perms     </Text>{skipPermissions ? <Text color={error} bold>BYPASS</Text> : <Text>{permLabel}</Text>}{" ".repeat(Math.max(0, w - 13 - (skipPermissions ? 6 : permLabel.length)))}</Text>║</Text>
+        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>CWD      </Text><Text>{cwdShort}</Text></Text>
+        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Perms    </Text>{skipPermissions ? <Text color="#ef4444" bold>BYPASS</Text> : <Text color={dim}>{permLabel}</Text>}</Text>
+        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Settings </Text>{settingsTag === "active" ? <Text color="#10b981">active</Text> : <Text color={dim}>none</Text>}</Text>
+        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Theme    </Text><Text color={primary}>{theme.name}</Text></Text>
+      </Box>
 
-        <Text color={primary}>║<Text color={dim}>{" ".repeat(w)}</Text>║</Text>
-        <Text color={primary}>╠{thinSep}╣</Text>
-        <Text color={primary}>║<Text color={dim}>{" ".repeat(w)}</Text>║</Text>
-
-        {/* Tools */}
-        <Text color={primary}>║<Text>{"   "}<Text color={dim}>Tools     </Text><Text color={info}>read</Text><Text color={dim}> · </Text><Text color={info}>write</Text><Text color={dim}> · </Text><Text color={info}>edit</Text><Text color={dim}> · </Text><Text color={info}>bash</Text><Text color={dim}> · </Text><Text color={info}>grep</Text><Text color={dim}> · </Text><Text color={info}>glob</Text>{"  "}</Text>║</Text>
-        <Text color={primary}>║<Text>{"             "}<Text color={info}>ls</Text><Text color={dim}> · </Text><Text color={info}>git</Text><Text color={dim}> · </Text><Text color={info}>web</Text><Text color={dim}> · </Text><Text color={info}>fetch</Text><Text color={dim}> · </Text><Text color={info}>gh</Text>{" ".repeat(w - 46)}</Text>║</Text>
-
-        {/* Agents */}
-        <Text color={primary}>║<Text>{"   "}<Text color={dim}>Agents    </Text>{agentNames.map((a, i) => <Text key={a.id}>{i > 0 ? <Text color={dim}> · </Text> : null}<Text color={a.color}>{a.id}</Text></Text>)}</Text>║</Text>
-
-        <Text color={primary}>║<Text color={dim}>{" ".repeat(w)}</Text>║</Text>
-        <Text color={primary}>╚{sep}╝</Text>
+      {/* Tools & Agents */}
+      <Box flexDirection="column" marginTop={1} marginLeft={2}>
+        <Text>
+          <Text color={dim}>  Tools   </Text>
+          <Text color={info}>read</Text><Text color={dim}> · </Text>
+          <Text color={info}>write</Text><Text color={dim}> · </Text>
+          <Text color={info}>edit</Text><Text color={dim}> · </Text>
+          <Text color={info}>bash</Text><Text color={dim}> · </Text>
+          <Text color={info}>grep</Text><Text color={dim}> · </Text>
+          <Text color={info}>glob</Text><Text color={dim}> · </Text>
+          <Text color={info}>ls</Text><Text color={dim}> · </Text>
+          <Text color={info}>git</Text><Text color={dim}> · </Text>
+          <Text color={info}>web</Text><Text color={dim}> · </Text>
+          <Text color={info}>fetch</Text><Text color={dim}> · </Text>
+          <Text color={info}>gh</Text>
+        </Text>
+        <Text>
+          <Text color={dim}>  Agents  </Text>
+          {agentNames.map((a, i) => (
+            <Text key={a.id}>
+              {i > 0 && <Text color={dim}> · </Text>}
+              <Text color={a.color}>{a.id}</Text>
+            </Text>
+          ))}
+        </Text>
+        <Text>
+          <Text color={dim}>  Hilfe   </Text>
+          <Text color="#f0abfc">/help</Text><Text color={dim}> · </Text>
+          <Text color="#f0abfc">/features</Text><Text color={dim}> · </Text>
+          <Text color="#f0abfc">/agents</Text><Text color={dim}> · </Text>
+          <Text color="#f0abfc">/agent:create</Text><Text color={dim}> · </Text>
+          <Text color="#f0abfc">/quit</Text>
+        </Text>
       </Box>
 
       {/* Status indicators */}
       {(todoStats.open > 0 || memCount > 0) && (
-        <Box flexDirection="column" marginTop={1} marginLeft={3}>
+        <Box flexDirection="column" marginTop={1} marginLeft={4}>
           {todoStats.open > 0 && (
-            <Text><Text color={accent}>●</Text><Text color={dim}> {todoStats.open} open task(s) — /todo list</Text></Text>
+            <Text color={accent}>  {todoStats.open} offene Aufgabe(n) <Text color={dim}>— /todo list</Text></Text>
           )}
           {memCount > 0 && (
-            <Text><Text color={info}>●</Text><Text color={dim}> {memCount} note(s) saved — /memory list</Text></Text>
+            <Text color={info}>  {memCount} Notiz(en) gespeichert <Text color={dim}>— /memory list</Text></Text>
           )}
         </Box>
       )}
 
-      {/* Quick access line */}
-      <Box marginLeft={3} marginTop={1}>
-        <Text color={dim}>  </Text>
-        <Text color={info}>/help</Text>
-        <Text color={dim}> · </Text>
-        <Text color={info}>/features</Text>
-        <Text color={dim}> · </Text>
-        <Text color={info}>/model</Text>
-        <Text color={dim}> · </Text>
-        <Text color={info}>/agents</Text>
-        <Text color={dim}> · </Text>
-        <Text color={info}>/skill:list</Text>
-        <Text color={dim}> · </Text>
-        <Text color={info}>/quit</Text>
+      <Box marginLeft={2} marginTop={1}>
+        <Text color={dim}>  {"─".repeat(60)}</Text>
       </Box>
     </Box>
   );
