@@ -4,7 +4,8 @@ import {
   Keyboard, Waves, GitCompare, Command, Brain, RotateCcw,
   PenTool, Terminal, BookOpen, Puzzle, Shield, Download,
   Image, History, FlaskConical, Users, ListChecks, Zap,
-  FolderSearch, GitBranch, RefreshCw, LayoutDashboard
+  FolderSearch, GitBranch, RefreshCw, LayoutDashboard,
+  Files, GitPullRequest, Database, PanelLeftClose
 } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 import type { LucideIcon } from "lucide-react";
@@ -148,6 +149,30 @@ const cliFeatures: CLIFeature[] = [
     title: "Web Dashboard",
     description: "Browser-based session dashboard with live stats.",
     detail: "/dashboard \u00B7 costs \u00B7 tools \u00B7 conversation",
+  },
+  {
+    icon: Files,
+    title: "Multi-File Context",
+    description: "10 @-mention types with smart chunking and context budget.",
+    detail: "@files:glob \u00B7 @diff:file \u00B7 @tree \u00B7 32k budget",
+  },
+  {
+    icon: GitPullRequest,
+    title: "Smart PR Review",
+    description: "Fetch, analyze, and review GitHub PRs with severity ratings.",
+    detail: "/pr-review <number> \u00B7 gh CLI \u00B7 auto-post comments",
+  },
+  {
+    icon: Database,
+    title: "Prompt Caching",
+    description: "Provider-aware caching with hit stats and cost savings.",
+    detail: "/cache \u00B7 Anthropic \u00B7 OpenAI \u00B7 Google",
+  },
+  {
+    icon: PanelLeftClose,
+    title: "Terminal Multiplexer",
+    description: "Split-pane layouts with focus navigation and scrolling.",
+    detail: "/split \u00B7 default \u00B7 split \u00B7 triple \u00B7 quad",
   },
 ];
 

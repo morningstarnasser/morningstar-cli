@@ -2,7 +2,8 @@ import {
   Globe, Wrench, Sparkles, Bot, Lock, Brain, Paintbrush, Eye, Palette,
   Radar, GitCompare, Network, ArrowUpCircle, Zap, FileText, Shield,
   Terminal, Puzzle, BookOpen, Cpu, Layers, ListChecks, FlaskConical,
-  Users, Activity, Hash, FolderSearch, GitBranch, MonitorPlay, RefreshCw, LayoutDashboard
+  Users, Activity, Hash, FolderSearch, GitBranch, MonitorPlay, RefreshCw, LayoutDashboard,
+  Files, GitPullRequest, Database, PanelLeftClose
 } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 import type { LucideIcon } from "lucide-react";
@@ -216,6 +217,34 @@ const features: { icon: LucideIcon; title: string; desc: string; color: string; 
     title: "Web Dashboard",
     desc: "Browser-based dashboard at /dashboard — session stats, cost tracking, tool usage, conversation history",
     color: "text-fuchsia-400",
+    badge: "NEW",
+  },
+  {
+    icon: Files,
+    title: "Multi-File Context",
+    desc: "10 @-mention types with smart chunking — @files:glob, @diff:file, @tree — context budget management with auto-truncation",
+    color: "text-cyan-400",
+    badge: "NEW",
+  },
+  {
+    icon: GitPullRequest,
+    title: "Smart PR Review",
+    desc: "/pr-review — fetch, analyze, and review GitHub Pull Requests via gh CLI with structured severity ratings",
+    color: "text-green-400",
+    badge: "NEW",
+  },
+  {
+    icon: Database,
+    title: "Prompt Caching",
+    desc: "Provider-aware prompt caching — Anthropic cache_control breakpoints, OpenAI prefix caching, Google context caching with stats",
+    color: "text-blue-400",
+    badge: "NEW",
+  },
+  {
+    icon: PanelLeftClose,
+    title: "Terminal Multiplexer",
+    desc: "Split-pane layouts (default, split, triple, quad) with focus navigation, scrolling, and Unicode box-drawing borders",
+    color: "text-rose-400",
     badge: "NEW",
   },
   {

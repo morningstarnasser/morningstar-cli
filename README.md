@@ -195,6 +195,10 @@ One tool. Any model. Maximum control.
 | **Per-Project Settings** | `.morningstar/settings.local.json` with 8 permission modes |
 | **Custom Agents** | Create, edit, delete, import/export your own agents |
 | **Smart CD** | Change working directory mid-session with auto-detection |
+| **Multi-File Context** | 10 @-mention types: `@file:`, `@files:glob`, `@folder:`, `@git:`, `@diff:file`, `@url:`, `@codebase`, `@tree` — smart chunking, context budget management |
+| **Smart PR Review** | `/pr-review <number>` — fetch, analyze, and review GitHub PRs via gh CLI with structured diff analysis |
+| **Prompt Caching** | Provider-aware prompt caching — Anthropic cache_control breakpoints, OpenAI prefix caching, Google context caching |
+| **Terminal Multiplexer** | Split-pane layouts (default, split, triple, quad) with focus navigation, scrolling, and box-drawing borders |
 | **@File Autocomplete** | Reference files with `@path/to/file` for inline context |
 | **Memory System** | Persistent notes across sessions |
 | **Undo System** | Revert file changes with full undo stack |
@@ -501,7 +505,7 @@ morningstar --model claude-opus-4-20250514  # Use Claude Opus 4
 
 ---
 
-## All Commands (60+)
+## All Commands (65+)
 
 <details>
 <summary><b>General</b></summary>
@@ -583,6 +587,28 @@ morningstar --model claude-opus-4-20250514  # Use Claude Opus 4
 | `/update run` | Pull latest, rebuild, self-update |
 | `/dashboard` | Start web dashboard (default port 3030) |
 | `/dashboard <port>` | Start dashboard on specific port |
+
+</details>
+
+<details>
+<summary><b>PR Review & Caching</b></summary>
+
+| Command | Description |
+|---------|-------------|
+| `/pr-review <number>` | Fetch and review a GitHub Pull Request |
+| `/pr-review <url>` | Review PR by URL (extracts PR number) |
+| `/cache` | Show prompt cache statistics (hits, tokens saved, cost savings) |
+
+</details>
+
+<details>
+<summary><b>Terminal Multiplexer</b></summary>
+
+| Command | Description |
+|---------|-------------|
+| `/split` | Toggle split-pane layout (Chat + Code) |
+| `/split list` | Show all available layouts |
+| `/split <layout>` | Switch layout (default, split, triple, quad) |
 
 </details>
 
@@ -674,6 +700,30 @@ morningstar --model claude-opus-4-20250514  # Use Claude Opus 4
 | `/doctor` | Diagnose setup |
 
 </details>
+
+---
+
+## @-Mentions (Multi-File Context)
+
+Reference files, directories, git data, and more inline — with smart chunking and automatic context budget management.
+
+| Mention | Description |
+|:--------|:------------|
+| `@file:path` | Single file with smart chunking (preserves exports/imports) |
+| `@files:src/**/*.ts` | Multiple files via glob pattern (supports `*`, `**`, `?`, `{a,b}`) |
+| `@folder:path` | All text files in a directory (up to 10 files) |
+| `@git:diff` | Unstaged git diff |
+| `@git:log` | Last 20 commits |
+| `@git:status` | Short git status |
+| `@git:staged` | Staged changes |
+| `@diff:path` | Git diff for a specific file (staged + unstaged) |
+| `@url:https://...` | Fetch URL content |
+| `@codebase` | Scan project exports (depth 4) |
+| `@tree` | Directory tree (3 levels, filtered) |
+
+**Smart Chunking** — Instead of hard line truncation, files are split into logical blocks (functions, classes, interfaces). Exported symbols are prioritized over internal ones.
+
+**Context Budget** — Automatic token tracking (default 32k). When over budget, lowest-priority mentions are auto-truncated first (`@tree` < `@codebase` < `@url:` < `@folder:` < `@files:` < `@git:` < `@file:`).
 
 ---
 
@@ -783,7 +833,10 @@ morningstar-cli/
 │   ├── cost-tracker.ts               ← Real token counting & cost
 │   ├── dep-graph.ts                  ← Dependency graph visualization
 │   ├── repo-map.ts                   ← Repository analysis
-│   ├── mentions.ts                   ← @file mentions
+│   ├── mentions.ts                   ← @-mentions (10 types) + smart chunking + context budget
+│   ├── pr-review.ts                  ← Smart PR review via gh CLI
+│   ├── prompt-cache.ts               ← Provider-aware prompt caching
+│   ├── terminal-multiplexer.ts       ← Split-pane layout engine
 │   ├── sandbox.ts                    ← OS-level sandboxing
 │   ├── mcp-client.ts                 ← MCP protocol client
 │   ├── plugins.ts                    ← Plugin system

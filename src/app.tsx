@@ -63,6 +63,9 @@ import { createFileWatcher, formatFileChanges, summarizeChanges, detectWatchDirs
 import { createBranch, listBranches, switchBranch, mergeBranch, deleteBranch, formatBranchesList, saveBranch, type ConversationBranch } from "./conversation-branch.js";
 import { checkForUpdate, performUpdate, formatUpdateInfo, formatUpdateResult } from "./self-update.js";
 import { startDashboard, formatDashboardStatus, type DashboardState } from "./web-dashboard.js";
+import { fetchPRData, analyzePRDiff, generateReviewPrompt, formatReviewResult } from "./pr-review.js";
+import { getCacheStats, formatCacheStats, trackCacheHit, trackRequest } from "./prompt-cache.js";
+import { createMultiplexer, setLayout, formatLayoutList, formatPaneList, formatStatusLine, getAvailableLayouts, type MultiplexerState } from "./terminal-multiplexer.js";
 
 interface AppProps {
   config: CLIConfig;
@@ -207,6 +210,11 @@ function buildSlashCommands(customCommands: CustomCommand[]): SlashCmd[] {
     { cmd: "/update", desc: "Self-Update pruefen/ausfuehren" },
     { cmd: "/update check", desc: "Auf Updates pruefen" },
     { cmd: "/dashboard", desc: "Web Dashboard starten" },
+    // Tier 4 Features:
+    { cmd: "/pr-review", desc: "Smart PR Review" },
+    { cmd: "/cache", desc: "Prompt Cache Statistiken" },
+    { cmd: "/split", desc: "Terminal Layout wechseln" },
+    { cmd: "/split list", desc: "Verfuegbare Layouts" },
     { cmd: "/quit", desc: "Beenden" },
   ];
 
@@ -1563,6 +1571,46 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
           addOutput({ type: result.success ? "success" : "error", content: formatUpdateResult(result) });
         } else {
           addOutput({ type: "info", content: "Nutzung: /update [check|run]" });
+        }
+        return true;
+      }
+
+      // ── /pr-review — Smart PR Review ──
+      case "/pr-review": {
+        if (!arg) { addOutput({ type: "info", content: "Nutzung: /pr-review <nummer|url>" }); return true; }
+        try {
+          addOutput({ type: "info", content: `Lade PR-Daten fuer: ${arg}...` });
+          const { prData, diff } = fetchPRData(arg, cwd);
+          const analysis = analyzePRDiff(diff);
+          const reviewPrompt = generateReviewPrompt(prData, analysis);
+          addOutput({ type: "success", content: `PR #${prData.number}: ${prData.title}\n  ${analysis.totalFiles} Dateien, +${analysis.totalAdditions}/-${analysis.totalDeletions}\n  Tests: ${analysis.hasTests ? "Ja" : "Nein"} · Config: ${analysis.hasConfigChanges ? "Ja" : "Nein"}` });
+          addOutput({ type: "info", content: "Review-Prompt bereit. Sende 'review' um das Review zu starten." });
+          // Speichere Review-Prompt als naechste User-Nachricht
+          setMessages(prev => [...prev, { role: "user", content: reviewPrompt }]);
+        } catch (e) {
+          addOutput({ type: "error", content: `PR Review Fehler: ${(e as Error).message}` });
+        }
+        return true;
+      }
+
+      // ── /cache — Prompt Cache Statistiken ──
+      case "/cache": {
+        addOutput({ type: "info", content: formatCacheStats() });
+        return true;
+      }
+
+      // ── /split — Terminal Layout wechseln ──
+      case "/split": {
+        if (!arg || arg === "list") {
+          addOutput({ type: "info", content: formatLayoutList() });
+        } else {
+          const layouts = getAvailableLayouts();
+          const found = layouts.find(l => l.id === arg);
+          if (found) {
+            addOutput({ type: "success", content: `Layout gewechselt: ${found.name} (${found.panes.length} Panes)` });
+          } else {
+            addOutput({ type: "error", content: `Layout "${arg}" nicht gefunden. Verfuegbar: ${layouts.map(l => l.id).join(", ")}` });
+          }
         }
         return true;
       }
