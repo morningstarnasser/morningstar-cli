@@ -8,11 +8,12 @@ const SERVER_PORT = 7860;
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const PID_FILE = join(IMAGE_GEN_DIR, "server.pid");
 export const IMAGE_MODELS = [
-    { id: "sdxl-turbo", name: "SDXL Turbo", size: "~7GB", description: "Blitzschnell (1-4 Steps), 512x512", steps: 1, resolution: "512x512" },
-    { id: "sdxl", name: "Stable Diffusion XL", size: "~7GB", description: "Beste Qualitaet, 1024x1024", steps: 30, resolution: "1024x1024" },
-    { id: "sd15", name: "Stable Diffusion 1.5", size: "~4GB", description: "Klassiker, leicht, laeuft ueberall", steps: 25, resolution: "512x512" },
+    { id: "realvis", name: "RealVisXL V4.0", size: "~7GB", description: "Photorealistisch, beste Qualitaet (Standard)", steps: 40, resolution: "1024x1024" },
+    { id: "sdxl", name: "Stable Diffusion XL", size: "~7GB", description: "Hohe Qualitaet, 1024x1024", steps: 40, resolution: "1024x1024" },
+    { id: "sdxl-turbo", name: "SDXL Turbo", size: "~7GB", description: "Schnell (1-4 Steps), 512x512", steps: 4, resolution: "512x512" },
+    { id: "sd15", name: "Stable Diffusion 1.5", size: "~4GB", description: "Klassiker, leicht, laeuft ueberall", steps: 30, resolution: "512x512" },
 ];
-export const DEFAULT_IMAGE_MODEL = "sdxl-turbo";
+export const DEFAULT_IMAGE_MODEL = "realvis";
 // ─── Persistent Server Script ──────────────────────────────
 // Loads model ONCE, keeps it in memory, handles requests via HTTP
 const SERVER_SCRIPT = `#!/usr/bin/env python3
@@ -31,10 +32,12 @@ def load_model(model_id="sdxl-turbo"):
     from diffusers import AutoPipelineForText2Image, StableDiffusionPipeline, StableDiffusionXLPipeline
 
     MODEL_MAP = {
+        "realvis": "SG161222/RealVisXL_V4.0",
         "sdxl-turbo": "stabilityai/sdxl-turbo",
         "sdxl": "stabilityai/stable-diffusion-xl-base-1.0",
         "sd15": "stable-diffusion-v1-5/stable-diffusion-v1-5",
     }
+    XL_MODELS = {"realvis", "sdxl-turbo", "sdxl"}
     model_name = MODEL_MAP.get(model_id, model_id)
 
     if torch.backends.mps.is_available():
@@ -49,7 +52,7 @@ def load_model(model_id="sdxl-turbo"):
 
     if model_id == "sdxl-turbo":
         pipe = AutoPipelineForText2Image.from_pretrained(model_name, torch_dtype=dtype, variant="fp16" if dtype == torch.float16 else None)
-    elif model_id == "sdxl":
+    elif model_id in XL_MODELS:
         pipe = StableDiffusionXLPipeline.from_pretrained(model_name, torch_dtype=dtype, variant="fp16" if dtype == torch.float16 else None)
     else:
         pipe = StableDiffusionPipeline.from_pretrained(model_name, torch_dtype=dtype)
@@ -157,10 +160,10 @@ import argparse, json, time, sys, os
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--prompt", required=True)
-    p.add_argument("--model", default="sdxl-turbo")
-    p.add_argument("--steps", type=int, default=1)
-    p.add_argument("--width", type=int, default=512)
-    p.add_argument("--height", type=int, default=512)
+    p.add_argument("--model", default="realvis")
+    p.add_argument("--steps", type=int, default=40)
+    p.add_argument("--width", type=int, default=1024)
+    p.add_argument("--height", type=int, default=1024)
     p.add_argument("--output", required=True)
     p.add_argument("--seed", type=int, default=-1)
     p.add_argument("--guidance", type=float, default=0.0)
@@ -168,10 +171,12 @@ def main():
     args = p.parse_args()
 
     MODEL_MAP = {
+        "realvis": "SG161222/RealVisXL_V4.0",
         "sdxl-turbo": "stabilityai/sdxl-turbo",
         "sdxl": "stabilityai/stable-diffusion-xl-base-1.0",
         "sd15": "stable-diffusion-v1-5/stable-diffusion-v1-5",
     }
+    XL_MODELS = {"realvis", "sdxl-turbo", "sdxl"}
 
     import torch
     from diffusers import AutoPipelineForText2Image, StableDiffusionPipeline, StableDiffusionXLPipeline
@@ -190,7 +195,7 @@ def main():
 
     if args.model == "sdxl-turbo":
         pipe = AutoPipelineForText2Image.from_pretrained(model_name, torch_dtype=dtype, variant="fp16" if dtype == torch.float16 else None)
-    elif args.model == "sdxl":
+    elif args.model in XL_MODELS:
         pipe = StableDiffusionXLPipeline.from_pretrained(model_name, torch_dtype=dtype, variant="fp16" if dtype == torch.float16 else None)
     else:
         pipe = StableDiffusionPipeline.from_pretrained(model_name, torch_dtype=dtype)
@@ -282,7 +287,7 @@ export async function startImageServer(onProgress) {
     const child = spawn(python, [serverScript], {
         stdio: ["ignore", "ignore", "pipe"],
         detached: true,
-        env: { ...process.env, MODEL: DEFAULT_IMAGE_MODEL },
+        env: { ...process.env, MODEL: "realvis" },
     });
     child.unref();
     // Wait for server to be ready (model loading)
@@ -352,12 +357,17 @@ export async function generateImage(prompt, options) {
         throw new Error("Image Generation nicht eingerichtet. Nutze /imagine setup");
     const modelId = options?.model ?? DEFAULT_IMAGE_MODEL;
     const modelCfg = IMAGE_MODELS.find(m => m.id === modelId);
-    const steps = options?.steps ?? (modelCfg?.steps ?? 1);
-    const [dw, dh] = (modelCfg?.resolution ?? "512x512").split("x").map(Number);
+    const steps = options?.steps ?? (modelCfg?.steps ?? 40);
+    const [dw, dh] = (modelCfg?.resolution ?? "1024x1024").split("x").map(Number);
     const width = options?.width ?? dw;
     const height = options?.height ?? dh;
-    const guidance = options?.guidanceScale ?? (modelId === "sdxl-turbo" ? 0.0 : 7.5);
+    const guidance = options?.guidanceScale ?? (modelId === "sdxl-turbo" ? 0.0 : 7.0);
     const seed = options?.seed ?? -1;
+    // Auto-enhance prompt for photorealistic quality
+    const qualityTags = ", photorealistic, ultra detailed, 8k uhd, high quality, professional photography, sharp focus, natural lighting";
+    const defaultNegative = "blurry, low quality, low resolution, pixelated, jpeg artifacts, deformed, ugly, bad anatomy, watermark, text, logo";
+    const enhancedPrompt = modelId !== "sdxl-turbo" ? prompt + qualityTags : prompt;
+    const enhancedNegative = options?.negativePrompt || defaultNegative;
     mkdirSync(IMAGE_OUTPUT_DIR, { recursive: true });
     const outPath = join(IMAGE_OUTPUT_DIR, outputFilename(prompt));
     // ── Auto-start server if not running ──
@@ -370,11 +380,11 @@ export async function generateImage(prompt, options) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                prompt, model: modelId, steps, width, height,
-                seed, guidance, negative: options?.negativePrompt || "",
+                prompt: enhancedPrompt, model: modelId, steps, width, height,
+                seed, guidance, negative: enhancedNegative,
                 output: outPath,
             }),
-            signal: AbortSignal.timeout(60_000),
+            signal: AbortSignal.timeout(300_000),
         });
         if (res.ok) {
             const parsed = await res.json();
@@ -386,12 +396,11 @@ export async function generateImage(prompt, options) {
     // ── Fallback: single-shot (slow: ~30-60s, model reload each time) ──
     const args = [
         join(IMAGE_GEN_DIR, "generate.py"),
-        "--prompt", prompt, "--model", modelId,
+        "--prompt", enhancedPrompt, "--model", modelId,
         "--steps", String(steps), "--width", String(width), "--height", String(height),
         "--output", outPath, "--seed", String(seed), "--guidance", String(guidance),
     ];
-    if (options?.negativePrompt)
-        args.push("--negative", options.negativePrompt);
+    args.push("--negative", enhancedNegative);
     const result = await spawnAsync(join(IMAGE_GEN_DIR, "venv", "bin", "python"), args, { timeout: 300_000 });
     if (result.code !== 0)
         throw new Error(`Generierung fehlgeschlagen:\n${result.stderr}`);
