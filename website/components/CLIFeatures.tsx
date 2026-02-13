@@ -2,7 +2,8 @@
 
 import {
   Keyboard, Waves, GitCompare, Command, Brain, RotateCcw,
-  PenTool, Terminal, BookOpen, Puzzle, Shield, Download
+  PenTool, Terminal, BookOpen, Puzzle, Shield, Download,
+  Image, History
 } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 import type { LucideIcon } from "lucide-react";
@@ -86,6 +87,18 @@ const cliFeatures: CLIFeature[] = [
     title: "Export & Copy",
     description: "Export conversations as markdown, copy last response.",
     detail: "/export \u00B7 /copy \u00B7 /rename session",
+  },
+  {
+    icon: Image,
+    title: "AI Image Generation",
+    description: "Nano Banana Pro (Gemini 3) + local RealVisXL with auto-fallback.",
+    detail: "/imagine <prompt> \u00B7 6 models \u00B7 no content filters",
+  },
+  {
+    icon: History,
+    title: "Persistent History",
+    description: "Input history persists across sessions. Arrow keys to navigate.",
+    detail: "Ctrl+R search \u00B7 case-insensitive cd \u00B7 ~/Downloads",
   },
 ];
 

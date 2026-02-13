@@ -215,9 +215,9 @@ export default function Hero() {
             <span className="text-gray-700">{" · "}</span>
             <span className="text-cyan-400/70">/agents</span>
             <span className="text-gray-700">{" · "}</span>
-            <span className="text-cyan-400/70">/skill:list</span>
+            <span className="text-cyan-400/70">/imagine</span>
             <span className="text-gray-700">{" · "}</span>
-            <span className="text-cyan-400/70">/quit</span>
+            <span className="text-cyan-400/70">/skill:list</span>
           </div>
           <div className="mt-3 text-gray-400">
             {"  > "}

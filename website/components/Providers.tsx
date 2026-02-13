@@ -5,7 +5,7 @@ const providers = [
   { name: "DeepSeek", models: "R1 Reasoner, Chat", color: "#4A90D9", cmd: "deepseek-reasoner", css: "provider-deepseek" },
   { name: "OpenAI", models: "o3, o4-mini, GPT-4.1, Codex", color: "#412991", cmd: "o3", css: "provider-openai" },
   { name: "Anthropic", models: "Claude Opus 4, Sonnet 4", color: "#D4A373", cmd: "claude-opus-4-20250514", css: "provider-anthropic" },
-  { name: "Google", models: "Gemini 2.0 Flash / Pro", color: "#4285F4", cmd: "gemini-2.0-flash", css: "provider-google" },
+  { name: "Google", models: "Gemini 2.5 Flash, 3 Pro + Nano Banana Image", color: "#4285F4", cmd: "gemini-2.0-flash", css: "provider-google" },
   { name: "Ollama", models: "Morningstar 13B, LLaMA 3, Qwen, any local", color: "#22C55E", cmd: "morningstar", css: "provider-ollama" },
   { name: "Groq", models: "LLaMA 3.3, Mixtral", color: "#F55036", cmd: "llama-3.3-70b-versatile", css: "provider-groq" },
   { name: "OpenRouter", models: "Any model via API", color: "#6366F1", cmd: "openrouter/auto", css: "provider-openrouter" },

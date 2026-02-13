@@ -11,6 +11,9 @@ const tools = [
   { name: "glob", desc: "Find files by pattern", color: "bg-pink-500/20 text-pink-400 border-pink-500/30" },
   { name: "ls", desc: "List directory contents", color: "bg-orange-500/20 text-orange-400 border-orange-500/30" },
   { name: "git", desc: "Status + commit history", color: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30" },
+  { name: "web", desc: "Fetch & parse web pages", color: "bg-teal-500/20 text-teal-400 border-teal-500/30" },
+  { name: "fetch", desc: "HTTP requests (GET/POST)", color: "bg-sky-500/20 text-sky-400 border-sky-500/30" },
+  { name: "gh", desc: "GitHub CLI integration", color: "bg-violet-500/20 text-violet-400 border-violet-500/30" },
 ];
 
 export default function Tools() {
@@ -27,7 +30,7 @@ export default function Tools() {
               <div className="h-px w-16 bg-gradient-to-l from-transparent to-amber-500/50" />
             </div>
             <h2 className="text-3xl sm:text-4xl font-bold text-white">
-              9 Tools.{" "}
+              12 Tools.{" "}
               <span className="text-amber-400">Full Control.</span>
             </h2>
             <p className="text-gray-400 mt-4 max-w-lg mx-auto">

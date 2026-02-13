@@ -116,14 +116,15 @@ const features: { icon: LucideIcon; title: string; desc: string; color: string; 
   {
     icon: Brain,
     title: "Memory & History",
-    desc: "Persistent notes across sessions, todo system with priorities, save & restore conversations",
+    desc: "Persistent notes + input history across sessions, todo system with priorities, save & restore conversations",
     color: "text-blue-400",
   },
   {
     icon: ArrowUpCircle,
-    title: "Auto-Fallback",
-    desc: "Local model too weak? Automatically upgrades to a stronger cloud model for complex tasks",
+    title: "Smart Auto-Fallback",
+    desc: "Cloud API blocked? Auto-fallback to local models. Local too weak? Upgrades to cloud. Seamless multi-tier routing",
     color: "text-yellow-400",
+    badge: "NEW",
   },
   {
     icon: Eye,
@@ -134,9 +135,10 @@ const features: { icon: LucideIcon; title: string; desc: string; color: string; 
   },
   {
     icon: Paintbrush,
-    title: "Image Generation",
-    desc: "Local Stable Diffusion (txt2img) — generate images directly from your terminal",
+    title: "AI Image Generation",
+    desc: "Nano Banana Pro (Gemini 3) + RealVisXL local fallback — 6 models, auto-fallback, no content filters, saves to ~/Downloads",
     color: "text-pink-400",
+    badge: "NEW",
   },
   {
     icon: Palette,

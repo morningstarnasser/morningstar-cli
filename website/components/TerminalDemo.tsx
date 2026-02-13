@@ -43,6 +43,11 @@ const LINES: DemoLine[] = [
   { text: "  3. No error boundary around async component", color: "text-gray-300" },
   { text: "", color: "" },
   { text: "\u25D0 Context [\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591\u2591] 34% \u00B7 Free 66%", color: "text-teal-400" },
+  { text: "", color: "" },
+  { text: "> /imagine a futuristic city at sunset, 8k", color: "text-white", prefix: "  " },
+  { text: "", color: "" },
+  { text: "\u23FA Nano Banana Pro (Gemini 3)", color: "text-pink-400", type: "check" },
+  { text: "  \u23BF  ~/Downloads/2026-02-13_futuristic-city.png (1408\u00D7768)", color: "text-gray-500" },
 ];
 
 function LineIcon({ type }: { type?: LineType }) {
