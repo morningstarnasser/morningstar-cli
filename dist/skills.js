@@ -126,6 +126,8 @@ export function formatSkillsList(skills) {
  * Get the prompt addition for an active skill.
  */
 export function getSkillPromptAddition(skill) {
+    if (!skill)
+        return "";
     let addition = `\n\n--- Active Skill: ${skill.name} ---\n`;
     addition += skill.content;
     if (skill.tools && skill.tools.length > 0) {

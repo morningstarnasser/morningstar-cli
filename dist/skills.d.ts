@@ -38,5 +38,5 @@ export declare function formatSkillsList(skills: Skill[]): string;
 /**
  * Get the prompt addition for an active skill.
  */
-export declare function getSkillPromptAddition(skill: Skill): string;
+export declare function getSkillPromptAddition(skill: Skill | null | undefined): string;
 //# sourceMappingURL=skills.d.ts.map
