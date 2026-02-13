@@ -65,6 +65,11 @@ def load_model(model_id="sdxl-turbo"):
     if hasattr(pipe, "safety_checker"): pipe.safety_checker = None
     if hasattr(pipe, "requires_safety_checker"): pipe.requires_safety_checker = False
     if hasattr(pipe, "enable_attention_slicing"): pipe.enable_attention_slicing()
+    # Fix black images on MPS: VAE must run in float32 + tiling for large images
+    if device == "mps" and hasattr(pipe, "vae"):
+        pipe.vae = pipe.vae.to(torch.float32)
+    if hasattr(pipe, "enable_vae_tiling"): pipe.enable_vae_tiling()
+    if hasattr(pipe, "enable_vae_slicing"): pipe.enable_vae_slicing()
 
     current_model = model_id
     print(f"Model ready in {time.time()-start:.1f}s on {device}", file=sys.stderr, flush=True)
@@ -113,18 +118,28 @@ class Handler(BaseHTTPRequestHandler):
             kw["guidance_scale"] = guidance if guidance > 0 else (0.0 if model_id == "sdxl-turbo" else 7.5)
             if negative: kw["negative_prompt"] = negative
 
+            # On MPS, generate at 512x512 and upscale to avoid black images
+            target_w, target_h = width, height
+            if device == "mps" and (width > 512 or height > 512):
+                kw["width"] = 512
+                kw["height"] = 512
+
             image = pipe(**kw).images[0]
 
             # Detect black/blank images
             import numpy as np
             arr = np.array(image)
             if arr.mean() < 5:
-                # Retry with higher guidance
                 kw["guidance_scale"] = 2.0
                 image = pipe(**kw).images[0]
 
+            # Upscale to target resolution with high-quality Lanczos
+            if image.size[0] < target_w or image.size[1] < target_h:
+                from PIL import Image as PILImage
+                image = image.resize((target_w, target_h), PILImage.LANCZOS)
+
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            image.save(output_path)
+            image.save(output_path, quality=95)
             duration = round(time.time() - start, 1)
 
             result = {"path": output_path, "seed": seed, "duration": duration, "model": model_id, "device": device}
@@ -139,7 +154,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": str(e)}).encode())
 
 def main():
-    load_model(os.environ.get("MODEL", "sdxl-turbo"))
+    load_model(os.environ.get("MODEL", "realvis"))
     server = HTTPServer(("127.0.0.1", PORT), Handler)
     print(f"Image server ready on port {PORT}", file=sys.stderr, flush=True)
     # Write PID for cleanup
@@ -209,13 +224,23 @@ def main():
     if hasattr(pipe, "safety_checker"): pipe.safety_checker = None
     if hasattr(pipe, "requires_safety_checker"): pipe.requires_safety_checker = False
     if hasattr(pipe, "enable_attention_slicing"): pipe.enable_attention_slicing()
+    # Fix black images on MPS: VAE must run in float32 + tiling for large images
+    if device == "mps" and hasattr(pipe, "vae"):
+        pipe.vae = pipe.vae.to(torch.float32)
+    if hasattr(pipe, "enable_vae_tiling"): pipe.enable_vae_tiling()
+    if hasattr(pipe, "enable_vae_slicing"): pipe.enable_vae_slicing()
 
     seed = args.seed if args.seed >= 0 else int(torch.randint(0, 2**32, (1,)).item())
     generator = torch.Generator(device="cpu").manual_seed(seed)
 
     print(f"Generating ({args.steps} steps, {args.width}x{args.height})...", file=sys.stderr)
 
+    target_w, target_h = args.width, args.height
     kw = {"prompt": args.prompt, "num_inference_steps": args.steps, "width": args.width, "height": args.height, "generator": generator}
+    # On MPS, generate at 512x512 and upscale
+    if device == "mps" and (args.width > 512 or args.height > 512):
+        kw["width"] = 512
+        kw["height"] = 512
     kw["guidance_scale"] = args.guidance if args.guidance > 0 else (0.0 if args.model == "sdxl-turbo" else 7.5)
     if args.negative: kw["negative_prompt"] = args.negative
 
@@ -228,8 +253,13 @@ def main():
         kw["guidance_scale"] = 2.0
         image = pipe(**kw).images[0]
 
+    # Upscale to target resolution
+    if image.size[0] < target_w or image.size[1] < target_h:
+        from PIL import Image as PILImage
+        image = image.resize((target_w, target_h), PILImage.LANCZOS)
+
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    image.save(args.output)
+    image.save(args.output, quality=95)
 
     print(json.dumps({"path": args.output, "seed": seed, "duration": round(time.time() - start, 1), "model": args.model, "device": device}))
 
