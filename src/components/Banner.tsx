@@ -16,6 +16,43 @@ interface BannerProps {
   skipPermissions: boolean;
 }
 
+// ─── Gradient Wave Block Letters ────────────────────────
+// Jede Zeile des Block-Texts wird buchstabenweise eingefaerbt.
+// Gradient: gold → amber → orange → rose → pink → fuchsia → purple
+
+const GRADIENT_COLORS = [
+  "#f59e0b", // gold
+  "#d97706", // amber
+  "#f97316", // orange
+  "#f43f5e", // rose
+  "#ec4899", // pink
+  "#d946ef", // fuchsia
+  "#a855f7", // purple
+];
+
+// Block-Buchstaben fuer "MORNING" (7 Buchstaben → 7 Farben)
+const MORNING_LINES = [
+  ["███╗   ███╗", " ██████╗ ", "██████╗ ", "███╗   ██╗", "██╗", "███╗   ██╗", " ██████╗ "],
+  ["████╗ ████║", "██╔═══██╗", "██╔══██╗", "████╗  ██║", "██║", "████╗  ██║", "██╔════╝ "],
+  ["██╔████╔██║", "██║   ██║", "██████╔╝", "██╔██╗ ██║", "██║", "██╔██╗ ██║", "██║  ███╗"],
+  ["██║╚██╔╝██║", "██║   ██║", "██╔══██╗", "██║╚██╗██║", "██║", "██║╚██╗██║", "██║   ██║"],
+  ["██║ ╚═╝ ██║", "╚██████╔╝", "██║  ██║", "██║ ╚████║", "██║", "██║ ╚████║", "╚██████╔╝"],
+  ["╚═╝     ╚═╝", " ╚═════╝ ", "╚═╝  ╚═╝", "╚═╝  ╚═══╝", "╚═╝", "╚═╝  ╚═══╝", " ╚═════╝ "],
+];
+
+// Block-Buchstaben fuer "STAR" (4 Buchstaben)
+const STAR_LINES = [
+  ["███████╗", "████████╗", " █████╗ ", "██████╗ "],
+  ["██╔════╝", "╚══██╔══╝", "██╔══██╗", "██╔══██╗"],
+  ["███████╗", "   ██║   ", "███████║", "██████╔╝"],
+  ["╚════██║", "   ██║   ", "██╔══██║", "██╔══██╗"],
+  ["███████║", "   ██║   ", "██║  ██║", "██║  ██║"],
+  ["╚══════╝", "   ╚═╝   ", "╚═╝  ╚═╝", "╚═╝  ╚═╝"],
+];
+
+// Gradient-Farben fuer STAR (4 Buchstaben, ab gold)
+const STAR_COLORS = ["#f59e0b", "#d97706", "#f97316", "#f43f5e"];
+
 export function Banner({ config, ctx, skipPermissions }: BannerProps) {
   const { primary, secondary, accent, info, dim, star } = useTheme();
   const theme = getTheme();
@@ -35,41 +72,70 @@ export function Banner({ config, ctx, skipPermissions }: BannerProps) {
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      {/* Star Logo */}
-      <Box flexDirection="column" alignItems="center">
-        <Box borderStyle="double" borderColor={dim} paddingX={2} flexDirection="column" alignItems="center">
-          <Text> </Text>
-          <Text color={secondary}>. .  <Text color={accent} bold>&#9733;</Text>  . .</Text>
-          <Text color={secondary}>.  .<Text color={primary} bold>/</Text> . <Text color={primary} bold>\</Text>.  .</Text>
-          <Text color={secondary}>.  <Text color={primary} bold>/</Text>  . <Text color="#f0abfc" bold>|</Text> .  <Text color={primary} bold>\</Text>  .</Text>
-          <Text color={secondary}>── <Text color={primary} bold>*</Text> ─────<Text color={accent} bold>+</Text>───── <Text color={primary} bold>*</Text> ──</Text>
-          <Text color={secondary}>.  <Text color={primary} bold>\</Text>  . <Text color="#f0abfc" bold>|</Text> .  <Text color={primary} bold>/</Text>  .</Text>
-          <Text color={secondary}>.  .<Text color={primary} bold>\</Text> . <Text color={primary} bold>/</Text>.  .</Text>
-          <Text color={secondary}>. .  <Text color={accent} bold>&#9733;</Text>  . .</Text>
-          <Text> </Text>
-          <Text color={primary} bold>M O R N I N G S T A R</Text>
-          <Text color={dim}>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</Text>
-          <Text color="#f0abfc">Terminal AI Coding Assistant</Text>
-          <Text><Text color={dim}>Powered by</Text> <Text color={accent} bold>Mr.Morningstar</Text></Text>
-          <Text color={info}>github.com/morningstarnasser</Text>
-          <Text> </Text>
-        </Box>
+      {/* ─── Gradient Wave Block Letters ─── */}
+      <Box flexDirection="column" marginLeft={3}>
+        {/* MORNING */}
+        {MORNING_LINES.map((segments, lineIdx) => (
+          <Text key={`m-${lineIdx}`} bold>
+            {"  "}
+            {segments.map((seg, i) => (
+              <Text key={i} color={GRADIENT_COLORS[i]}>{seg}</Text>
+            ))}
+          </Text>
+        ))}
+
+        {/* STAR + Tagline */}
+        {STAR_LINES.map((segments, lineIdx) => (
+          <Text key={`s-${lineIdx}`} bold>
+            {"  "}
+            {segments.map((seg, i) => (
+              <Text key={i} color={STAR_COLORS[i]}>{seg}</Text>
+            ))}
+            {lineIdx === 1 && (
+              <Text>   <Text color="#ec4899">Terminal AI Coding Assistant</Text></Text>
+            )}
+            {lineIdx === 2 && (
+              <Text>   <Text color={dim}>Powered by</Text> <Text color={accent} bold>Mr.Morningstar</Text></Text>
+            )}
+            {lineIdx === 3 && (
+              <Text>   <Text color={info}>github.com/morningstarnasser</Text></Text>
+            )}
+          </Text>
+        ))}
       </Box>
 
-      {/* Info Box */}
+      {/* ─── Gold Separator ─── */}
+      <Box marginLeft={2} marginTop={1}>
+        <Text color={primary}>  {"━".repeat(68)}</Text>
+      </Box>
+
+      {/* ─── Info Box ─── */}
       <Box flexDirection="column" marginTop={1} marginLeft={2} borderStyle="single" borderColor={dim} paddingX={1}>
-        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Model    </Text><Text color={info}>{modelName}</Text> <Text color={dim}>[</Text><Text color={accent}>{provDisplay}</Text><Text color={dim}>]</Text></Text>
-        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Projekt  </Text><Text bold>{ctx.projectName}</Text> <Text color={dim}>(</Text><Text>{langInfo}</Text><Text color={dim}>)</Text></Text>
-        {ctx.hasGit && (
-          <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Branch   </Text><Text color={accent}>{ctx.gitBranch || "unknown"}</Text></Text>
-        )}
-        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>CWD      </Text><Text>{cwdShort}</Text></Text>
-        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Perms    </Text>{skipPermissions ? <Text color="#ef4444" bold>BYPASS</Text> : <Text color={dim}>{permLabel}</Text>}</Text>
-        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Settings </Text>{settingsTag === "active" ? <Text color="#10b981">active</Text> : <Text color={dim}>none</Text>}</Text>
-        <Text><Text color={primary}> &#9733; </Text><Text color={dim}>Theme    </Text><Text color={primary}>{theme.name}</Text></Text>
+        <Text>
+          <Text color={primary}> &#9733; </Text><Text color={dim}>Model    </Text>
+          <Text color={info}>{modelName}</Text> <Text color={dim}>[</Text><Text color={accent}>{provDisplay}</Text><Text color={dim}>]</Text>
+        </Text>
+        <Text>
+          <Text color={primary}> &#9733; </Text><Text color={dim}>Projekt  </Text>
+          <Text bold>{ctx.projectName}</Text> <Text color={dim}>(</Text><Text>{langInfo}</Text><Text color={dim}>)</Text>
+        </Text>
+        <Text>
+          <Text color={primary}> &#9733; </Text><Text color={dim}>Branch   </Text><Text color={accent}>{ctx.hasGit ? (ctx.gitBranch || "unknown") : "—"}</Text>
+          {"   "}
+          <Text color={primary}>&#9733; </Text><Text color={dim}>Perms  </Text>
+          {skipPermissions ? <Text color="#ef4444" bold>BYPASS</Text> : <Text color={dim}>{permLabel}</Text>}
+          {"   "}
+          <Text color={primary}>&#9733; </Text><Text color={dim}>Theme  </Text><Text color={primary}>{theme.name}</Text>
+        </Text>
+        <Text>
+          <Text color={primary}> &#9733; </Text><Text color={dim}>CWD      </Text><Text>{cwdShort}</Text>
+          {"   "}
+          <Text color={primary}>&#9733; </Text><Text color={dim}>Settings </Text>
+          {settingsTag === "active" ? <Text color="#10b981">active</Text> : <Text color={dim}>none</Text>}
+        </Text>
       </Box>
 
-      {/* Tools & Agents */}
+      {/* ─── Tools & Agents ─── */}
       <Box flexDirection="column" marginTop={1} marginLeft={2}>
         <Text>
           <Text color={dim}>  Tools   </Text>
@@ -104,7 +170,7 @@ export function Banner({ config, ctx, skipPermissions }: BannerProps) {
         </Text>
       </Box>
 
-      {/* Status indicators */}
+      {/* ─── Status Indicators ─── */}
       {(todoStats.open > 0 || memCount > 0) && (
         <Box flexDirection="column" marginTop={1} marginLeft={4}>
           {todoStats.open > 0 && (
@@ -117,7 +183,7 @@ export function Banner({ config, ctx, skipPermissions }: BannerProps) {
       )}
 
       <Box marginLeft={2} marginTop={1}>
-        <Text color={dim}>  {"─".repeat(60)}</Text>
+        <Text color={dim}>  {"─".repeat(68)}</Text>
       </Box>
     </Box>
   );
