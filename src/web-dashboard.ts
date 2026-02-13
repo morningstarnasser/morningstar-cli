@@ -4,6 +4,8 @@
 // real-time streaming in a sleek dark UI.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { exec } from "node:child_process";
+import { platform } from "node:os";
 import { getSessionCosts, formatCostDisplay, type SessionCosts } from "./cost-tracker.js";
 import { toolStats } from "./tools.js";
 import { listConversations } from "./history.js";
@@ -41,8 +43,10 @@ function generateDashboardHTML(
       ? `${Math.floor(uptime / 60)}m ${uptime % 60}s`
       : `${uptime}s`;
 
-  const userMsgs = messages.filter(m => m.role === "user").length;
-  const aiMsgs = messages.filter(m => m.role === "assistant").length;
+  // Filter out system messages (contain system prompt — never show in dashboard)
+  const visibleMessages = messages.filter(m => m.role !== "system");
+  const userMsgs = visibleMessages.filter(m => m.role === "user").length;
+  const aiMsgs = visibleMessages.filter(m => m.role === "assistant").length;
   const toolEntries = Object.entries(stats.byTool).sort((a, b) => b[1] - a[1]);
   const modelEntries = Object.entries(costs.byModel);
 
@@ -248,9 +252,9 @@ function generateDashboardHTML(
 
     <!-- Conversation -->
     <div class="card wide">
-      <h2>Conversation (${messages.length} messages)</h2>
+      <h2>Conversation (${visibleMessages.length} messages)</h2>
       <div class="messages-list">
-        ${messages.slice(-20).map(m => `
+        ${visibleMessages.slice(-20).map(m => `
           <div class="msg msg-${m.role}">
             <div class="role">${m.role}</div>
             <div class="content">${escapeHtml(m.content.slice(0, 200))}${m.content.length > 200 ? '...' : ''}</div>
@@ -276,6 +280,18 @@ function escapeHtml(text: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+// ─── Open Browser ────────────────────────────────────────
+
+function openBrowser(url: string): void {
+  const os = platform();
+  const cmd = os === "darwin" ? "open"
+    : os === "win32" ? "start"
+    : "xdg-open"; // Linux
+  try {
+    exec(`${cmd} "${url}"`);
+  } catch {}
 }
 
 // ─── Dashboard Server ────────────────────────────────────
@@ -315,7 +331,7 @@ export async function startDashboard(
         },
         costs,
         tools: toolStats,
-        messages: dashConfig.getMessages().slice(-20).map(m => ({
+        messages: dashConfig.getMessages().filter(m => m.role !== "system").slice(-20).map(m => ({
           role: m.role,
           preview: m.content.slice(0, 200),
         })),
@@ -346,6 +362,9 @@ export async function startDashboard(
       const port = typeof addr === "object" && addr ? addr.port : dashConfig.port;
       const host = dashConfig.host === "0.0.0.0" ? "localhost" : dashConfig.host;
       const url = `http://${host}:${port}`;
+
+      // Auto-open browser
+      openBrowser(`${url}/dashboard`);
 
       resolve({
         isRunning: true,
