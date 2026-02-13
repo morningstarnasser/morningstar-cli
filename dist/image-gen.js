@@ -453,9 +453,15 @@ export async function generateImage(prompt, options) {
     if (modelId === "gemini" || modelId === "gemini-flash") {
         mkdirSync(IMAGE_OUTPUT_DIR, { recursive: true });
         const outPath = join(IMAGE_OUTPUT_DIR, outputFilename(prompt));
-        const result = await generateWithGemini(prompt, outPath, modelId);
-        const res = modelId === "gemini" ? "1408x1408" : "1024x1024";
-        return { path: result.path, model: modelId, steps: 0, resolution: res, seed: result.seed, duration: result.duration };
+        try {
+            const result = await generateWithGemini(prompt, outPath, modelId);
+            const res = modelId === "gemini" ? "1408x1408" : "1024x1024";
+            return { path: result.path, model: modelId, steps: 0, resolution: res, seed: result.seed, duration: result.duration };
+        }
+        catch {
+            // Gemini refused (content filter etc.) → auto-fallback to local model
+            modelId = "realvis";
+        }
     }
     // ── Local model path ──
     if (!(await isSetupComplete()))
