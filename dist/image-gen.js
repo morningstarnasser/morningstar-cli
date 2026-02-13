@@ -8,12 +8,13 @@ const SERVER_PORT = 7860;
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const PID_FILE = join(IMAGE_GEN_DIR, "server.pid");
 export const IMAGE_MODELS = [
-    { id: "realvis", name: "RealVisXL V4.0", size: "~7GB", description: "Photorealistisch, beste Qualitaet (Standard)", steps: 40, resolution: "1024x1024" },
-    { id: "sdxl", name: "Stable Diffusion XL", size: "~7GB", description: "Hohe Qualitaet, 1024x1024", steps: 40, resolution: "1024x1024" },
-    { id: "sdxl-turbo", name: "SDXL Turbo", size: "~7GB", description: "Schnell (1-4 Steps), 512x512", steps: 4, resolution: "512x512" },
-    { id: "sd15", name: "Stable Diffusion 1.5", size: "~4GB", description: "Klassiker, leicht, laeuft ueberall", steps: 30, resolution: "512x512" },
+    { id: "gemini", name: "Gemini 2.0 Flash (Nano Banana)", size: "API", description: "Beste Qualitaet, Cloud-basiert (Standard)", steps: 0, resolution: "1024x1024" },
+    { id: "realvis", name: "RealVisXL V4.0", size: "~7GB", description: "Photorealistisch, lokal", steps: 40, resolution: "1024x1024" },
+    { id: "sdxl", name: "Stable Diffusion XL", size: "~7GB", description: "Hohe Qualitaet, lokal", steps: 40, resolution: "1024x1024" },
+    { id: "sdxl-turbo", name: "SDXL Turbo", size: "~7GB", description: "Schnell (1-4 Steps), lokal", steps: 4, resolution: "512x512" },
+    { id: "sd15", name: "Stable Diffusion 1.5", size: "~4GB", description: "Klassiker, leicht, lokal", steps: 30, resolution: "512x512" },
 ];
-export const DEFAULT_IMAGE_MODEL = "realvis";
+export const DEFAULT_IMAGE_MODEL = "gemini";
 // ─── Persistent Server Script ──────────────────────────────
 // Loads model ONCE, keeps it in memory, handles requests via HTTP
 const SERVER_SCRIPT = `#!/usr/bin/env python3
@@ -382,10 +383,77 @@ export async function setupImageGen(onProgress) {
     writeFileSync(join(IMAGE_GEN_DIR, "generate.py"), GENERATE_SCRIPT, { mode: 0o755 });
     onProgress?.("Setup fertig! Starte Server mit: /imagine start");
 }
+// ─── Gemini Image Generation (Nano Banana quality) ──────────
+function getGoogleApiKey() {
+    // Check env vars
+    if (process.env.GOOGLE_API_KEY)
+        return process.env.GOOGLE_API_KEY;
+    if (process.env.GEMINI_API_KEY)
+        return process.env.GEMINI_API_KEY;
+    // Check stored config
+    try {
+        const cfgPath = join(homedir(), ".morningstar", "config.json");
+        if (existsSync(cfgPath)) {
+            const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
+            if (cfg.apiKeys?.google)
+                return cfg.apiKeys.google;
+            if (cfg.apiKeys?.gemini)
+                return cfg.apiKeys.gemini;
+        }
+    }
+    catch { }
+    return "";
+}
+async function generateWithGemini(prompt, outPath) {
+    const apiKey = getGoogleApiKey();
+    if (!apiKey)
+        throw new Error("Google API Key nicht gefunden.\n  Setze: export GOOGLE_API_KEY=dein_key\n  Oder:  morningstar → /config set apiKeys.google DEIN_KEY\n  Gratis: https://aistudio.google.com/apikey");
+    const start = Date.now();
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            contents: [{ parts: [{ text: `Generate a photorealistic, ultra high quality image: ${prompt}` }] }],
+            generationConfig: {
+                responseModalities: ["TEXT", "IMAGE"],
+            },
+        }),
+        signal: AbortSignal.timeout(120_000),
+    });
+    if (!res.ok) {
+        const errBody = await res.text();
+        throw new Error(`Gemini API Fehler (${res.status}): ${errBody}`);
+    }
+    const data = await res.json();
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find(p => p.inlineData?.data);
+    if (!imagePart?.inlineData)
+        throw new Error("Gemini hat kein Bild generiert. Versuche einen anderen Prompt.");
+    const imgBuffer = Buffer.from(imagePart.inlineData.data, "base64");
+    mkdirSync(IMAGE_OUTPUT_DIR, { recursive: true });
+    writeFileSync(outPath, imgBuffer);
+    return { path: outPath, seed: 0, duration: Math.round((Date.now() - start) / 1000) };
+}
+function hasGeminiKey() {
+    return !!getGoogleApiKey();
+}
 export async function generateImage(prompt, options) {
+    let modelId = options?.model ?? DEFAULT_IMAGE_MODEL;
+    // Auto-fallback: if gemini requested but no API key, use local model
+    if (modelId === "gemini" && !hasGeminiKey()) {
+        modelId = "realvis";
+    }
+    // ── Gemini path (Nano Banana quality) ──
+    if (modelId === "gemini") {
+        mkdirSync(IMAGE_OUTPUT_DIR, { recursive: true });
+        const outPath = join(IMAGE_OUTPUT_DIR, outputFilename(prompt));
+        const result = await generateWithGemini(prompt, outPath);
+        return { path: result.path, model: "gemini", steps: 0, resolution: "1024x1024", seed: result.seed, duration: result.duration };
+    }
+    // ── Local model path ──
     if (!(await isSetupComplete()))
         throw new Error("Image Generation nicht eingerichtet. Nutze /imagine setup");
-    const modelId = options?.model ?? DEFAULT_IMAGE_MODEL;
     const modelCfg = IMAGE_MODELS.find(m => m.id === modelId);
     const steps = options?.steps ?? (modelCfg?.steps ?? 40);
     const [dw, dh] = (modelCfg?.resolution ?? "1024x1024").split("x").map(Number);

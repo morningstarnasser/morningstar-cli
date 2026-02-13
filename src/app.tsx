@@ -897,7 +897,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
       // ── /imagine — Image Generation (direct, no AI filter) ──
       case "/imagine": {
         if (!arg) {
-          addOutput({ type: "info", content: "Nutzung: /imagine <prompt>\n  /imagine setup  — Stable Diffusion installieren\n  /imagine start  — Server starten (Model einmal laden, dann ~2-5s pro Bild)\n  /imagine stop   — Server stoppen\n  /imagine models — Verfuegbare Modelle\n\n  Optionen (im Prompt):\n    --model sdxl|sdxl-turbo|sd15\n    --steps 30\n    --width 1024 --height 1024\n    --seed 42\n    --negative 'blurry, ugly'" });
+          addOutput({ type: "info", content: "Nutzung: /imagine <prompt>\n  /imagine setup  — Lokales Stable Diffusion installieren\n  /imagine start  — Lokalen Server starten\n  /imagine stop   — Server stoppen\n  /imagine models — Verfuegbare Modelle\n\n  Standard: Gemini (Nano Banana Qualitaet, benoetigt GOOGLE_API_KEY)\n  Fallback: RealVisXL V4.0 (lokal, photorealistisch)\n\n  Optionen:\n    --model gemini|realvis|sdxl|sdxl-turbo|sd15\n    --steps 40  --width 1024  --height 1024\n    --seed 42   --negative 'blurry, ugly'\n\n  Bilder werden in ~/Downloads gespeichert" });
           return true;
         }
         if (arg === "setup") {
