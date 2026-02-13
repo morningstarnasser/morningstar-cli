@@ -1,14 +1,25 @@
 import { useState, useCallback } from "react";
+import { addToInputHistory, getInputHistory } from "../input-history.js";
 
 const MAX_HISTORY = 100;
 
 export function useCommandHistory() {
-  const [history, setHistory] = useState<string[]>([]);
+  // Load persistent history on init
+  const [history, setHistory] = useState<string[]>(() => {
+    try {
+      const persisted = getInputHistory();
+      return persisted.slice(0, MAX_HISTORY);
+    } catch {
+      return [];
+    }
+  });
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [savedInput, setSavedInput] = useState("");
 
   const addToHistory = useCallback((cmd: string) => {
     if (!cmd.trim()) return;
+    // Persist to disk
+    addToInputHistory(cmd);
     setHistory((prev) => {
       if (prev.length > 0 && prev[0] === cmd) return prev;
       const next = [cmd, ...prev];

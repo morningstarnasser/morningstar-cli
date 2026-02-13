@@ -1,1 +1,1 @@
-{"version":3,"file":"useHistory.d.ts","sourceRoot":"","sources":["../../src/hooks/useHistory.ts"],"names":[],"mappings":"AAIA,wBAAgB,iBAAiB;;wBAKQ,MAAM;+BAYC,MAAM,KAAG,MAAM,GAAG,IAAI;wBAS/B,MAAM,GAAG,IAAI;;EAcnD"}
+{"version":3,"file":"useHistory.d.ts","sourceRoot":"","sources":["../../src/hooks/useHistory.ts"],"names":[],"mappings":"AAKA,wBAAgB,iBAAiB;;wBAaQ,MAAM;+BAcC,MAAM,KAAG,MAAM,GAAG,IAAI;wBAS/B,MAAM,GAAG,IAAI;;EAcnD"}

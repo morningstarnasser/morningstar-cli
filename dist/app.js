@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, Static, useApp, useInput } from "ink";
 import { homedir } from "node:os";
 import { resolve as resolvePath, join as joinPath } from "node:path";
-import { existsSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, statSync, writeFileSync, readdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { Banner } from "./components/Banner.js";
 import { Help } from "./components/Help.js";
@@ -267,6 +267,23 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                 else
                     target = resolvePath(cwd, arg);
                 if (!existsSync(target) || !statSync(target).isDirectory()) {
+                    // Case-insensitive fallback: try to find matching directory
+                    const parentDir = resolvePath(target, "..");
+                    const baseName = target.split("/").pop() || "";
+                    if (baseName && existsSync(parentDir)) {
+                        try {
+                            const entries = readdirSync(parentDir);
+                            const match = entries.find(e => e.toLowerCase() === baseName.toLowerCase() && statSync(joinPath(parentDir, e)).isDirectory());
+                            if (match) {
+                                const corrected = joinPath(parentDir, match);
+                                setCwd(corrected);
+                                process.chdir(corrected);
+                                addOutput({ type: "success", content: `Verzeichnis gewechselt: ${corrected}` });
+                                return true;
+                            }
+                        }
+                        catch { }
+                    }
                     addOutput({ type: "error", content: `Verzeichnis nicht gefunden: ${target}` });
                     return true;
                 }
