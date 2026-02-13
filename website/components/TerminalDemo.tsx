@@ -14,8 +14,8 @@ interface DemoLine {
 }
 
 const LINES: DemoLine[] = [
-  { text: "Model    DeepSeek R1 (Thinking) [deepseek]", color: "text-gray-400", type: "star" },
-  { text: "Projekt  my-app (TypeScript / Next.js)", color: "text-gray-400", type: "star" },
+  { text: "Model    morningstar-14b [local]", color: "text-amber-400", type: "star" },
+  { text: "Project  my-app (TypeScript / Next.js)", color: "text-gray-400", type: "star" },
   { text: "Branch   main", color: "text-gray-400", type: "star" },
   { text: "Perms    ask", color: "text-gray-400", type: "star" },
   { text: "", color: "" },

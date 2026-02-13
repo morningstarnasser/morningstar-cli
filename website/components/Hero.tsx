@@ -113,52 +113,111 @@ export default function Hero() {
           <div className="terminal-dot bg-green-500" />
           <span className="ml-3 text-gray-500 text-sm">morningstar</span>
         </div>
-        <div className="p-6 font-mono text-sm leading-relaxed">
-          <div className="text-gray-500">{"╭────────────────────────────────────────────────────╮"}</div>
-          <div className="text-gray-500">
-            {"│ "}
-            <span className="text-white font-bold">{"✦ Morningstar CLI"}</span>
-            {"                                   │"}
+        <div className="p-6 font-mono text-[13px] leading-relaxed">
+          <div className="text-amber-500/60">{"╔══════════════════════════════════════════════════════════╗"}</div>
+          <div className="text-amber-500/60">{"║"}<span className="text-black/0">{"                                                          "}</span>{"║"}</div>
+          <div className="text-amber-500/60">
+            {"║   "}
+            <span className="text-amber-400 font-bold">{"✦"}</span>
+            {"  "}
+            <span className="text-amber-400 font-bold">M O R N I N G S T A R</span>
+            {"                            ║"}
           </div>
-          <div className="text-gray-500">{"│                                                    │"}</div>
-          <div className="text-gray-500">
-            {"│  Model    "}
-            <span className="text-white">DeepSeek R1</span>
-            {" [deepseek]                    │"}
+          <div className="text-amber-500/60">
+            {"║      "}
+            <span className="text-gray-500">Terminal AI Coding Assistant</span>
+            {"                        ║"}
           </div>
-          <div className="text-gray-500">
-            {"│  Project  "}
-            <span className="text-white">my-app</span>
-            {" (TypeScript / Next.js)          │"}
+          <div className="text-amber-500/60">{"║"}<span className="text-black/0">{"                                                          "}</span>{"║"}</div>
+          <div className="text-amber-500/60">{"╠──────────────────────────────────────────────────────────╣"}</div>
+          <div className="text-amber-500/60">{"║"}<span className="text-black/0">{"                                                          "}</span>{"║"}</div>
+          <div className="text-amber-500/60">
+            {"║   "}
+            <span className="text-gray-500">{"Model     "}</span>
+            <span className="text-amber-400 font-bold">morningstar-14b</span>
+            <span className="text-gray-600">{"                      [local]"}</span>
+            {"║"}
           </div>
-          <div className="text-gray-500">
-            {"│  Branch   "}
-            <span className="text-white">main</span>
-            {"                                   │"}
+          <div className="text-amber-500/60">
+            {"║   "}
+            <span className="text-gray-500">{"Project   "}</span>
+            <span className="text-white font-semibold">my-app</span>
+            <span className="text-gray-600">{"               (TypeScript / Next.js)"}</span>
+            {"║"}
           </div>
-          <div className="text-gray-500">
-            {"│  Perms    "}
+          <div className="text-amber-500/60">
+            {"║   "}
+            <span className="text-gray-500">{"Branch    "}</span>
+            <span className="text-amber-400">main</span>
+            {"                                         ║"}
+          </div>
+          <div className="text-amber-500/60">
+            {"║   "}
+            <span className="text-gray-500">{"Perms     "}</span>
             <span className="text-white">ask</span>
-            {"                                    │"}
+            {"                                          ║"}
           </div>
-          <div className="text-gray-500">{"│                                                    │"}</div>
-          <div className="text-gray-500">
-            {"│  Tools    "}
-            <span className="text-gray-300">read write edit bash grep glob ls git web fetch gh</span>
-            {" │"}
+          <div className="text-amber-500/60">{"║"}<span className="text-black/0">{"                                                          "}</span>{"║"}</div>
+          <div className="text-amber-500/60">{"╠──────────────────────────────────────────────────────────╣"}</div>
+          <div className="text-amber-500/60">{"║"}<span className="text-black/0">{"                                                          "}</span>{"║"}</div>
+          <div className="text-amber-500/60">
+            {"║   "}
+            <span className="text-gray-500">{"Tools     "}</span>
+            <span className="text-cyan-400">read</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-cyan-400">write</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-cyan-400">edit</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-cyan-400">bash</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-cyan-400">grep</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-cyan-400">glob</span>
+            {"  ║"}
           </div>
-          <div className="text-gray-500">
-            {"│  Agents   "}
-            <span className="text-gray-300">8 available</span>
-            {"                                │"}
+          <div className="text-amber-500/60">
+            {"║             "}
+            <span className="text-cyan-400">ls</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-cyan-400">git</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-cyan-400">web</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-cyan-400">fetch</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-cyan-400">gh</span>
+            {"                        ║"}
           </div>
-          <div className="text-gray-500">{"╰────────────────────────────────────────────────────╯"}</div>
-          <div className="mt-2 text-gray-500 text-xs">
-            {"  Type "}
-            <span className="text-gray-300">/help</span>
-            {" for commands, "}
-            <span className="text-gray-300">/features</span>
-            {" for capabilities"}
+          <div className="text-amber-500/60">
+            {"║   "}
+            <span className="text-gray-500">{"Agents    "}</span>
+            <span className="text-purple-400">code</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-green-400">debug</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-blue-400">review</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-yellow-400">refactor</span>
+            <span className="text-gray-600">{" · "}</span>
+            <span className="text-red-400">architect</span>
+            {"   ║"}
+          </div>
+          <div className="text-amber-500/60">{"║"}<span className="text-black/0">{"                                                          "}</span>{"║"}</div>
+          <div className="text-amber-500/60">{"╚══════════════════════════════════════════════════════════╝"}</div>
+          <div className="mt-2 text-gray-600 text-xs">
+            {"   "}
+            <span className="text-cyan-400/70">/help</span>
+            <span className="text-gray-700">{" · "}</span>
+            <span className="text-cyan-400/70">/features</span>
+            <span className="text-gray-700">{" · "}</span>
+            <span className="text-cyan-400/70">/model</span>
+            <span className="text-gray-700">{" · "}</span>
+            <span className="text-cyan-400/70">/agents</span>
+            <span className="text-gray-700">{" · "}</span>
+            <span className="text-cyan-400/70">/skill:list</span>
+            <span className="text-gray-700">{" · "}</span>
+            <span className="text-cyan-400/70">/quit</span>
           </div>
           <div className="mt-3 text-gray-400">
             {"  > "}
