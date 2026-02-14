@@ -41,6 +41,15 @@ export default function Footer() {
           </a>
           <span className="text-gray-700">·</span>
           <a
+            href="https://github.com/morningstarnasser/Morningstar-Desktop"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-gray-500 hover:text-purple-400 transition-colors"
+          >
+            Desktop App
+          </a>
+          <span className="text-gray-700">·</span>
+          <a
             href="https://github.com/morningstarnasser/morningstar-cli/blob/main/LICENSE"
             target="_blank"
             rel="noopener noreferrer"
