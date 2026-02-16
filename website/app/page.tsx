@@ -8,7 +8,6 @@ import InterfaceLanguages from "../components/InterfaceLanguages";
 import CLIFeatures from "../components/CLIFeatures";
 import Security from "../components/Security";
 import Installation from "../components/Installation";
-import DesktopBanner from "../components/DesktopBanner";
 import Footer from "../components/Footer";
 import MatrixRain from "../components/MatrixRain";
 
@@ -62,9 +61,6 @@ export default function Home() {
 
       <div className="section-divider" />
       <Installation />
-
-      <div className="section-divider" />
-      <DesktopBanner />
 
       <Footer />
     </main>
