@@ -134,13 +134,50 @@ export function listProviders(): { name: string; models: string[]; envKey: strin
     { name: "anthropic", models: ["claude-opus-4-6-20260204", "claude-sonnet-4-6-20260514", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-sonnet-4-20250514", "claude-opus-4-20250514"], envKey: "ANTHROPIC_API_KEY" },
     { name: "google", models: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"], envKey: "GOOGLE_API_KEY" },
     { name: "nvidia", models: [
+      // Kimi K2
       "nvidia/moonshotai/kimi-k2-instruct",
       "nvidia/moonshotai/kimi-k2.5",
       "nvidia/moonshotai/kimi-k2-thinking",
       "nvidia/moonshotai/kimi-k2-instruct-0905",
-      "nvidia/meta/llama-3.3-70b-instruct",
+      // DeepSeek
       "nvidia/deepseek-ai/deepseek-v3.2",
-      "nvidia/minimax/minimax-m2.5",
+      "nvidia/deepseek-ai/deepseek-v3.1",
+      "nvidia/deepseek-ai/deepseek-r1-distill-qwen-32b",
+      // Meta Llama
+      "nvidia/meta/llama-3.3-70b-instruct",
+      "nvidia/meta/llama-3.1-405b-instruct",
+      "nvidia/meta/llama-3.1-70b-instruct",
+      "nvidia/meta/llama-4-maverick-17b-128e-instruct",
+      "nvidia/meta/llama-4-scout-17b-16e-instruct",
+      "nvidia/meta/llama-3.2-90b-vision-instruct",
+      // Qwen
+      "nvidia/qwen/qwen3.5-397b-a17b",
+      "nvidia/qwen/qwen3.5-122b-a10b",
+      "nvidia/qwen/qwen3-coder-480b-a35b-instruct",
+      "nvidia/qwen/qwen3-next-80b-a3b-thinking",
+      "nvidia/qwen/qwq-32b",
+      "nvidia/qwen/qwen2.5-coder-32b-instruct",
+      // Mistral
+      "nvidia/mistralai/mistral-large-3-675b-instruct-2512",
+      "nvidia/mistralai/mistral-small-4-119b-2603",
+      "nvidia/mistralai/devstral-2-123b-instruct-2512",
+      "nvidia/mistralai/codestral-22b-instruct-v0.1",
+      // NVIDIA Nemotron
+      "nvidia/nvidia/llama-3.1-nemotron-ultra-253b-v1",
+      "nvidia/nvidia/nemotron-3-super-120b-a12b",
+      "nvidia/nvidia/llama-3.3-nemotron-super-49b-v1.5",
+      // OpenAI GPT-OSS
+      "nvidia/openai/gpt-oss-120b",
+      "nvidia/openai/gpt-oss-20b",
+      // Others
+      "nvidia/minimaxai/minimax-m2.5",
+      "nvidia/z-ai/glm5",
+      "nvidia/stepfun-ai/step-3.5-flash",
+      "nvidia/bytedance/seed-oss-36b-instruct",
+      "nvidia/writer/palmyra-creative-122b",
+      "nvidia/google/gemma-3-27b-it",
+      "nvidia/microsoft/phi-4-mini-instruct",
+      "nvidia/ibm/granite-3.3-8b-instruct",
     ], envKey: "NVIDIA_NIM_API_KEY" },
     { name: "github-models", models: [
       "github/gpt-4.1",
