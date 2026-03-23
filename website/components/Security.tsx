@@ -60,7 +60,7 @@ export default function Security() {
             <h2 className="text-4xl md:text-5xl font-bold mt-4 mb-4">
               Security <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-emerald-400">First</span>
             </h2>
-            <p className="text-gray-500 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-white/40 max-w-2xl mx-auto leading-relaxed">
               Your code is your most valuable asset. Morningstar treats it that way.
             </p>
           </div>
@@ -76,7 +76,7 @@ export default function Security() {
                 <h3 className="text-base font-semibold text-green-400 mb-2">
                   {feature.title}
                 </h3>
-                <p className="text-gray-500 text-sm leading-relaxed">
+                <p className="text-white/40 text-sm leading-relaxed">
                   {feature.description}
                 </p>
               </div>

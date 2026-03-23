@@ -69,7 +69,7 @@ export default function Hero() {
 
       {/* Title */}
       <h1
-        className="glitch-text text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold tracking-[0.2em] text-gray-900 text-glow-amber mb-6"
+        className="glitch-text text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-bold tracking-[0.2em] text-white text-glow-amber mb-6"
         data-text="MORNINGSTAR"
       >
         MORNINGSTAR
@@ -77,7 +77,7 @@ export default function Hero() {
 
       {/* Tagline with typing effect */}
       <div className="h-8 mb-10">
-        <span className="text-gray-500 text-lg sm:text-xl font-mono">
+        <span className="text-gray-400 text-lg sm:text-xl font-mono">
           {typed}
           <span
             className={`inline-block w-[3px] h-5 bg-amber-400 ml-1 align-middle ${
@@ -99,7 +99,7 @@ export default function Hero() {
           href="https://github.com/morningstarnasser/morningstar-cli"
           target="_blank"
           rel="noopener noreferrer"
-          className="btn-primary relative px-8 py-3 border border-gray-300 text-gray-700 font-bold rounded-lg hover:border-amber-400/60 hover:bg-amber-500/5 transition-all"
+          className="btn-primary relative px-8 py-3 border border-amber-500/30 text-amber-400 font-bold rounded-lg hover:border-amber-400/60 hover:bg-amber-500/5 transition-all"
         >
           View on GitHub
         </a>

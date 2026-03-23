@@ -192,7 +192,7 @@ export default function CLIFeatures() {
             <h2 className="text-4xl md:text-5xl font-bold mt-4 mb-4">
               Built for <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-400">Speed</span>
             </h2>
-            <p className="text-gray-500 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-white/40 max-w-2xl mx-auto leading-relaxed">
               A CLI experience designed for power users. Every interaction is
               optimized for developer velocity.
             </p>
@@ -211,10 +211,10 @@ export default function CLIFeatures() {
                   <h3 className={`text-sm font-semibold mb-1.5 ${colors[ci]}`}>
                     {feature.title}
                   </h3>
-                  <p className="text-gray-500 text-xs leading-relaxed mb-3">
+                  <p className="text-white/45 text-xs leading-relaxed mb-3">
                     {feature.description}
                   </p>
-                  <div className="font-mono text-[11px] text-gray-400 leading-relaxed">
+                  <div className="font-mono text-[11px] text-white/25 leading-relaxed">
                     {feature.detail}
                   </div>
                 </div>

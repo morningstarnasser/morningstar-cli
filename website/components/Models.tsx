@@ -90,13 +90,13 @@ function BarChart({ value, max, color }: { value: number; max: number; color: st
   const pct = Math.round((value / max) * 100);
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-1000 ${color}`}
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="text-xs text-gray-600 w-12 text-right font-mono">{value.toFixed(1)}</span>
+      <span className="text-xs text-white/60 w-12 text-right font-mono">{value.toFixed(1)}</span>
     </div>
   );
 }
@@ -115,18 +115,18 @@ export default function Models() {
           <div className="text-center mb-16">
             <div className="flex items-center justify-center gap-4 mb-4">
               <div className="h-px w-16 bg-gradient-to-r from-transparent to-amber-500/50" />
-              <span className="text-amber-600 text-sm tracking-[0.3em] uppercase">
+              <span className="text-amber-400 text-sm tracking-[0.3em] uppercase">
                 Open Source Models
               </span>
               <div className="h-px w-16 bg-gradient-to-l from-transparent to-amber-500/50" />
             </div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
+            <h2 className="text-3xl sm:text-4xl font-bold text-white">
               Our Models on{" "}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-yellow-300">
                 Hugging Face
               </span>
             </h2>
-            <p className="text-gray-500 mt-4 max-w-2xl mx-auto text-sm">
+            <p className="text-gray-400 mt-4 max-w-2xl mx-auto text-sm">
               3 purpose-built open-weight models for code generation, architecture design, and vision.
               Free to download, fine-tune, and deploy. Run locally with Ollama.
             </p>
@@ -159,20 +159,20 @@ export default function Models() {
                     </span>
                   )}
                   <div className="flex items-start gap-4 mb-4">
-                    <div className={`w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center ${m.color} shrink-0`}>
+                    <div className={`w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center ${m.color} shrink-0`}>
                       <ModelIcon model={m} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <h3 className={`text-lg font-bold ${m.color}`}>{m.name}</h3>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-0.5 rounded">{m.params}</span>
-                        <span className="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-0.5 rounded">{m.size}</span>
-                        <span className="text-xs text-gray-400 font-mono bg-gray-100 px-2 py-0.5 rounded">{m.context}</span>
+                        <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">{m.params}</span>
+                        <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">{m.size}</span>
+                        <span className="text-xs text-white/30 font-mono bg-white/5 px-2 py-0.5 rounded">{m.context}</span>
                       </div>
                     </div>
                   </div>
                   <p className="text-gray-400 text-sm leading-relaxed mb-4">{m.description}</p>
-                  <div className="flex items-center gap-4 text-xs text-gray-400">
+                  <div className="flex items-center gap-4 text-xs text-white/30">
                     <span className="flex items-center gap-1">
                       <Brain size={12} /> {m.architecture}
                     </span>
@@ -194,7 +194,7 @@ export default function Models() {
           <div className="text-center mb-10">
             <div className="flex items-center justify-center gap-3 mb-3">
               <Trophy size={20} className="text-amber-400" />
-              <h3 className="text-2xl font-bold text-gray-900">Benchmark Comparison</h3>
+              <h3 className="text-2xl font-bold text-white">Benchmark Comparison</h3>
             </div>
             <p className="text-gray-500 text-sm">Morningstar 14B vs popular open-source coding models</p>
           </div>
@@ -229,7 +229,7 @@ export default function Models() {
                 return (
                   <div key={b.name}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm text-gray-700 font-medium">{b.name}</span>
+                      <span className="text-sm text-white/70 font-medium">{b.name}</span>
                       {isWinner && <Flame size={14} className="text-amber-400" />}
                     </div>
                     <div className="space-y-1.5">
@@ -243,8 +243,8 @@ export default function Models() {
               })}
             </div>
 
-            <div className="mt-6 pt-4 border-t border-gray-200 text-center">
-              <p className="text-xs text-gray-400">
+            <div className="mt-6 pt-4 border-t border-white/5 text-center">
+              <p className="text-xs text-white/30">
                 Morningstar 14B beats the base Qwen2.5-14B across all benchmarks, and outperforms
                 CodeLlama-34B and DeepSeek-33B by a wide margin despite being smaller.
               </p>
@@ -255,7 +255,7 @@ export default function Models() {
         {/* Capabilities */}
         <ScrollReveal>
           <div className="text-center mb-8">
-            <h3 className="text-2xl font-bold text-gray-900 flex items-center justify-center gap-3">
+            <h3 className="text-2xl font-bold text-white flex items-center justify-center gap-3">
               <Zap size={20} className="text-amber-400" />
               Built for Developers
             </h3>
@@ -267,7 +267,7 @@ export default function Models() {
             <ScrollReveal key={c.label} delay={i * 80}>
               <div className="glass-card rounded-xl p-5 text-center hover:border-amber-500/20 transition-all">
                 <div className={`text-xl font-bold ${c.color} mb-1`}>{c.label}</div>
-                <div className="text-gray-400 text-xs">{c.desc}</div>
+                <div className="text-gray-500 text-xs">{c.desc}</div>
               </div>
             </ScrollReveal>
           ))}

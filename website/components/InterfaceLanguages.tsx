@@ -43,7 +43,7 @@ export default function InterfaceLanguages() {
             <h2 className="text-4xl md:text-5xl font-bold mt-4 mb-4">
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-400">19</span> Interface Languages
             </h2>
-            <p className="text-gray-500 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-white/40 max-w-2xl mx-auto leading-relaxed">
               The CLI speaks your language. Full UI translation including prompts,
               errors, and help text. RTL support included.
             </p>
@@ -58,8 +58,8 @@ export default function InterfaceLanguages() {
                 className="glass-card p-4 text-center border-cyan-500/10 hover:border-cyan-500/30 transition-all duration-300 cursor-default rounded-xl"
               >
                 <div className="text-2xl mb-2">{lang.flag}</div>
-                <div className="text-sm text-gray-800 font-medium mb-0.5">{lang.name}</div>
-                <div className="text-xs text-gray-400">{lang.native}</div>
+                <div className="text-sm text-white/80 font-medium mb-0.5">{lang.name}</div>
+                <div className="text-xs text-white/30">{lang.native}</div>
                 {lang.rtl && (
                   <span className="text-[10px] bg-purple-500/20 text-purple-300/80 px-2 py-0.5 rounded mt-2 inline-block">
                     RTL

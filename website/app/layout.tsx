@@ -42,7 +42,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={jetbrains.variable}>
-      <body className="bg-[#fafafa] text-gray-900 font-mono antialiased">
+      <body className="bg-black text-white font-mono antialiased">
         {children}
       </body>
     </html>
