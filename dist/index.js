@@ -93,7 +93,7 @@ function storeApiKey(provider, key) {
 }
 const DEFAULT_CONFIG = {
     apiKey: "",
-    model: "nvidia/moonshotai/kimi-k2.5",
+    model: "nvidia/moonshotai/kimi-k2-instruct",
     baseUrl: "https://integrate.api.nvidia.com/v1",
     maxTokens: 8192,
     temperature: 0.6,
