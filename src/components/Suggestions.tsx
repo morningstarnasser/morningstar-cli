@@ -10,7 +10,7 @@ interface SuggestionsProps {
 export function Suggestions({ items, selectedIndex, visible }: SuggestionsProps) {
   if (!visible || items.length === 0) return null;
 
-  const maxShow = Math.min(items.length, 20);
+  const maxShow = Math.min(items.length, 50);
   const visibleItems = items.slice(0, maxShow);
 
   return (

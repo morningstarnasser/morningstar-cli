@@ -87,7 +87,7 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
     }
     // Filter suggestions (only when not processing)
     const filteredSuggestions = !isProcessing && value.startsWith("/")
-        ? suggestions.filter((s) => s.cmd.toLowerCase().startsWith(value.toLowerCase())).slice(0, 20)
+        ? suggestions.filter((s) => s.cmd.toLowerCase().startsWith(value.toLowerCase())).slice(0, 50)
         : [];
     // @file mention completions
     const [fileCompletions, setFileCompletions] = useState([]);

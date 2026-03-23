@@ -229,6 +229,11 @@ function buildSlashCommands(customCommands: CustomCommand[]): SlashCmd[] {
     cmds.push({ cmd: `/agent:${id}`, desc: `Agent: ${allAgents[id].name}` });
   }
 
+  // Add provider switch commands
+  for (const p of listProviders()) {
+    cmds.push({ cmd: `/provider ${p.name}`, desc: `Wechsel zu ${p.name} (${p.envKey})` });
+  }
+
   // Add model commands
   for (const p of listProviders()) {
     for (const m of p.models.filter((m: string) => !m.startsWith("("))) {

@@ -56,6 +56,7 @@ function generateDashboardHTML(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Morningstar Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%23f59e0b'/%3E%3Cstop offset='50%25' stop-color='%23ec4899'/%3E%3Cstop offset='100%25' stop-color='%23a855f7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%230a0a0a'/%3E%3Cpath d='M32 6 L38.5 22.5 L56 22.5 L42 33.5 L47 50.5 L32 40 L17 50.5 L22 33.5 L8 22.5 L25.5 22.5 Z' fill='url(%23g)'/%3E%3C/svg%3E">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
