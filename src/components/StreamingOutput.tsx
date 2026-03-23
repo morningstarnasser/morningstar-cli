@@ -19,23 +19,45 @@ interface ParsedBlock {
 
 function parseBlocks(text: string): ParsedBlock[] {
   const blocks: ParsedBlock[] = [];
+
+  // First strip <tool:write> blocks — show compact summary instead of full code
+  let cleaned = text.replace(/<tool:write>([^\n]+)\n([\s\S]*?)<\/tool(?::write)?>/g, (_m, path, content) => {
+    const lineCount = content.split("\n").length;
+    return `\n✦ Writing ${(path as string).trim()} (${lineCount} lines)\n`;
+  });
+  // Also collapse unclosed <tool:write> blocks (still streaming)
+  cleaned = cleaned.replace(/<tool:write>([^\n]+)\n([\s\S]{200,})$/g, (_m, path, content) => {
+    const lineCount = content.split("\n").length;
+    return `\n✦ Writing ${(path as string).trim()} (${lineCount} lines so far...)\n`;
+  });
+  // Collapse <tool:edit> blocks too
+  cleaned = cleaned.replace(/<tool:edit>([\s\S]*?)<\/tool(?::edit)?>/g, (_m, content) => {
+    const pathMatch = (content as string).match(/^([^\n]+)/);
+    return `\n✦ Editing ${pathMatch?.[1]?.trim() || "file"}\n`;
+  });
+
   const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
   let lastIdx = 0;
   let match;
 
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    // Text before code block
-    const before = text.slice(lastIdx, match.index);
+  while ((match = codeBlockRegex.exec(cleaned)) !== null) {
+    const before = cleaned.slice(lastIdx, match.index);
     if (before.trim()) {
       blocks.push({ type: "text", content: before });
     }
-    // Code block
-    blocks.push({ type: "code", content: match[2], lang: match[1] || undefined });
+    const codeContent = match[2];
+    const codeLines = codeContent.split("\n");
+    // Collapse large code blocks (>15 lines) to compact summary
+    if (codeLines.length > 15) {
+      const lang = match[1] || "code";
+      blocks.push({ type: "text", content: `  ✦ ${lang} block (${codeLines.length} lines)` });
+    } else {
+      blocks.push({ type: "code", content: codeContent.replace(/\n$/, ""), lang: match[1] || undefined });
+    }
     lastIdx = match.index + match[0].length;
   }
 
-  // Remaining text after last code block
-  const remaining = text.slice(lastIdx);
+  const remaining = cleaned.slice(lastIdx);
   if (remaining.trim()) {
     blocks.push({ type: "text", content: remaining });
   }
