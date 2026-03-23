@@ -97,11 +97,11 @@ function storeApiKey(provider: string, key: string): void {
 
 const DEFAULT_CONFIG: CLIConfig = {
   apiKey: "",
-  model: "deepseek-reasoner",
-  baseUrl: "https://api.deepseek.com/v1",
+  model: "nvidia/moonshotai/kimi-k2.5",
+  baseUrl: "https://integrate.api.nvidia.com/v1",
   maxTokens: 8192,
   temperature: 0.6,
-  provider: undefined,
+  provider: "nvidia",
 };
 
 // ─── CLI Setup ───────────────────────────────────────────
@@ -161,13 +161,17 @@ if (projectSettings.env) {
 loadEnvFile(cwd);
 
 const selectedModel = opts.model || projectSettings.model || (saved.model as string) || DEFAULT_CONFIG.model;
-const selectedProvider = projectSettings.provider || (saved.provider as string) || detectProvider(selectedModel);
+// When model is explicitly set via CLI, always detect provider from model name
+// (otherwise saved provider would override and send model to wrong API)
+const selectedProvider = opts.model
+  ? detectProvider(selectedModel)
+  : (projectSettings.provider || (saved.provider as string) || detectProvider(selectedModel));
 
 const config: CLIConfig = {
   ...DEFAULT_CONFIG,
   model: selectedModel,
   provider: selectedProvider,
-  baseUrl: (saved.baseUrl as string) || getProviderBaseUrl(selectedProvider),
+  baseUrl: opts.model ? getProviderBaseUrl(selectedProvider) : ((saved.baseUrl as string) || getProviderBaseUrl(selectedProvider)),
   apiKey: opts.apiKey || getStoredApiKey(selectedProvider),
   temperature: projectSettings.temperature ?? DEFAULT_CONFIG.temperature,
   maxTokens: projectSettings.maxTokens ?? DEFAULT_CONFIG.maxTokens,

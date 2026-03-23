@@ -56,6 +56,9 @@ import { createFileWatcher, detectWatchDirs } from "./file-watcher.js";
 import { createBranch, listBranches, switchBranch, mergeBranch, deleteBranch, formatBranchesList, saveBranch } from "./conversation-branch.js";
 import { checkForUpdate, performUpdate, formatUpdateInfo, formatUpdateResult } from "./self-update.js";
 import { startDashboard, formatDashboardStatus } from "./web-dashboard.js";
+import { fetchPRData, analyzePRDiff, generateReviewPrompt } from "./pr-review.js";
+import { formatCacheStats } from "./prompt-cache.js";
+import { formatLayoutList, getAvailableLayouts } from "./terminal-multiplexer.js";
 function buildSlashCommands(customCommands) {
     const cmds = [
         { cmd: "/help", desc: "Alle Befehle" },
@@ -154,6 +157,11 @@ function buildSlashCommands(customCommands) {
         { cmd: "/update", desc: "Self-Update pruefen/ausfuehren" },
         { cmd: "/update check", desc: "Auf Updates pruefen" },
         { cmd: "/dashboard", desc: "Web Dashboard starten" },
+        // Tier 4 Features:
+        { cmd: "/pr-review", desc: "Smart PR Review" },
+        { cmd: "/cache", desc: "Prompt Cache Statistiken" },
+        { cmd: "/split", desc: "Terminal Layout wechseln" },
+        { cmd: "/split list", desc: "Verfuegbare Layouts" },
         { cmd: "/quit", desc: "Beenden" },
     ];
     // Add custom commands
@@ -298,6 +306,12 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
     }, [messages]);
     // ── SIGINT handler + ctrl+o expand/collapse ──
     useInput((_input, key) => {
+        if (key.escape && isProcessing && abortRef.current) {
+            abortRef.current.abort();
+            setIsProcessing(false);
+            setIsStreaming(false);
+            addOutput({ type: "info", content: "Abgebrochen." });
+        }
         if (key.ctrl && _input === "c") {
             if (isProcessing && abortRef.current) {
                 abortRef.current.abort();
@@ -603,7 +617,20 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                     addOutput({ type: "success", content: `Model: ${getModelDisplayName(arg)} [${newProv}]` });
                 }
                 else {
-                    addOutput({ type: "info", content: `Aktuelles Model: ${getModelDisplayName(config.model)} [${config.provider || detectProvider(config.model)}]\nNutze /model <id> zum Wechseln.` });
+                    const allProviders = listProviders();
+                    let modelList = `Aktuelles Model: ${getModelDisplayName(config.model)} [${config.provider || detectProvider(config.model)}]\n\nVerfuegbare Modelle:\n`;
+                    for (const p of allProviders) {
+                        const isActive = p.name === (config.provider || detectProvider(config.model));
+                        modelList += `\n  ${p.name.toUpperCase()}${isActive ? " ★" : ""} (${p.envKey}):\n`;
+                        for (const m of p.models) {
+                            if (m.startsWith("("))
+                                continue;
+                            const isCurrent = m === config.model;
+                            modelList += `    ${isCurrent ? "→ " : "  "}${m.padEnd(50)} ${getModelDisplayName(m)}\n`;
+                        }
+                    }
+                    modelList += `\nNutze /model <id> zum Wechseln.`;
+                    addOutput({ type: "info", content: modelList });
                 }
                 return true;
             case "/provider":
@@ -1549,6 +1576,49 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                 }
                 else {
                     addOutput({ type: "info", content: "Nutzung: /update [check|run]" });
+                }
+                return true;
+            }
+            // ── /pr-review — Smart PR Review ──
+            case "/pr-review": {
+                if (!arg) {
+                    addOutput({ type: "info", content: "Nutzung: /pr-review <nummer|url>" });
+                    return true;
+                }
+                try {
+                    addOutput({ type: "info", content: `Lade PR-Daten fuer: ${arg}...` });
+                    const { prData, diff } = fetchPRData(arg, cwd);
+                    const analysis = analyzePRDiff(diff);
+                    const reviewPrompt = generateReviewPrompt(prData, analysis);
+                    addOutput({ type: "success", content: `PR #${prData.number}: ${prData.title}\n  ${analysis.totalFiles} Dateien, +${analysis.totalAdditions}/-${analysis.totalDeletions}\n  Tests: ${analysis.hasTests ? "Ja" : "Nein"} · Config: ${analysis.hasConfigChanges ? "Ja" : "Nein"}` });
+                    addOutput({ type: "info", content: "Review-Prompt bereit. Sende 'review' um das Review zu starten." });
+                    // Speichere Review-Prompt als naechste User-Nachricht
+                    setMessages(prev => [...prev, { role: "user", content: reviewPrompt }]);
+                }
+                catch (e) {
+                    addOutput({ type: "error", content: `PR Review Fehler: ${e.message}` });
+                }
+                return true;
+            }
+            // ── /cache — Prompt Cache Statistiken ──
+            case "/cache": {
+                addOutput({ type: "info", content: formatCacheStats() });
+                return true;
+            }
+            // ── /split — Terminal Layout wechseln ──
+            case "/split": {
+                if (!arg || arg === "list") {
+                    addOutput({ type: "info", content: formatLayoutList() });
+                }
+                else {
+                    const layouts = getAvailableLayouts();
+                    const found = layouts.find(l => l.id === arg);
+                    if (found) {
+                        addOutput({ type: "success", content: `Layout gewechselt: ${found.name} (${found.panes.length} Panes)` });
+                    }
+                    else {
+                        addOutput({ type: "error", content: `Layout "${arg}" nicht gefunden. Verfuegbar: ${layouts.map(l => l.id).join(", ")}` });
+                    }
                 }
                 return true;
             }

@@ -30,7 +30,7 @@ export interface LLMProvider {
 }
 
 // Providers that support native function calling
-const NATIVE_TOOL_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", "openrouter"]);
+const NATIVE_TOOL_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", "openrouter", "nvidia", "github-models"]);
 
 // ─── Provider Detection ──────────────────────────────────
 
@@ -49,6 +49,9 @@ function getOllamaModelNames(): Set<string> {
 
 export function detectProvider(model: string): string {
   const m = model.toLowerCase();
+  // Provider-prefixed models (check BEFORE generic "/" openrouter check)
+  if (m.startsWith("nvidia/")) return "nvidia";
+  if (m.startsWith("github/")) return "github-models";
   if (m.includes("/")) return "openrouter";
   if (m.startsWith("gpt-") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4") || m.startsWith("codex") || m.startsWith("chatgpt")) return "openai";
   if (m.startsWith("claude-")) return "anthropic";
@@ -73,6 +76,8 @@ export function getProviderBaseUrl(provider: string): string {
     case "ollama": return "http://localhost:11434/v1";
     case "groq": return "https://api.groq.com/openai/v1";
     case "openrouter": return "https://openrouter.ai/api/v1";
+    case "nvidia": return "https://integrate.api.nvidia.com/v1";
+    case "github-models": return "https://models.github.ai/inference";
     default: return "https://api.openai.com/v1";
   }
 }
@@ -85,6 +90,8 @@ export function getProviderApiKeyEnv(provider: string): string {
     case "google": return "GOOGLE_API_KEY";
     case "groq": return "GROQ_API_KEY";
     case "openrouter": return "OPENROUTER_API_KEY";
+    case "nvidia": return "NVIDIA_NIM_API_KEY";
+    case "github-models": return "GITHUB_MODELS_TOKEN";
     case "ollama": return "";
     default: return "OPENAI_API_KEY";
   }
@@ -110,6 +117,13 @@ export function resolveModelName(model: string, provider: string): string {
   if (provider === "ollama" && OLLAMA_MODEL_MAP[model]) {
     return OLLAMA_MODEL_MAP[model];
   }
+  // Strip provider prefix for prefixed models (nvidia/model -> model, github/model -> model)
+  if (provider === "nvidia" && model.toLowerCase().startsWith("nvidia/")) {
+    return model.slice("nvidia/".length);
+  }
+  if (provider === "github-models" && model.toLowerCase().startsWith("github/")) {
+    return model.slice("github/".length);
+  }
   return model;
 }
 
@@ -117,8 +131,39 @@ export function listProviders(): { name: string; models: string[]; envKey: strin
   return [
     { name: "deepseek", models: ["deepseek-reasoner", "deepseek-chat"], envKey: "DEEPSEEK_API_KEY" },
     { name: "openai", models: ["o3", "o3-mini", "o3-pro", "o4-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-4o", "gpt-4o-mini", "o1", "o1-mini", "codex-mini-latest", "gpt-4o-search-preview"], envKey: "OPENAI_API_KEY" },
-    { name: "anthropic", models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-haiku-3-5-20241022"], envKey: "ANTHROPIC_API_KEY" },
-    { name: "google", models: ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"], envKey: "GOOGLE_API_KEY" },
+    { name: "anthropic", models: ["claude-opus-4-6-20260204", "claude-sonnet-4-6-20260514", "claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001", "claude-sonnet-4-20250514", "claude-opus-4-20250514"], envKey: "ANTHROPIC_API_KEY" },
+    { name: "google", models: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-pro"], envKey: "GOOGLE_API_KEY" },
+    { name: "nvidia", models: [
+      "nvidia/moonshotai/kimi-k2-instruct",
+      "nvidia/moonshotai/kimi-k2.5",
+      "nvidia/moonshotai/kimi-k2-thinking",
+      "nvidia/moonshotai/kimi-k2-instruct-0905",
+      "nvidia/meta/llama-3.3-70b-instruct",
+      "nvidia/deepseek-ai/deepseek-v3.2",
+      "nvidia/minimax/minimax-m2.5",
+    ], envKey: "NVIDIA_NIM_API_KEY" },
+    { name: "github-models", models: [
+      "github/gpt-4.1",
+      "github/gpt-4.1-mini",
+      "github/gpt-4.1-nano",
+      "github/o3-mini",
+      "github/o4-mini",
+      "github/DeepSeek-R1",
+      "github/DeepSeek-V3-0324",
+      "github/Llama-3.3-70B-Instruct",
+      "github/Llama-4-Scout-17B-16E-Instruct",
+      "github/Llama-4-Maverick-17B-128E-Instruct-FP8",
+      "github/grok-3",
+      "github/grok-3-mini",
+      "github/Mistral-Large-2411",
+      "github/Mistral-Small-24B-Instruct-2501",
+      "github/Phi-4",
+      "github/Phi-4-mini-instruct",
+      "github/command-r-plus-08-2024",
+      "github/Jamba-1.5-Large",
+      "github/Jamba-1.5-Mini",
+      "github/Codestral-2501",
+    ], envKey: "GITHUB_MODELS_TOKEN" },
     { name: "ollama", models: ["morningstar-14b", "morningstar-32b", "morningstar-vision", "llama3", "codellama", "mistral", "deepseek-coder", "phi3", "qwen2.5-coder"], envKey: "(lokal)" },
     { name: "groq", models: ["llama-3.3-70b-versatile", "mixtral-8x7b-32768", "gemma2-9b-it"], envKey: "GROQ_API_KEY" },
     { name: "openrouter", models: ["(jedes Modell mit provider/model Format)"], envKey: "OPENROUTER_API_KEY" },
@@ -150,13 +195,48 @@ export function getModelDisplayName(model: string): string {
     "gpt-4o-search-preview": "GPT-4o Search",
     "gpt-4o-mini-search-preview": "GPT-4o Mini Search",
     // Anthropic
+    "claude-opus-4-6-20260204": "Claude Opus 4.6",
+    "claude-sonnet-4-6-20260514": "Claude Sonnet 4.6",
+    "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
+    "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
     "claude-sonnet-4-20250514": "Claude Sonnet 4",
     "claude-opus-4-20250514": "Claude Opus 4",
     "claude-haiku-3-5-20241022": "Claude Haiku 3.5",
     // Google
+    "gemini-2.5-flash": "Gemini 2.5 Flash",
+    "gemini-2.5-pro": "Gemini 2.5 Pro",
     "gemini-2.0-flash": "Gemini 2.0 Flash",
     "gemini-2.0-pro": "Gemini 2.0 Pro",
     "gemini-1.5-pro": "Gemini 1.5 Pro",
+    // NVIDIA NIM
+    "nvidia/moonshotai/kimi-k2-instruct": "Kimi K2 Instruct (NVIDIA)",
+    "nvidia/moonshotai/kimi-k2-instruct-0905": "Kimi K2 Instruct 0905 (NVIDIA)",
+    "nvidia/moonshotai/kimi-k2.5": "Kimi K2.5 (NVIDIA)",
+    "nvidia/moonshotai/kimi-k2-thinking": "Kimi K2 Thinking (NVIDIA)",
+    "nvidia/meta/llama-3.3-70b-instruct": "Llama 3.3 70B (NVIDIA)",
+    "nvidia/deepseek-ai/deepseek-v3.2": "DeepSeek V3.2 (NVIDIA)",
+    "nvidia/minimax/minimax-m2.5": "MiniMax M2.5 (NVIDIA)",
+    // GitHub Models (free)
+    "github/gpt-4.1": "GPT-4.1 (GitHub Free)",
+    "github/gpt-4.1-mini": "GPT-4.1 Mini (GitHub Free)",
+    "github/gpt-4.1-nano": "GPT-4.1 Nano (GitHub Free)",
+    "github/o3-mini": "o3 Mini (GitHub Free)",
+    "github/o4-mini": "o4 Mini (GitHub Free)",
+    "github/DeepSeek-R1": "DeepSeek R1 (GitHub Free)",
+    "github/DeepSeek-V3-0324": "DeepSeek V3 (GitHub Free)",
+    "github/Llama-3.3-70B-Instruct": "Llama 3.3 70B (GitHub Free)",
+    "github/Llama-4-Scout-17B-16E-Instruct": "Llama 4 Scout (GitHub Free)",
+    "github/Llama-4-Maverick-17B-128E-Instruct-FP8": "Llama 4 Maverick (GitHub Free)",
+    "github/grok-3": "Grok 3 (GitHub Free)",
+    "github/grok-3-mini": "Grok 3 Mini (GitHub Free)",
+    "github/Mistral-Large-2411": "Mistral Large (GitHub Free)",
+    "github/Mistral-Small-24B-Instruct-2501": "Mistral Small 24B (GitHub Free)",
+    "github/Phi-4": "Phi 4 (GitHub Free)",
+    "github/Phi-4-mini-instruct": "Phi 4 Mini (GitHub Free)",
+    "github/command-r-plus-08-2024": "Command R+ (GitHub Free)",
+    "github/Jamba-1.5-Large": "Jamba 1.5 Large (GitHub Free)",
+    "github/Jamba-1.5-Mini": "Jamba 1.5 Mini (GitHub Free)",
+    "github/Codestral-2501": "Codestral (GitHub Free)",
     // Morningstar Local Models
     "morningstar-14b": "Morningstar 14B (Coding)",
     "morningstar-32b": "Morningstar 32B (Pro)",
@@ -602,6 +682,8 @@ const PROVIDERS: Record<string, LLMProvider> = {
   ollama: createOpenAICompatible("ollama", "http://localhost:11434/v1"),
   groq: createOpenAICompatible("groq", "https://api.groq.com/openai/v1"),
   openrouter: createOpenAICompatible("openrouter", "https://openrouter.ai/api/v1"),
+  nvidia: createOpenAICompatible("nvidia", "https://integrate.api.nvidia.com/v1"),
+  "github-models": createOpenAICompatible("github-models", "https://models.github.ai/inference"),
 
   anthropic: {
     name: "anthropic",

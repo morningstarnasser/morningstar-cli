@@ -370,6 +370,12 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
 
   // ── SIGINT handler + ctrl+o expand/collapse ──
   useInput((_input, key) => {
+    if (key.escape && isProcessing && abortRef.current) {
+      abortRef.current.abort();
+      setIsProcessing(false);
+      setIsStreaming(false);
+      addOutput({ type: "info", content: "Abgebrochen." });
+    }
     if (key.ctrl && _input === "c") {
       if (isProcessing && abortRef.current) {
         abortRef.current.abort();
@@ -688,7 +694,19 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
           saveConfig({ model: arg, provider: newProv, baseUrl: newConfig.baseUrl });
           addOutput({ type: "success", content: `Model: ${getModelDisplayName(arg)} [${newProv}]` });
         } else {
-          addOutput({ type: "info", content: `Aktuelles Model: ${getModelDisplayName(config.model)} [${config.provider || detectProvider(config.model)}]\nNutze /model <id> zum Wechseln.` });
+          const allProviders = listProviders();
+          let modelList = `Aktuelles Model: ${getModelDisplayName(config.model)} [${config.provider || detectProvider(config.model)}]\n\nVerfuegbare Modelle:\n`;
+          for (const p of allProviders) {
+            const isActive = p.name === (config.provider || detectProvider(config.model));
+            modelList += `\n  ${p.name.toUpperCase()}${isActive ? " ★" : ""} (${p.envKey}):\n`;
+            for (const m of p.models) {
+              if (m.startsWith("(")) continue;
+              const isCurrent = m === config.model;
+              modelList += `    ${isCurrent ? "→ " : "  "}${m.padEnd(50)} ${getModelDisplayName(m)}\n`;
+            }
+          }
+          modelList += `\nNutze /model <id> zum Wechseln.`;
+          addOutput({ type: "info", content: modelList });
         }
         return true;
 
