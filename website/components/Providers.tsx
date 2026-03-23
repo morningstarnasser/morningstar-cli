@@ -19,14 +19,14 @@ export default function Providers() {
           <div className="text-center mb-16">
             <div className="flex items-center justify-center gap-4 mb-4">
               <div className="h-px w-16 bg-gradient-to-r from-transparent to-amber-500/50" />
-              <span className="text-amber-400 text-sm tracking-[0.3em] uppercase">
+              <span className="text-amber-600 text-sm tracking-[0.3em] uppercase">
                 Providers
               </span>
               <div className="h-px w-16 bg-gradient-to-l from-transparent to-amber-500/50" />
             </div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-white">
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
               7 Providers.{" "}
-              <span className="text-amber-400">Any Model.</span>
+              <span className="text-amber-500">Any Model.</span>
             </h2>
           </div>
         </ScrollReveal>
@@ -43,8 +43,8 @@ export default function Providers() {
                 >
                   {p.name}
                 </div>
-                <div className="text-gray-400 text-xs mb-3">{p.models}</div>
-                <code className="text-[11px] text-gray-500 bg-black/50 px-2 py-1 rounded">
+                <div className="text-gray-500 text-xs mb-3">{p.models}</div>
+                <code className="text-[11px] text-gray-400 bg-gray-100 px-2 py-1 rounded">
                   --model {p.cmd}
                 </code>
               </div>

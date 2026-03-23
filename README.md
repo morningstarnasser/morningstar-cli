@@ -33,8 +33,8 @@
 [![Ink 5](https://img.shields.io/badge/Ink_5-React_Terminal-61DAFB?style=flat-square&logo=react&logoColor=white)](https://github.com/vadimdemedes/ink)
 [![Shiki](https://img.shields.io/badge/Shiki-VS_Code_Highlighting-8B5CF6?style=flat-square&logo=visualstudiocode&logoColor=white)](https://shiki.style)
 [![7 Providers](https://img.shields.io/badge/Providers-7-8B5CF6?style=flat-square&logo=cloud&logoColor=white)](.)
-[![12 Tools](https://img.shields.io/badge/Tools-12-06B6D4?style=flat-square&logo=wrench&logoColor=white)](.)
-[![6+ Agents](https://img.shields.io/badge/Agents-6%2B_Custom-A855F7?style=flat-square&logo=robot&logoColor=white)](.)
+[![15 Tools](https://img.shields.io/badge/Tools-15-06B6D4?style=flat-square&logo=wrench&logoColor=white)](.)
+[![56 Agents](https://img.shields.io/badge/Agents-56-A855F7?style=flat-square&logo=robot&logoColor=white)](.)
 [![65+ Commands](https://img.shields.io/badge/Commands-65+-F59E0B?style=flat-square&logo=terminal&logoColor=white)](.)
 [![7 Themes](https://img.shields.io/badge/Themes-7-EC4899?style=flat-square&logo=palette&logoColor=white)](.)
 [![Native Tools](https://img.shields.io/badge/Native-Function_Calling-10B981?style=flat-square&logo=lightning&logoColor=white)](.)
@@ -47,7 +47,7 @@
 
 Built with **Ink** (React for Terminal) and **Shiki** (VS Code Syntax Highlighting).<br/>
 Native function calling, real token counting, auto-test after changes, sub-agent delegation,<br/>
-12 tools, 60+ commands, custom agents, memory, permissions, task progress tracking, and more.
+15 tools, 56 agents, 60+ commands, memory, permissions, task progress tracking, and more.
 
 <br/>
 
@@ -106,8 +106,8 @@ One tool. Any model. Maximum control.
 │  ★ Theme    Morningstar Default                          │
 └──────────────────────────────────────────────────────────┘
 
-  Tools     read · write · edit · bash · grep · glob · ls · git · web · fetch · gh
-  Agents    code · debug · review · refactor · architect · test
+  Tools     read · write · edit · bash · grep · glob · ls · git · web · fetch · gh · notebook · bg
+  Agents    56 agents (code · debug · review · refactor · architect · test + 50 extended)
   Settings  ~/.morningstar/settings.json + .morningstar/settings.local.json
   Hilfe     /help · /features · /settings · /agents · /quit
 ```
@@ -303,22 +303,25 @@ Tools are categorized:
 
 ---
 
-## 12 Built-in Tools
+## 15 Built-in Tools
 
 | Tool | Description | Undo |
 |:----:|:------------|:----:|
-| ![](https://img.shields.io/badge/read-06b6d4?style=flat-square) | Read files with line numbers | — |
+| ![](https://img.shields.io/badge/read-06b6d4?style=flat-square) | Read files with line numbers, offset/limit for large files | — |
 | ![](https://img.shields.io/badge/write-10b981?style=flat-square) | Create/overwrite files (auto-creates dirs) | Yes |
-| ![](https://img.shields.io/badge/edit-f59e0b?style=flat-square) | Find & replace with LCS-based colored diff output | Yes |
+| ![](https://img.shields.io/badge/edit-f59e0b?style=flat-square) | Find & replace with replaceAll, LCS-based colored diff output | Yes |
 | ![](https://img.shields.io/badge/delete-ef4444?style=flat-square) | Delete files | Yes |
-| ![](https://img.shields.io/badge/bash-a855f7?style=flat-square) | Execute commands (streaming output, 2min timeout) | — |
-| ![](https://img.shields.io/badge/grep-3b82f6?style=flat-square) | Search for patterns across files | — |
+| ![](https://img.shields.io/badge/bash-a855f7?style=flat-square) | Execute commands (configurable timeout, background execution) | — |
+| ![](https://img.shields.io/badge/grep-3b82f6?style=flat-square) | Search for patterns with context lines (-A/-B/-C), case toggle | — |
 | ![](https://img.shields.io/badge/glob-ec4899?style=flat-square) | Find files by glob pattern | — |
 | ![](https://img.shields.io/badge/ls-f97316?style=flat-square) | List directory contents with file sizes | — |
 | ![](https://img.shields.io/badge/git-6366f1?style=flat-square) | Git status + last 5 commits | — |
 | ![](https://img.shields.io/badge/web-14b8a6?style=flat-square) | Fetch & parse web pages into readable text | — |
 | ![](https://img.shields.io/badge/fetch-0ea5e9?style=flat-square) | HTTP requests (GET/POST) with headers & body | — |
 | ![](https://img.shields.io/badge/gh-7c3aed?style=flat-square) | GitHub CLI integration (issues, PRs, repos) | — |
+| ![](https://img.shields.io/badge/notebook__edit-d946ef?style=flat-square) | Edit Jupyter notebook cells (replace/insert/delete) | Yes |
+| ![](https://img.shields.io/badge/bg__status-0891b2?style=flat-square) | Check background task status and output | — |
+| ![](https://img.shields.io/badge/bg__list-64748b?style=flat-square) | List all running/completed background tasks | — |
 
 Tools are invoked via **native function calling** (OpenAI tools format, Anthropic `tool_use` blocks, Google `functionCall`) — not regex parsing.
 
@@ -394,7 +397,7 @@ API keys are stored per-provider in `~/.morningstar/config.json`. Switch provide
 
 ---
 
-## 6+ Agents (Built-in + Custom)
+## 56 Agents (6 Built-in + 50 Extended)
 
 | Agent | Command | Focus |
 |:-----:|---------|-------|
@@ -808,12 +811,13 @@ morningstar-cli/
 │   ├── ai.ts                         ← Multi-provider streaming
 │   ├── providers.ts                  ← 7 providers + native function calling
 │   ├── tool-definitions.ts           ← Tool schemas (OpenAI/Anthropic/Google formats)
-│   ├── tools.ts                      ← 12 tools + executor
+│   ├── tools.ts                      ← 15 tools + executor + background tasks
+│   ├── extended-agents.ts            ← 50 specialized domain agents
 │   ├── sub-agents.ts                 ← Sub-agent task delegation
 │   ├── auto-test.ts                  ← Auto-test after file changes
 │   ├── settings.ts                   ← Per-project + global settings
 │   ├── permissions.ts                ← 8 permission modes
-│   ├── agents.ts                     ← 6 built-in agents
+│   ├── agents.ts                     ← 6 built-in + 50 extended = 56 agents
 │   ├── custom-agents.ts              ← Custom agent CRUD
 │   ├── file-agents.ts                ← File-based agents (.md with frontmatter)
 │   ├── agent-teams.ts                ← Agent team orchestration

@@ -490,7 +490,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
       case "/clear":
         setMessages([{ role: "system", content: getFullSystemPrompt() }]);
         clearUndoStack();
-        addOutput({ type: "success", content: "Konversation zurueckgesetzt." });
+        setOutput([{ id: 0, type: "banner" }, { id: Date.now(), type: "success", content: "Konversation zurueckgesetzt." }]);
         return true;
 
       case "/compact":
@@ -499,7 +499,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
           const keep = prev.length > 6 ? prev.slice(-4) : prev.slice(-2);
           return [prev[0], ...keep];
         });
-        addOutput({ type: "success", content: "Konversation komprimiert." });
+        setOutput([{ id: 0, type: "banner" }, { id: Date.now(), type: "success", content: "Konversation komprimiert. Verlauf geloescht." }]);
         return true;
 
       case "/max-turns": {

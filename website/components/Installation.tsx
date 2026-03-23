@@ -25,16 +25,16 @@ export default function Installation() {
           <div className="text-center mb-12">
             <div className="flex items-center justify-center gap-4 mb-4">
               <div className="h-px w-16 bg-gradient-to-r from-transparent to-amber-500/50" />
-              <span className="text-amber-400 text-sm tracking-[0.3em] uppercase">
+              <span className="text-amber-600 text-sm tracking-[0.3em] uppercase">
                 Install
               </span>
               <div className="h-px w-16 bg-gradient-to-l from-transparent to-amber-500/50" />
             </div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-white">
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
               Get started in{" "}
-              <span className="text-amber-400">30 seconds.</span>
+              <span className="text-amber-500">30 seconds.</span>
             </h2>
-            <p className="text-gray-400 mt-4">
+            <p className="text-gray-500 mt-4">
               Requires Node.js 18+
             </p>
           </div>

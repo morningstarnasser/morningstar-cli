@@ -1,4 +1,5 @@
 import type { Message } from "./types.js";
+import { EXTENDED_AGENTS } from "./extended-agents.js";
 
 export interface Agent {
   name: string;
@@ -120,23 +121,28 @@ Nutze das bestehende Test-Framework des Projekts.`,
   },
 };
 
+// Merged built-in + extended agents
+export const ALL_AGENTS: Record<string, Agent> = { ...AGENTS, ...EXTENDED_AGENTS };
+
 export function getAgentPrompt(agentId: string, baseSystemPrompt: string, allAgents?: Record<string, Agent>): string {
-  const agents = allAgents || AGENTS;
+  const agents = allAgents || ALL_AGENTS;
   const agent = agents[agentId];
   if (!agent) return baseSystemPrompt;
   return `${agent.systemPrompt}\n\n--- Projekt-Kontext ---\n${baseSystemPrompt}`;
 }
 
 export function listAgents(allAgents?: Record<string, Agent>, customOnly?: boolean): string {
-  const agents = allAgents || AGENTS;
+  const agents = allAgents || ALL_AGENTS;
   return Object.entries(agents)
     .filter(([id]) => {
-      if (customOnly) return !(id in AGENTS);
+      if (customOnly) return !(id in AGENTS) && !(id in EXTENDED_AGENTS);
       return true;
     })
     .map(([id, a]) => {
-      const tag = id in AGENTS ? chalk.gray("[built-in]") : chalk.hex("#a855f7")("[custom]");
-      return `  /agent:${id.padEnd(12)} ${tag} ${a.name} - ${a.description}`;
+      const isBuiltIn = id in AGENTS;
+      const isExtended = id in EXTENDED_AGENTS;
+      const tag = isBuiltIn ? chalk.gray("[built-in]") : isExtended ? chalk.hex("#06b6d4")("[extended]") : chalk.hex("#a855f7")("[custom]");
+      return `  /agent:${id.padEnd(24)} ${tag} ${a.name} - ${a.description}`;
     })
     .join("\n");
 }

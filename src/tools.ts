@@ -1,11 +1,53 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { resolve, dirname, relative, join } from "node:path";
 import { glob } from "glob";
 import { trackChange, captureBeforeState } from "./undo.js";
 import type { ToolResult } from "./types.js";
 
 const MAX_OUTPUT = 15000; // truncate long outputs
+
+// ─── Background Task Manager ───
+interface BackgroundTask {
+  id: string;
+  command: string;
+  pid: number;
+  startTime: number;
+  stdout: string;
+  stderr: string;
+  exitCode: number | null;
+  done: boolean;
+}
+
+const backgroundTasks = new Map<string, BackgroundTask>();
+
+function generateTaskId(): string {
+  return `bg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+export function getBackgroundTaskStatus(taskId: string): ToolResult {
+  const task = backgroundTasks.get(taskId);
+  if (!task) return { tool: "bg_status", result: `Task nicht gefunden: ${taskId}`, success: false };
+  const elapsed = ((Date.now() - task.startTime) / 1000).toFixed(1);
+  const status = task.done ? `Beendet (exit ${task.exitCode})` : `Laeuft (${elapsed}s)`;
+  const output = (task.stdout + task.stderr).trim() || "(kein Output bisher)";
+  return {
+    tool: "bg_status",
+    result: `Task: ${task.id}\nCommand: ${task.command}\nPID: ${task.pid}\nStatus: ${status}\n\n${truncate(output)}`,
+    success: true,
+    taskId: task.id,
+  };
+}
+
+export function listBackgroundTasks(): ToolResult {
+  if (backgroundTasks.size === 0) return { tool: "bg_list", result: "Keine Background-Tasks.", success: true };
+  const lines = Array.from(backgroundTasks.values()).map((t) => {
+    const elapsed = ((Date.now() - t.startTime) / 1000).toFixed(1);
+    const status = t.done ? `done (exit ${t.exitCode})` : `running (${elapsed}s)`;
+    return `  ${t.id}  ${status}  ${t.command.slice(0, 60)}`;
+  });
+  return { tool: "bg_list", result: lines.join("\n"), success: true };
+}
 
 // ─── Stats Tracking ───
 export const toolStats = {
@@ -29,16 +71,24 @@ function truncate(s: string, max = MAX_OUTPUT): string {
 }
 
 // ─── Read File ───
-export function readFile(filePath: string, cwd: string): ToolResult {
+export function readFile(filePath: string, cwd: string, offset?: number, limit?: number): ToolResult {
   countTool("read");
   try {
     const abs = resolve(cwd, filePath);
     if (!existsSync(abs)) return { tool: "read", result: `Datei nicht gefunden: ${filePath}`, success: false };
     const content = readFileSync(abs, "utf-8");
-    const lineCount = content.split("\n").length;
-    const lines = content.split("\n").map((l, i) => `${String(i + 1).padStart(4)} | ${l}`).join("\n");
+    const allLines = content.split("\n");
+    const totalLines = allLines.length;
+
+    // Apply offset (1-indexed) and limit
+    const startLine = offset && offset > 0 ? offset - 1 : 0;
+    const endLine = limit && limit > 0 ? Math.min(startLine + limit, totalLines) : totalLines;
+    const selectedLines = allLines.slice(startLine, endLine);
+
+    const lines = selectedLines.map((l, i) => `${String(startLine + i + 1).padStart(4)} | ${l}`).join("\n");
+    const rangeInfo = (offset || limit) ? `\n[Showing lines ${startLine + 1}-${endLine} of ${totalLines}]` : "";
     toolStats.filesRead++;
-    return { tool: "read", result: truncate(lines), success: true, filePath, linesChanged: lineCount };
+    return { tool: "read", result: truncate(lines) + rangeInfo, success: true, filePath, linesChanged: totalLines, startLineNumber: startLine + 1 };
   } catch (e) {
     return { tool: "read", result: `Fehler: ${(e as Error).message}`, success: false };
   }
@@ -73,7 +123,7 @@ export function writeFile(filePath: string, content: string, cwd: string): ToolR
 }
 
 // ─── Edit File (find & replace) ───
-export function editFile(filePath: string, oldStr: string, newStr: string, cwd: string): ToolResult {
+export function editFile(filePath: string, oldStr: string, newStr: string, cwd: string, replaceAll = false): ToolResult {
   countTool("edit");
   try {
     const abs = resolve(cwd, filePath);
@@ -83,27 +133,30 @@ export function editFile(filePath: string, oldStr: string, newStr: string, cwd: 
       return { tool: "edit", result: `String nicht gefunden in ${filePath}. Keine Aenderung.`, success: false };
     }
 
+    const newContent = replaceAll ? content.replaceAll(oldStr, newStr) : content.replace(oldStr, newStr);
+
     // Track for undo
     trackChange({
       type: "edit",
       filePath: abs,
       previousContent: content,
-      newContent: content.replace(oldStr, newStr),
+      newContent,
       timestamp: new Date().toISOString(),
       description: `edit ${filePath}`,
     });
 
-    const newContent = content.replace(oldStr, newStr);
     writeFileSync(abs, newContent, "utf-8");
     const addedLines = newStr.split("\n").length;
     const removedLines = oldStr.split("\n").length;
-    const delta = addedLines - removedLines;
+    const occurrences = replaceAll ? content.split(oldStr).length - 1 : 1;
+    const delta = (addedLines - removedLines) * occurrences;
     const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
     // Compute 1-based line number where the edit starts
     const editIndex = content.indexOf(oldStr);
     const startLineNumber = editIndex >= 0 ? content.substring(0, editIndex).split("\n").length : 1;
+    const replaceInfo = replaceAll && occurrences > 1 ? ` (${occurrences} occurrences)` : "";
     toolStats.filesEdited++;
-    return { tool: "edit", result: `Updated ${filePath} (${deltaStr} lines)`, success: true, diff: { filePath, oldStr, newStr }, filePath, linesChanged: addedLines, startLineNumber };
+    return { tool: "edit", result: `Updated ${filePath} (${deltaStr} lines)${replaceInfo}`, success: true, diff: { filePath, oldStr, newStr }, filePath, linesChanged: addedLines, startLineNumber };
   } catch (e) {
     return { tool: "edit", result: `Fehler: ${(e as Error).message}`, success: false };
   }
@@ -136,32 +189,86 @@ export function deleteFile(filePath: string, cwd: string): ToolResult {
 }
 
 // ─── Bash Execution ───
-export function bash(command: string, cwd: string): ToolResult {
+export function bash(command: string, cwd: string, timeout?: number, runInBackground?: boolean): ToolResult {
   countTool("bash");
   toolStats.bashCommands++;
+
+  // Background execution via spawn
+  if (runInBackground) {
+    const taskId = generateTaskId();
+    const child = spawn("bash", ["-c", command], {
+      cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: false,
+    });
+    const task: BackgroundTask = {
+      id: taskId,
+      command,
+      pid: child.pid || 0,
+      startTime: Date.now(),
+      stdout: "",
+      stderr: "",
+      exitCode: null,
+      done: false,
+    };
+    child.stdout.on("data", (d: Buffer) => { task.stdout += d.toString(); });
+    child.stderr.on("data", (d: Buffer) => { task.stderr += d.toString(); });
+    child.on("close", (code) => { task.exitCode = code; task.done = true; });
+    child.on("error", (err) => { task.stderr += err.message; task.done = true; task.exitCode = 1; });
+    backgroundTasks.set(taskId, task);
+    return { tool: "bash", result: `Background-Task gestartet: ${taskId} (PID ${task.pid})\nCommand: ${command}\nNutze bg_status mit taskId="${taskId}" um den Status zu pruefen.`, success: true, command, taskId };
+  }
+
+  // Synchronous execution with configurable timeout
+  const timeoutMs = Math.min(Math.max((timeout || 30) * 1000, 1000), 600000);
   try {
     const output = execSync(command, {
       cwd,
       encoding: "utf-8",
-      timeout: 30000,
+      timeout: timeoutMs,
       maxBuffer: 1024 * 1024 * 5,
       stdio: ["pipe", "pipe", "pipe"],
     });
     return { tool: "bash", result: truncate(output || "(kein Output)"), success: true, command };
   } catch (e) {
-    const err = e as { stdout?: string; stderr?: string; message: string };
+    const err = e as { stdout?: string; stderr?: string; message: string; killed?: boolean };
+    if (err.killed || err.message?.includes("TIMEOUT")) {
+      const partial = (err.stdout || "") + (err.stderr || "");
+      return { tool: "bash", result: truncate(`Timeout nach ${timeoutMs / 1000}s.\n${partial}`), success: false, command };
+    }
     const output = (err.stdout || "") + (err.stderr || "") || err.message;
     return { tool: "bash", result: truncate(output), success: false, command };
   }
 }
 
 // ─── Grep (Content Search) ───
-export function grepSearch(pattern: string, cwd: string, fileGlob?: string): ToolResult {
+export function grepSearch(
+  pattern: string,
+  cwd: string,
+  fileGlob?: string,
+  contextBefore?: number,
+  contextAfter?: number,
+  context?: number,
+  caseSensitive = true,
+  maxResults = 50,
+): ToolResult {
   countTool("grep");
   try {
-    const cmd = fileGlob
-      ? `grep -rn --include="${fileGlob}" "${pattern}" . 2>/dev/null | head -50`
-      : `grep -rn "${pattern}" . --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.py" --include="*.go" --include="*.rs" --include="*.java" --include="*.css" --include="*.json" --include="*.md" 2>/dev/null | head -50`;
+    // Build grep flags dynamically
+    const flags: string[] = ["-rn"];
+    if (!caseSensitive) flags.push("-i");
+    if (context && context > 0) flags.push(`-C ${context}`);
+    else {
+      if (contextBefore && contextBefore > 0) flags.push(`-B ${contextBefore}`);
+      if (contextAfter && contextAfter > 0) flags.push(`-A ${contextAfter}`);
+    }
+
+    const includes = fileGlob
+      ? `--include="${fileGlob}"`
+      : '--include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.py" --include="*.go" --include="*.rs" --include="*.java" --include="*.css" --include="*.json" --include="*.md"';
+
+    const limit = Math.min(Math.max(maxResults, 1), 500);
+    const cmd = `grep ${flags.join(" ")} ${includes} "${pattern}" . 2>/dev/null | head -${limit}`;
     const output = execSync(cmd, { cwd, encoding: "utf-8", timeout: 10000, maxBuffer: 1024 * 512 });
     if (!output.trim()) return { tool: "grep", result: "Keine Treffer.", success: true };
     return { tool: "grep", result: truncate(output), success: true };
@@ -310,6 +417,77 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)}KB`;
   return `${(bytes / 1048576).toFixed(1)}MB`;
+}
+
+// ─── Notebook Edit (.ipynb) ───
+export function notebookEdit(
+  notebookPath: string,
+  cellNumber: number,
+  editMode: "replace" | "insert" | "delete",
+  cwd: string,
+  cellType?: "code" | "markdown",
+  newSource?: string,
+): ToolResult {
+  countTool("notebook_edit");
+  try {
+    const abs = resolve(cwd, notebookPath);
+    if (!existsSync(abs)) return { tool: "notebook_edit", result: `Notebook nicht gefunden: ${notebookPath}`, success: false };
+    const raw = readFileSync(abs, "utf-8");
+    const nb = JSON.parse(raw);
+    if (!nb.cells || !Array.isArray(nb.cells)) return { tool: "notebook_edit", result: "Ungueltige Notebook-Struktur (keine cells).", success: false };
+
+    const prevContent = raw;
+
+    switch (editMode) {
+      case "replace": {
+        if (cellNumber < 0 || cellNumber >= nb.cells.length) return { tool: "notebook_edit", result: `Cell ${cellNumber} existiert nicht (0-${nb.cells.length - 1}).`, success: false };
+        if (!newSource && newSource !== "") return { tool: "notebook_edit", result: "newSource ist erforderlich fuer replace.", success: false };
+        const sourceLines = newSource!.split("\n").map((l, i, arr) => i < arr.length - 1 ? l + "\n" : l);
+        nb.cells[cellNumber].source = sourceLines;
+        if (cellType) nb.cells[cellNumber].cell_type = cellType;
+        break;
+      }
+      case "insert": {
+        if (!cellType) return { tool: "notebook_edit", result: "cellType ist erforderlich fuer insert.", success: false };
+        const sourceLines = (newSource || "").split("\n").map((l, i, arr) => i < arr.length - 1 ? l + "\n" : l);
+        const newCell: Record<string, unknown> = {
+          cell_type: cellType,
+          metadata: {},
+          source: sourceLines,
+        };
+        if (cellType === "code") {
+          newCell.execution_count = null;
+          newCell.outputs = [];
+        }
+        const insertIdx = Math.min(Math.max(cellNumber, 0), nb.cells.length);
+        nb.cells.splice(insertIdx, 0, newCell);
+        break;
+      }
+      case "delete": {
+        if (cellNumber < 0 || cellNumber >= nb.cells.length) return { tool: "notebook_edit", result: `Cell ${cellNumber} existiert nicht (0-${nb.cells.length - 1}).`, success: false };
+        nb.cells.splice(cellNumber, 1);
+        break;
+      }
+    }
+
+    const newContent = JSON.stringify(nb, null, 1);
+
+    // Track for undo
+    trackChange({
+      type: "edit",
+      filePath: abs,
+      previousContent: prevContent,
+      newContent,
+      timestamp: new Date().toISOString(),
+      description: `notebook_edit ${notebookPath} cell ${cellNumber} (${editMode})`,
+    });
+
+    writeFileSync(abs, newContent, "utf-8");
+    toolStats.filesEdited++;
+    return { tool: "notebook_edit", result: `Notebook ${notebookPath}: cell ${cellNumber} ${editMode}d. Total cells: ${nb.cells.length}`, success: true, filePath: notebookPath };
+  } catch (e) {
+    return { tool: "notebook_edit", result: `Fehler: ${(e as Error).message}`, success: false };
+  }
 }
 
 // ─── Parse & Execute Tool Calls from AI Response ───
@@ -573,18 +751,27 @@ export function executeNativeToolCall(
   countTool(name);
   switch (name) {
     case "read":
-      return readFile(args.filePath as string, cwd);
+      return readFile(args.filePath as string, cwd, args.offset as number | undefined, args.limit as number | undefined);
     case "write":
       return writeFile(args.filePath as string, args.content as string, cwd);
     case "edit":
-      return editFile(args.filePath as string, args.oldStr as string, args.newStr as string, cwd);
+      return editFile(args.filePath as string, args.oldStr as string, args.newStr as string, cwd, args.replaceAll as boolean | undefined);
     case "delete":
       return deleteFile(args.filePath as string, cwd);
     case "bash":
       toolStats.bashCommands++;
-      return bash(args.command as string, cwd);
+      return bash(args.command as string, cwd, args.timeout as number | undefined, args.run_in_background as boolean | undefined);
     case "grep":
-      return grepSearch(args.pattern as string, cwd, (args.fileGlob as string) || undefined);
+      return grepSearch(
+        args.pattern as string,
+        cwd,
+        (args.fileGlob as string) || undefined,
+        args.contextBefore as number | undefined,
+        args.contextAfter as number | undefined,
+        args.context as number | undefined,
+        args.caseSensitive !== false,
+        (args.maxResults as number) || 50,
+      );
     case "glob":
       return globSearch(args.pattern as string, cwd);
     case "ls":
@@ -597,6 +784,19 @@ export function executeNativeToolCall(
       return fetchUrl(args.url as string);
     case "gh":
       return ghCli(args.command as string, cwd);
+    case "notebook_edit":
+      return notebookEdit(
+        args.notebookPath as string,
+        args.cellNumber as number,
+        args.editMode as "replace" | "insert" | "delete",
+        cwd,
+        args.cellType as "code" | "markdown" | undefined,
+        args.newSource as string | undefined,
+      );
+    case "bg_status":
+      return getBackgroundTaskStatus(args.taskId as string);
+    case "bg_list":
+      return listBackgroundTasks();
     default:
       return { tool: name, result: `Unbekanntes Tool: ${name}`, success: false };
   }
@@ -605,7 +805,7 @@ export function executeNativeToolCall(
 // ─── Parallel Native Tool Execution ──────────────────────────────────────────
 // Executes safe/read-only tools in parallel, mutating tools sequentially.
 
-const SAFE_TOOLS = new Set(["read", "grep", "glob", "ls", "git", "web", "fetch"]);
+const SAFE_TOOLS = new Set(["read", "grep", "glob", "ls", "git", "web", "fetch", "bg_status", "bg_list", "notebook_edit"]);
 
 export interface NativeToolCall {
   id: string;

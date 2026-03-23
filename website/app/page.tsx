@@ -9,13 +9,10 @@ import CLIFeatures from "../components/CLIFeatures";
 import Security from "../components/Security";
 import Installation from "../components/Installation";
 import Footer from "../components/Footer";
-import MatrixRain from "../components/MatrixRain";
 
 export default function Home() {
   return (
-    <main className="relative bg-black min-h-screen bg-grid scanline overflow-hidden">
-      {/* Matrix rain background */}
-      <MatrixRain />
+    <main className="relative bg-[#fafafa] min-h-screen bg-grid bg-mesh scanline overflow-hidden">
 
       {/* Floating particles */}
       <div className="fixed inset-0 pointer-events-none z-0" aria-hidden="true">

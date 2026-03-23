@@ -29,9 +29,9 @@ export default function MatrixRain() {
     window.addEventListener("resize", resize);
 
     function draw() {
-      ctx!.fillStyle = "rgba(0, 0, 0, 0.05)";
+      ctx!.fillStyle = "rgba(250, 250, 250, 0.08)";
       ctx!.fillRect(0, 0, canvas!.width, canvas!.height);
-      ctx!.fillStyle = "rgba(245, 158, 11, 0.08)";
+      ctx!.fillStyle = "rgba(245, 158, 11, 0.06)";
       ctx!.font = `${fontSize}px monospace`;
 
       for (let i = 0; i < drops.length; i++) {
@@ -58,7 +58,7 @@ export default function MatrixRain() {
     <canvas
       ref={canvasRef}
       className="fixed inset-0 pointer-events-none z-0"
-      style={{ opacity: 0.6 }}
+      style={{ opacity: 0.3 }}
     />
   );
 }

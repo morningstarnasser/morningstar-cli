@@ -90,13 +90,13 @@ export default function TerminalDemo() {
           <div className="text-center mb-12">
             <div className="flex items-center justify-center gap-4 mb-4">
               <div className="h-px w-16 bg-gradient-to-r from-transparent to-amber-500/50" />
-              <span className="text-amber-400 text-sm tracking-[0.3em] uppercase">
+              <span className="text-amber-600 text-sm tracking-[0.3em] uppercase">
                 Live Demo
               </span>
               <div className="h-px w-16 bg-gradient-to-l from-transparent to-amber-500/50" />
             </div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-white">
-              Watch it <span className="text-amber-400">think.</span>
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
+              Watch it <span className="text-amber-500">think.</span>
             </h2>
           </div>
         </ScrollReveal>

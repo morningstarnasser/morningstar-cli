@@ -17,9 +17,16 @@ const features: { icon: LucideIcon; title: string; desc: string; color: string; 
   },
   {
     icon: Wrench,
-    title: "12 Built-in Tools",
-    desc: "read, write, edit, delete, bash, grep, glob, ls, git, web, fetch, gh — with undo, diffs & permissions",
+    title: "15 Built-in Tools",
+    desc: "read, write, edit, delete, bash, grep, glob, ls, git, web, fetch, gh, notebook_edit, bg_status, bg_list — with undo, diffs & permissions",
     color: "text-cyan-400",
+  },
+  {
+    icon: Bot,
+    title: "56 AI Agents",
+    desc: "6 built-in + 50 extended domain experts — backend, frontend, security, DevOps, AI, cloud, marketing, and more",
+    color: "text-violet-500",
+    badge: "NEW",
   },
   {
     icon: Zap,
@@ -264,16 +271,16 @@ export default function Features() {
           <div className="text-center mb-16">
             <div className="flex items-center justify-center gap-4 mb-4">
               <div className="h-px w-16 bg-gradient-to-r from-transparent to-amber-500/50" />
-              <span className="text-amber-400 text-sm tracking-[0.3em] uppercase">
+              <span className="text-amber-600 text-sm tracking-[0.3em] uppercase">
                 Capabilities
               </span>
               <div className="h-px w-16 bg-gradient-to-l from-transparent to-amber-500/50" />
             </div>
-            <h2 className="text-3xl sm:text-4xl font-bold text-white">
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900">
               Everything you need.{" "}
-              <span className="text-amber-400">Nothing you don&apos;t.</span>
+              <span className="text-amber-500">Nothing you don&apos;t.</span>
             </h2>
-            <p className="text-gray-400 mt-4 max-w-lg mx-auto text-sm">
+            <p className="text-gray-500 mt-4 max-w-lg mx-auto text-sm">
               {features.length} features. {newCount} brand-new capabilities rivaling Claude Code.
             </p>
           </div>
@@ -291,8 +298,8 @@ export default function Features() {
                 <div className={`mb-3 ${f.color}`}>
                   <f.icon size={28} strokeWidth={1.5} />
                 </div>
-                <h3 className="text-lg font-bold text-white mb-2">{f.title}</h3>
-                <p className="text-gray-400 text-sm leading-relaxed">{f.desc}</p>
+                <h3 className="text-lg font-bold text-gray-900 mb-2">{f.title}</h3>
+                <p className="text-gray-500 text-sm leading-relaxed">{f.desc}</p>
               </div>
             </ScrollReveal>
           ))}

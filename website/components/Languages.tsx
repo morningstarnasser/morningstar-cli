@@ -24,7 +24,7 @@ export default function Languages() {
             <h2 className="text-4xl md:text-5xl font-bold mt-4 mb-4">
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-fuchsia-400">40+</span> Programming Languages
             </h2>
-            <p className="text-white/40 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-gray-500 max-w-2xl mx-auto leading-relaxed">
               First-class support for every major language. Morningstar understands
               idioms, conventions, and best practices for each one.
             </p>
@@ -39,7 +39,7 @@ export default function Languages() {
                 className="glass-card px-4 py-2.5 border-purple-500/10 hover:border-purple-500/30 transition-all duration-300 cursor-default"
                 style={{ borderRadius: "10px" }}
               >
-                <span className="text-sm text-white/70 font-medium">{lang}</span>
+                <span className="text-sm text-gray-700 font-medium">{lang}</span>
               </div>
             ))}
           </div>
