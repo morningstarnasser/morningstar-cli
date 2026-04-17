@@ -8,6 +8,7 @@ export interface ToolResult {
   result: string;
   success: boolean;
   diff?: { filePath: string; oldStr: string; newStr: string };
+  taskId?: string;
   // Claude Code-style metadata
   filePath?: string;
   linesChanged?: number;

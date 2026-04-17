@@ -11,6 +11,7 @@ export interface ToolResult {
         oldStr: string;
         newStr: string;
     };
+    taskId?: string;
     filePath?: string;
     linesChanged?: number;
     command?: string;

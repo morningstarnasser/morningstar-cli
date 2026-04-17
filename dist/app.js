@@ -14,6 +14,7 @@ import { MorningstarSpinner } from "./components/Spinner.js";
 import { ToolResult as ToolResultBox } from "./components/ToolResult.js";
 import { ToolGroup } from "./components/ToolGroup.js";
 import { ContextRadar } from "./components/ContextRadar.js";
+import { StatusLine } from "./components/StatusLine.js";
 import { TaskProgress, createTaskStep } from "./components/TaskProgress.js";
 import { buildDepGraph, renderDepGraphAscii } from "./dep-graph.js";
 import { useTheme } from "./hooks/useTheme.js";
@@ -31,7 +32,8 @@ import { getPermissionMode, setPermissionMode } from "./permissions.js";
 import { loadSettings, initProjectSettings, projectSettingsExist, getProjectSettingsPath, getGlobalSettingsPath } from "./settings.js";
 import { loadProjectMemory } from "./project-memory.js";
 import { trackUsage, getSessionCosts, formatCostDisplay, isFreeTier } from "./cost-tracker.js";
-import { executeSubAgent, formatSubAgentResults, getAvailableSubAgents } from "./sub-agents.js";
+import { executeSubAgent, executeSubAgentsParallel, formatSubAgentResults, getAvailableSubAgents } from "./sub-agents.js";
+import { AgentTree } from "./components/AgentTree.js";
 import { detectTestRunner, shouldAutoTest, runTests, formatTestResult } from "./auto-test.js";
 import { getRepoMap, generateOnboarding, generateProjectScore, generateCodeRoast } from "./repo-map.js";
 import { parseMentions, formatMentionContext } from "./mentions.js";
@@ -169,6 +171,7 @@ function buildSlashCommands(customCommands) {
         { cmd: "/agent:migrate", desc: "Agents zu .md migrieren" },
         { cmd: "/delegate", desc: "Task an Sub-Agent delegieren" },
         { cmd: "/delegate:list", desc: "Verfuegbare Sub-Agents" },
+        { cmd: "/parallel", desc: "Mehrere Agents parallel starten" },
         // Tier 3 Features:
         { cmd: "/watch", desc: "File Watcher an/aus" },
         { cmd: "/branch", desc: "Konversation verzweigen" },
@@ -445,7 +448,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
             case "/clear":
                 setMessages([{ role: "system", content: getFullSystemPrompt() }]);
                 clearUndoStack();
-                addOutput({ type: "success", content: "Konversation zurueckgesetzt." });
+                setOutput([{ id: 0, type: "banner" }, { id: Date.now(), type: "success", content: "Konversation zurueckgesetzt." }]);
                 return true;
             case "/compact":
                 setMessages(prev => {
@@ -454,7 +457,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                     const keep = prev.length > 6 ? prev.slice(-4) : prev.slice(-2);
                     return [prev[0], ...keep];
                 });
-                addOutput({ type: "success", content: "Konversation komprimiert." });
+                setOutput([{ id: 0, type: "banner" }, { id: Date.now(), type: "success", content: "Konversation komprimiert. Verlauf geloescht." }]);
                 return true;
             case "/max-turns": {
                 if (!arg) {
@@ -1561,6 +1564,72 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                 addOutput({ type: "info", content: `Verfuegbare Sub-Agents:\n${list}` });
                 return true;
             }
+            // ── /parallel — Run multiple sub-agents concurrently with live tree ──
+            case "/parallel": {
+                const raw = (arg || "").trim();
+                if (!raw) {
+                    addOutput({ type: "info", content: "Usage: /parallel <agent1>,<agent2>,... <task>\n  Example: /parallel researcher,coder,writer Implement auth middleware" });
+                    return true;
+                }
+                const parallelParts = raw.split(/\s+/);
+                const agentsCsv = parallelParts[0];
+                const task = parallelParts.slice(1).join(" ").trim();
+                const agentIds = agentsCsv.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+                if (agentIds.length === 0 || !task) {
+                    addOutput({ type: "error", content: "Brauche Agents UND Task: /parallel a1,a2 <task>" });
+                    return true;
+                }
+                const allAgentsForParallel = getAllAgents();
+                const unknown = agentIds.filter((id) => !allAgentsForParallel[id]);
+                if (unknown.length > 0) {
+                    addOutput({ type: "error", content: `Unbekannte Agents: ${unknown.join(", ")}` });
+                    return true;
+                }
+                const treeId = nextId.current++;
+                const initialBranches = agentIds.map((id) => ({
+                    agentId: id,
+                    status: "pending",
+                    detail: "queued",
+                    elapsedMs: 0,
+                }));
+                const startTs = Date.now();
+                setOutput((prev) => [...prev, {
+                        id: treeId,
+                        type: "agent-tree",
+                        treeTitle: `parallel · ${task.slice(0, 60)}${task.length > 60 ? "…" : ""}`,
+                        treeBranches: initialBranches,
+                        startTime: startTs,
+                        treeDone: false,
+                    }]);
+                (async () => {
+                    const ac = new AbortController();
+                    abortRef.current = ac;
+                    setIsProcessing(true);
+                    try {
+                        const results = await executeSubAgentsParallel(agentIds.map((agentId) => ({ agentId, description: task })), config, cwd, getFullSystemPrompt(), ac.signal, (snapshot) => {
+                            setOutput((prev) => prev.map((item) => item.id === treeId
+                                ? { ...item, treeBranches: snapshot.map((s) => ({ ...s })) }
+                                : item));
+                        });
+                        setOutput((prev) => prev.map((item) => item.id === treeId
+                            ? { ...item, treeDone: true }
+                            : item));
+                        addOutput({ type: "success", content: formatSubAgentResults(results) });
+                        const combined = results.map((r) => `[${r.task.agentId}]\n${r.fullResponse}`).join("\n\n---\n\n");
+                        if (combined) {
+                            setMessages((prev) => [...prev, { role: "assistant", content: `[Parallel agents: ${agentIds.join(", ")}]\n\n${combined}` }]);
+                        }
+                    }
+                    catch (e) {
+                        addOutput({ type: "error", content: `Parallel-Fehler: ${e.message}` });
+                    }
+                    finally {
+                        setIsProcessing(false);
+                        abortRef.current = null;
+                    }
+                })();
+                return true;
+            }
             // ── /watch — File Watcher ──
             case "/watch": {
                 if (fileWatcherRef.current && fileWatcherRef.current.isRunning()) {
@@ -2371,11 +2440,13 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                 return (_jsx(ToolGroup, { results: item.toolResults || [], duration: item.toolDuration || 0, tokenCount: item.toolTokens || 0, expanded: item.expanded ?? true, toolUseCount: item.toolCount || 0 }, item.id));
             case "tool-activity":
                 return (_jsxs(Box, { marginLeft: 2, children: [_jsx(Text, { color: info, bold: true, children: "⏺ " }), _jsx(Text, { color: info, children: item.content }), _jsx(Text, { color: dim, children: " …" })] }, item.id));
+            case "agent-tree":
+                return (_jsx(AgentTree, { title: item.treeTitle || "parallel agents", branches: item.treeBranches || [], startTime: item.startTime || Date.now(), done: item.treeDone }, item.id));
             default:
                 return null;
         }
     }
     // ── Render ──
-    return (_jsxs(_Fragment, { children: [_jsx(Static, { items: output, children: (item) => renderOutputItem(item) }), _jsxs(Box, { flexDirection: "column", children: [isStreaming && !streamText && !streamReasoning && (_jsx(MorningstarSpinner, { startTime: streamStart, streamedChars: streamedChars, thinkingTime: thinkingStartTime > 0 ? thinkingStartTime : undefined })), (streamText || streamReasoning) && (_jsx(StreamingOutput, { text: streamText, reasoning: streamReasoning, isStreaming: isStreaming, startTime: streamStart })), showTaskProgress && taskSteps.length > 0 && (_jsx(TaskProgress, { steps: taskSteps, currentLabel: taskLabel, startTime: taskStartTime, tokenCount: taskTokens, turnNumber: taskTurn, maxTurns: taskMaxTurns })), _jsx(Box, { marginTop: 0, children: _jsx(Input, { onSubmit: processInput, activeAgent: activeAgent, planMode: planMode, thinkMode: thinkMode, isProcessing: isProcessing, suggestions: slashCommands, vimMode: vimMode, cwd: cwd }) }), showStatusLine && (_jsxs(_Fragment, { children: [_jsx(Box, { marginLeft: 0, marginTop: 0, children: _jsx(Text, { color: dim, children: "─".repeat(70) }) }), _jsxs(Box, { marginLeft: 1, gap: 1, children: [_jsxs(Text, { color: accent, bold: true, children: ["📁 ", cwd.replace(homedir(), "~")] }), _jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: primary, bold: true, children: ["🤖 ", config.model.length > 25 ? config.model.slice(0, 25) + "…" : config.model] }), _jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: (config.provider || "deepseek") === "ollama" ? successColor : info, children: (config.provider || "deepseek") === "ollama" ? "⚡ lokal" : `☁️  ${config.provider || "deepseek"}` }), activeAgent && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: warning, children: ["🕵️ ", activeAgent] })] })), activeSkill && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: accent, children: ["🎯 ", activeSkill.name] })] })), vimMode && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: accent, children: "VIM" })] })), config.fast && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: warning, children: "FAST" })] })), debugMode && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsx(Text, { color: errorColor, children: "DEBUG" })] })), config.maxBudgetUsd && (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "│" }), _jsxs(Text, { color: info, children: ["💰 $", getRemainingBudget(config.maxBudgetUsd).toFixed(2)] })] }))] }), _jsx(Box, { marginLeft: 1, children: _jsx(ContextRadar, { messages: messages }) })] }))] })] }));
+    return (_jsxs(_Fragment, { children: [_jsx(Static, { items: output, children: (item) => renderOutputItem(item) }), _jsxs(Box, { flexDirection: "column", children: [isStreaming && !streamText && !streamReasoning && (_jsx(MorningstarSpinner, { startTime: streamStart, streamedChars: streamedChars, thinkingTime: thinkingStartTime > 0 ? thinkingStartTime : undefined })), (streamText || streamReasoning) && (_jsx(StreamingOutput, { text: streamText, reasoning: streamReasoning, isStreaming: isStreaming, startTime: streamStart })), showTaskProgress && taskSteps.length > 0 && (_jsx(TaskProgress, { steps: taskSteps, currentLabel: taskLabel, startTime: taskStartTime, tokenCount: taskTokens, turnNumber: taskTurn, maxTurns: taskMaxTurns })), _jsx(Box, { marginTop: 0, children: _jsx(Input, { onSubmit: processInput, activeAgent: activeAgent, planMode: planMode, thinkMode: thinkMode, isProcessing: isProcessing, suggestions: slashCommands, vimMode: vimMode, cwd: cwd }) }), showStatusLine && (_jsxs(_Fragment, { children: [_jsx(StatusLine, { cwd: cwd, model: config.model, provider: config.provider || "deepseek", activeAgent: activeAgent, activeSkill: activeSkill?.name || null, vimMode: vimMode, fastMode: Boolean(config.fast), debugMode: debugMode, remainingBudget: config.maxBudgetUsd ? getRemainingBudget(config.maxBudgetUsd) : undefined }), _jsx(Box, { marginLeft: 1, children: _jsx(ContextRadar, { messages: messages }) })] }))] })] }));
 }
 //# sourceMappingURL=app.js.map

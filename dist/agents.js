@@ -1,3 +1,4 @@
+import { EXTENDED_AGENTS } from "./extended-agents.js";
 export const AGENTS = {
     code: {
         name: "Code Agent",
@@ -105,8 +106,10 @@ Vorgehen:
 Nutze das bestehende Test-Framework des Projekts.`,
     },
 };
+// Merged built-in + extended agents
+export const ALL_AGENTS = { ...AGENTS, ...EXTENDED_AGENTS };
 export function getAgentPrompt(agentId, baseSystemPrompt, allAgents) {
-    const agents = allAgents || AGENTS;
+    const agents = allAgents || ALL_AGENTS;
     const agent = agents[agentId];
     if (!agent)
         return baseSystemPrompt;
@@ -122,20 +125,24 @@ export function getAgentPrompt(agentId, baseSystemPrompt, allAgents) {
     return parts.join("");
 }
 export function listAgents(allAgents, customOnly) {
-    const agents = allAgents || AGENTS;
+    const agents = allAgents || ALL_AGENTS;
     return Object.entries(agents)
         .filter(([id]) => {
         if (customOnly)
-            return !(id in AGENTS);
+            return !(id in AGENTS) && !(id in EXTENDED_AGENTS);
         return true;
     })
         .map(([id, a]) => {
-        const origin = a.origin || (id in AGENTS ? "built-in" : "custom");
+        const origin = a.origin
+            || (id in AGENTS ? "built-in"
+                : id in EXTENDED_AGENTS ? "extended"
+                    : "custom");
         const tag = origin === "built-in" ? chalk.gray("[built-in]")
-            : origin === "ecc" ? chalk.hex("#06b6d4")("[ecc]")
-                : chalk.hex("#a855f7")("[custom]");
+            : origin === "extended" ? chalk.hex("#06b6d4")("[extended]")
+                : origin === "ecc" ? chalk.hex("#06b6d4")("[ecc]")
+                    : chalk.hex("#a855f7")("[custom]");
         const modelTag = a.model ? chalk.dim(` [${a.model}]`) : "";
-        return `  /agent:${id.padEnd(12)} ${tag}${modelTag} ${a.name} - ${a.description}`;
+        return `  /agent:${id.padEnd(24)} ${tag}${modelTag} ${a.name} - ${a.description}`;
     })
         .join("\n");
 }

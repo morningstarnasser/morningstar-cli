@@ -36,6 +36,20 @@ export declare function executeSubAgentPipeline(tasks: Array<{
     description: string;
 }>, config: CLIConfig, cwd: string, baseSystemPrompt: string, signal?: AbortSignal, onProgress?: (taskIdx: number, status: string) => void): Promise<SubAgentResult[]>;
 /**
+ * Execute multiple sub-agents truly in parallel. Each task runs concurrently
+ * with its own abort signal chained from the parent signal. Progress is
+ * reported per-agent as a snapshot array so callers can render a live tree.
+ */
+export declare function executeSubAgentsParallel(tasks: Array<{
+    agentId: string;
+    description: string;
+}>, config: CLIConfig, cwd: string, baseSystemPrompt: string, signal?: AbortSignal, onSnapshot?: (snapshot: Array<{
+    agentId: string;
+    status: SubAgentStatus;
+    detail: string;
+    elapsedMs: number;
+}>) => void): Promise<SubAgentResult[]>;
+/**
  * Format sub-agent results for display.
  */
 export declare function formatSubAgentResults(results: SubAgentResult[]): string;
