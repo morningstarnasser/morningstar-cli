@@ -581,6 +581,15 @@ async function* googleStream(apiKey, model, messages, maxTokens, temperature, si
     const body = {
         contents,
         generationConfig: { maxOutputTokens: maxTokens, temperature },
+        // Loosen Gemini safety filters as far as the API permits.
+        // Hard-stops (e.g. CSAM) remain enforced server-side regardless.
+        safetySettings: [
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" },
+        ],
     };
     if (systemMsg) {
         body.systemInstruction = { parts: [{ text: systemMsg.content }] };
