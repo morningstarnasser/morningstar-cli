@@ -2040,21 +2040,29 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
     }
 
     // ── Auto-detect image generation intent → route to /imagine ──
+    // Strict: only match when image/photo/picture is the direct object of
+    // a create verb, AND the input has no programming/build-context keywords
+    // (which frequently contain words like "bild", "image", "picture" as
+    // incidental mentions, e.g. "game mit bildern", "page with images").
     {
       const lower = input.toLowerCase();
-      const imageKeywords = [
-        "erstelle.*bild", "mach.*bild", "generiere.*bild", "erzeuge.*bild",
-        "create.*image", "generate.*image", "make.*image", "draw.*image",
-        "erstelle.*foto", "mach.*foto", "generiere.*foto",
-        "create.*picture", "generate.*picture", "make.*picture",
-        "erstelle.*wallpaper", "mach.*wallpaper",
-        "bild von", "foto von", "image of", "picture of",
-        "zeichne", "male mir", "paint me", "draw me",
-      ];
-      if (imageKeywords.some(kw => new RegExp(kw, "i").test(lower))) {
-        addOutput({ type: "info", content: "Bild-Anfrage erkannt — leite zu /imagine weiter..." });
-        handleSlashCommand(`/imagine ${input}`);
-        return;
+      // Exclude anything that looks like a coding / project task.
+      const codingHints = /\b(game|spiel|app|programm|website|webseite|seite|page|html|css|javascript|typescript|python|rust|go|java|php|react|vue|svelte|next|fastapi|script|code|funktion|function|feature|projekt|project|component|modul|module|package|ordner|folder|datei|file|repo|repository|branch|commit|merge|pr|issue|api|server|client|endpoint|route|database|db|table|schema|migration|test|bug|fix|refactor|build|deploy)\b/i;
+      if (codingHints.test(lower)) {
+        // fall through — let the AI handle it normally
+      } else {
+        // Tight patterns — image/photo/picture/wallpaper must be the object.
+        const imageKeywords = [
+          /\b(mach|erstelle|generiere|erzeuge|zeichne|male)\s+(mir\s+)?(ein|eine|einen|doch|bitte\s+)?\s*(bild|foto|wallpaper|artwork|illustration)\b/i,
+          /\b(make|create|generate|draw|paint)\s+(me\s+)?(an?\s+)?(image|picture|wallpaper|artwork|illustration)\b/i,
+          /\b(bild|foto|image|picture|wallpaper)\s+von\s+\S/i,
+          /\b(image|picture|photo|wallpaper)\s+of\s+\S/i,
+        ];
+        if (imageKeywords.some((re) => re.test(lower))) {
+          addOutput({ type: "info", content: "Bild-Anfrage erkannt — leite zu /imagine weiter..." });
+          handleSlashCommand(`/imagine ${input}`);
+          return;
+        }
       }
     }
 
