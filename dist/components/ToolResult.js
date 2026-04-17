@@ -120,7 +120,7 @@ export function ToolResult({ tool, result, success, diff, filePath, linesChanged
     }
     return (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsxs(Text, { children: [_jsx(Text, { color: toolColor, bold: true, children: "⏺ " }), _jsx(Text, { color: toolColor, bold: true, children: label }), arg && _jsxs(Text, { color: dim, children: ["(", arg, ")"] })] }), success && showFullOutput && lines.length > 0 ? (_jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { children: [_jsx(Text, { color: dim, children: "  ⎿  " }), _jsx(Text, { children: lines[0] })] }), lines.slice(1, MAX_OUTPUT_LINES).map((line, i) => (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { children: line || " " })] }, i))), lines.length > MAX_OUTPUT_LINES && (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { color: dim, children: `… (+${lines.length - MAX_OUTPUT_LINES} lines)` })] }))] })) : success && hasDiff ? (
             /* Claude Code-style inline diff for edit tool */
-            _jsx(ClaudeCodeDiff, { oldStr: diff.oldStr, newStr: diff.newStr, startLineNumber: startLineNumber || 1 })) : success && !showFullOutput ? (
+            _jsx(ClaudeCodeDiff, { oldStr: diff.oldStr, newStr: diff.newStr, filePath: diff.filePath || filePath, startLineNumber: startLineNumber || 1 })) : success && !showFullOutput ? (
             /* Short summary for file tools (read/write/delete) */
             _jsxs(Text, { children: [_jsx(Text, { color: dim, children: "  ⎿  " }), _jsx(Text, { children: getSummary(tool, result, success, linesChanged, filePath) })] })) : !success ? (
             /* Error output */

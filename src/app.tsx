@@ -36,7 +36,8 @@ import { getPermissionMode, setPermissionMode, shouldAskPermission } from "./per
 import { loadSettings, initProjectSettings, projectSettingsExist, getProjectSettingsPath, getGlobalSettingsPath } from "./settings.js";
 import { loadProjectMemory } from "./project-memory.js";
 import { trackUsage, getSessionCosts, formatCostDisplay, isFreeTier } from "./cost-tracker.js";
-import { executeSubAgent, executeSubAgentPipeline, formatSubAgentResults, getAvailableSubAgents } from "./sub-agents.js";
+import { executeSubAgent, executeSubAgentPipeline, executeSubAgentsParallel, formatSubAgentResults, getAvailableSubAgents } from "./sub-agents.js";
+import { AgentTree, type AgentBranch } from "./components/AgentTree.js";
 import { detectTestRunner, shouldAutoTest, runTests, formatTestResult } from "./auto-test.js";
 import { getRepoMap, generateOnboarding, generateProjectScore, generateCodeRoast } from "./repo-map.js";
 import { parseMentions, formatMentionContext } from "./mentions.js";
@@ -86,6 +87,7 @@ interface OutputItem {
   id: number;
   type: "banner" | "text" | "help" | "features" | "streaming" | "ai-response"
     | "spinner" | "tool-result" | "tool-activity" | "tool-group"
+    | "agent-tree"
     | "info" | "error" | "success";
   content?: string;
   // For tool results
@@ -108,6 +110,10 @@ interface OutputItem {
   toolLabel?: string;
   toolCount?: number;
   expanded?: boolean;
+  // For agent-tree
+  treeTitle?: string;
+  treeBranches?: AgentBranch[];
+  treeDone?: boolean;
 }
 
 // All slash commands for autocomplete
@@ -201,6 +207,7 @@ function buildSlashCommands(customCommands: CustomCommand[]): SlashCmd[] {
     { cmd: "/agent:migrate", desc: "Agents zu .md migrieren" },
     { cmd: "/delegate", desc: "Task an Sub-Agent delegieren" },
     { cmd: "/delegate:list", desc: "Verfuegbare Sub-Agents" },
+    { cmd: "/parallel", desc: "Mehrere Agents parallel starten" },
     // Tier 3 Features:
     { cmd: "/watch", desc: "File Watcher an/aus" },
     { cmd: "/branch", desc: "Konversation verzweigen" },
@@ -1510,6 +1517,79 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
         addOutput({ type: "info", content: `Verfuegbare Sub-Agents:\n${list}` });
         return true;
       }
+      // ── /parallel — Run multiple sub-agents concurrently with live tree ──
+      case "/parallel": {
+        const raw = (arg || "").trim();
+        if (!raw) {
+          addOutput({ type: "info", content: "Usage: /parallel <agent1>,<agent2>,... <task>\n  Example: /parallel researcher,coder,writer Implement auth middleware" });
+          return true;
+        }
+        const parallelParts = raw.split(/\s+/);
+        const agentsCsv = parallelParts[0];
+        const task = parallelParts.slice(1).join(" ").trim();
+        const agentIds: string[] = agentsCsv.split(",").map((s: string) => s.trim()).filter((s: string) => s.length > 0);
+        if (agentIds.length === 0 || !task) {
+          addOutput({ type: "error", content: "Brauche Agents UND Task: /parallel a1,a2 <task>" });
+          return true;
+        }
+        const allAgentsForParallel = getAllAgents();
+        const unknown = agentIds.filter((id: string) => !allAgentsForParallel[id]);
+        if (unknown.length > 0) {
+          addOutput({ type: "error", content: `Unbekannte Agents: ${unknown.join(", ")}` });
+          return true;
+        }
+
+        const treeId = nextId.current++;
+        const initialBranches: AgentBranch[] = agentIds.map((id: string) => ({
+          agentId: id,
+          status: "pending" as const,
+          detail: "queued",
+          elapsedMs: 0,
+        }));
+        const startTs = Date.now();
+        setOutput((prev) => [...prev, {
+          id: treeId,
+          type: "agent-tree",
+          treeTitle: `parallel · ${task.slice(0, 60)}${task.length > 60 ? "…" : ""}`,
+          treeBranches: initialBranches,
+          startTime: startTs,
+          treeDone: false,
+        }]);
+
+        (async () => {
+          const ac = new AbortController();
+          abortRef.current = ac;
+          setIsProcessing(true);
+          try {
+            const results = await executeSubAgentsParallel(
+              agentIds.map((agentId: string) => ({ agentId, description: task })),
+              config,
+              cwd,
+              getFullSystemPrompt(),
+              ac.signal,
+              (snapshot) => {
+                setOutput((prev) => prev.map((item) => item.id === treeId
+                  ? { ...item, treeBranches: snapshot.map((s) => ({ ...s })) }
+                  : item));
+              },
+            );
+            setOutput((prev) => prev.map((item) => item.id === treeId
+              ? { ...item, treeDone: true }
+              : item));
+            addOutput({ type: "success", content: formatSubAgentResults(results) });
+            const combined = results.map((r) => `[${r.task.agentId}]\n${r.fullResponse}`).join("\n\n---\n\n");
+            if (combined) {
+              setMessages((prev) => [...prev, { role: "assistant" as const, content: `[Parallel agents: ${agentIds.join(", ")}]\n\n${combined}` }]);
+            }
+          } catch (e) {
+            addOutput({ type: "error", content: `Parallel-Fehler: ${(e as Error).message}` });
+          } finally {
+            setIsProcessing(false);
+            abortRef.current = null;
+          }
+        })();
+        return true;
+      }
 
       // ── /watch — File Watcher ──
       case "/watch": {
@@ -2370,6 +2450,16 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
             <Text color={info}>{item.content}</Text>
             <Text color={dim}>{" …"}</Text>
           </Box>
+        );
+      case "agent-tree":
+        return (
+          <AgentTree
+            key={item.id}
+            title={item.treeTitle || "parallel agents"}
+            branches={item.treeBranches || []}
+            startTime={item.startTime || Date.now()}
+            done={item.treeDone}
+          />
         );
       default:
         return null;

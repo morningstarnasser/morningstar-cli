@@ -94,6 +94,7 @@ function SingleToolView({ r }: { r: ToolResultType }) {
         <ClaudeCodeDiff
           oldStr={r.diff!.oldStr}
           newStr={r.diff!.newStr}
+          filePath={r.diff!.filePath || r.filePath}
           startLineNumber={r.startLineNumber || 1}
           maxLines={30}
         />
@@ -218,6 +219,7 @@ export function ToolGroup({ results, duration, tokenCount, expanded, label, tool
                   <ClaudeCodeDiff
                     oldStr={r.diff!.oldStr}
                     newStr={r.diff!.newStr}
+                    filePath={r.diff!.filePath || r.filePath}
                     startLineNumber={r.startLineNumber || 1}
                     maxLines={20}
                   />

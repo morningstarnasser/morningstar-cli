@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
 import { CodeBlock } from "./CodeBlock.js";
@@ -65,10 +65,68 @@ function parseBlocks(text: string): ParsedBlock[] {
   return blocks;
 }
 
-export function StreamingOutput({ text, reasoning, isStreaming, startTime }: StreamingOutputProps) {
-  const { primary, accent, dim, info } = useTheme();
+// ── Live tokens-per-second estimator (4 chars ≈ 1 token) ──
+function useTokensPerSecond(text: string, isStreaming: boolean, startTime: number): number {
+  const [tps, setTps] = useState(0);
+  const lastCheck = useRef({ t: startTime, chars: 0 });
 
-  const elapsed = Date.now() - startTime;
+  useEffect(() => {
+    if (!isStreaming) {
+      setTps(0);
+      lastCheck.current = { t: startTime, chars: 0 };
+      return;
+    }
+    const id = setInterval(() => {
+      const now = Date.now();
+      const dt = Math.max(1, now - lastCheck.current.t);
+      const dChars = text.length - lastCheck.current.chars;
+      if (dChars > 0) {
+        const instant = (dChars / 4) / (dt / 1000);
+        // EMA smoothing
+        setTps((prev) => (prev === 0 ? instant : prev * 0.6 + instant * 0.4));
+        lastCheck.current = { t: now, chars: text.length };
+      }
+    }, 400);
+    return () => clearInterval(id);
+  }, [isStreaming, text, startTime]);
+
+  return tps;
+}
+
+// ── Animated cursor ──
+const CURSOR_FRAMES = ["▌", "▎", "▏", "▎"] as const;
+function useCursor(isStreaming: boolean): string {
+  const [idx, setIdx] = useState(0);
+  useEffect(() => {
+    if (!isStreaming) return;
+    const id = setInterval(() => setIdx((i) => (i + 1) % CURSOR_FRAMES.length), 180);
+    return () => clearInterval(id);
+  }, [isStreaming]);
+  return CURSOR_FRAMES[idx];
+}
+
+function formatElapsed(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.floor(s % 60);
+  return `${m}m ${rem}s`;
+}
+
+export function StreamingOutput({ text, reasoning, isStreaming, startTime }: StreamingOutputProps) {
+  const { primary, accent, dim, info, success, warning } = useTheme();
+
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!isStreaming) return;
+    const id = setInterval(() => setNow(Date.now()), 300);
+    return () => clearInterval(id);
+  }, [isStreaming]);
+
+  const elapsed = (isStreaming ? now : Date.now()) - startTime;
+  const tps = useTokensPerSecond(text, isStreaming, startTime);
+  const cursor = useCursor(isStreaming);
 
   // Parse text into blocks
   const blocks = useMemo(() => parseBlocks(text), [text]);
@@ -79,12 +137,12 @@ export function StreamingOutput({ text, reasoning, isStreaming, startTime }: Str
     return openCount % 2 !== 0;
   }, [text]);
 
+  const estimatedTokens = Math.ceil(text.length / 4);
+
   return (
     <Box flexDirection="column">
       {/* Reasoning/Plan box */}
-      {reasoning && (
-        <PlanBox reasoning={reasoning} elapsed={elapsed} />
-      )}
+      {reasoning && <PlanBox reasoning={reasoning} elapsed={elapsed} />}
 
       {/* Content */}
       {text && (
@@ -92,8 +150,22 @@ export function StreamingOutput({ text, reasoning, isStreaming, startTime }: Str
           <Box>
             <Text color={accent}>● </Text>
             <Text color={primary}>assistant</Text>
-            <Text color={dim}> · </Text>
-            <Text color={isStreaming ? dim : info}>{isStreaming ? "streaming" : "complete"}</Text>
+            <Text color={dim}>  ·  </Text>
+            <Text color={isStreaming ? warning : success}>
+              {isStreaming ? "streaming" : "complete"}
+            </Text>
+            <Text color={dim}>  ·  </Text>
+            <Text color={info}>{formatElapsed(elapsed)}</Text>
+            <Text color={dim}>  ·  </Text>
+            <Text color={info}>{estimatedTokens.toLocaleString()}</Text>
+            <Text color={dim}> tok</Text>
+            {isStreaming && tps > 0 && (
+              <>
+                <Text color={dim}>  ·  </Text>
+                <Text color={accent}>{tps.toFixed(0)}</Text>
+                <Text color={dim}> t/s</Text>
+              </>
+            )}
           </Box>
           {blocks.map((block, i) => {
             if (block.type === "code") {
@@ -105,10 +177,10 @@ export function StreamingOutput({ text, reasoning, isStreaming, startTime }: Str
               </Box>
             );
           })}
-          {/* Show cursor while streaming unclosed code */}
-          {isStreaming && hasUnclosedCode && (
-            <Box marginLeft={4}>
-              <Text color={dim}>▌</Text>
+          {/* Animated cursor while streaming */}
+          {isStreaming && (
+            <Box marginLeft={2}>
+              <Text color={hasUnclosedCode ? warning : accent}>{cursor}</Text>
             </Box>
           )}
         </Box>

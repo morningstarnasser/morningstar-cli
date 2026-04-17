@@ -147,6 +147,65 @@ export async function executeSubAgentPipeline(tasks, config, cwd, baseSystemProm
     return results;
 }
 /**
+ * Execute multiple sub-agents truly in parallel. Each task runs concurrently
+ * with its own abort signal chained from the parent signal. Progress is
+ * reported per-agent as a snapshot array so callers can render a live tree.
+ */
+export async function executeSubAgentsParallel(tasks, config, cwd, baseSystemPrompt, signal, onSnapshot) {
+    const started = Date.now();
+    const state = tasks.map((t) => ({
+        agentId: t.agentId,
+        status: "pending",
+        detail: "queued",
+        elapsedMs: 0,
+    }));
+    function tick() {
+        const now = Date.now();
+        for (const s of state) {
+            if (s.status === "running")
+                s.elapsedMs = now - started;
+        }
+        onSnapshot?.(state.map((s) => ({ ...s })));
+    }
+    const interval = setInterval(tick, 300);
+    try {
+        const promises = tasks.map((task, idx) => (async () => {
+            state[idx].status = "running";
+            state[idx].detail = "starting";
+            tick();
+            try {
+                const result = await executeSubAgent(task.agentId, task.description, config, cwd, baseSystemPrompt, signal, 5, (status) => {
+                    state[idx].detail = status.length > 48 ? `${status.slice(0, 45)}…` : status;
+                });
+                state[idx].status = result.task.status;
+                state[idx].detail = result.task.status === "completed"
+                    ? `${result.task.tokensUsed.toLocaleString()} tok`
+                    : (result.task.error || "failed");
+                state[idx].elapsedMs = result.task.duration;
+                tick();
+                return result;
+            }
+            catch (err) {
+                state[idx].status = "failed";
+                state[idx].detail = err.message;
+                tick();
+                throw err;
+            }
+        })());
+        const settled = await Promise.allSettled(promises);
+        const results = [];
+        for (const s of settled) {
+            if (s.status === "fulfilled")
+                results.push(s.value);
+        }
+        return results;
+    }
+    finally {
+        clearInterval(interval);
+        tick();
+    }
+}
+/**
  * Format sub-agent results for display.
  */
 export function formatSubAgentResults(results) {

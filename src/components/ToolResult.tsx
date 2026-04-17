@@ -172,6 +172,7 @@ export function ToolResult({ tool, result, success, diff, filePath, linesChanged
         <ClaudeCodeDiff
           oldStr={diff.oldStr}
           newStr={diff.newStr}
+          filePath={diff.filePath || filePath}
           startLineNumber={startLineNumber || 1}
         />
       ) : success && !showFullOutput ? (
