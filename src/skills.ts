@@ -2,7 +2,7 @@
 // Markdown-based skills with YAML frontmatter
 // Loaded from ~/.morningstar/skills/*.md and .morningstar/skills/*.md
 
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
 import { parseFrontmatter, serializeFrontmatter } from "./frontmatter.js";
@@ -18,6 +18,8 @@ export interface Skill {
   content: string;
   source: "global" | "project";
   filePath: string;
+  origin?: string;
+  version?: string;
 }
 
 interface SkillFrontmatter {
@@ -27,35 +29,62 @@ interface SkillFrontmatter {
   tools?: string[];
   agent?: string;
   tags?: string[];
+  origin?: string;
+  version?: string;
 }
 
 const GLOBAL_SKILLS_DIR = join(homedir(), ".morningstar", "skills");
+
+function parseSkillFile(filePath: string, id: string, source: "global" | "project"): Skill | null {
+  try {
+    const raw = readFileSync(filePath, "utf-8");
+    const { frontmatter, content } = parseFrontmatter<SkillFrontmatter>(raw);
+
+    return {
+      id,
+      name: (frontmatter.name as string) || id,
+      description: (frontmatter.description as string) || "",
+      triggers: frontmatter.triggers as string[] | undefined,
+      tools: frontmatter.tools as string[] | undefined,
+      agent: frontmatter.agent as string | undefined,
+      tags: frontmatter.tags as string[] | undefined,
+      content,
+      source,
+      filePath,
+      origin: frontmatter.origin as string | undefined,
+      version: frontmatter.version as string | undefined,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function loadSkillsFromDir(dir: string, source: "global" | "project"): Skill[] {
   const skills: Skill[] = [];
   if (!existsSync(dir)) return skills;
 
   try {
-    const files = readdirSync(dir).filter(f => f.endsWith(".md"));
-    for (const file of files) {
-      try {
-        const filePath = join(dir, file);
-        const raw = readFileSync(filePath, "utf-8");
-        const { frontmatter, content } = parseFrontmatter<SkillFrontmatter>(raw);
-        const id = basename(file, ".md");
+    const entries = readdirSync(dir);
 
-        skills.push({
-          id,
-          name: (frontmatter.name as string) || id,
-          description: (frontmatter.description as string) || "",
-          triggers: frontmatter.triggers as string[] | undefined,
-          tools: frontmatter.tools as string[] | undefined,
-          agent: frontmatter.agent as string | undefined,
-          tags: frontmatter.tags as string[] | undefined,
-          content,
-          source,
-          filePath,
-        });
+    for (const entry of entries) {
+      const entryPath = join(dir, entry);
+
+      // Flat .md files (existing format)
+      if (entry.endsWith(".md")) {
+        const skill = parseSkillFile(entryPath, basename(entry, ".md"), source);
+        if (skill) skills.push(skill);
+        continue;
+      }
+
+      // Subdirectory with SKILL.md (ECC format: skills/[name]/SKILL.md)
+      try {
+        if (statSync(entryPath).isDirectory()) {
+          const skillMd = join(entryPath, "SKILL.md");
+          if (existsSync(skillMd)) {
+            const skill = parseSkillFile(skillMd, entry, source);
+            if (skill) skills.push(skill);
+          }
+        }
       } catch {}
     }
   } catch {}

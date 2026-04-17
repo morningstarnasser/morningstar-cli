@@ -306,15 +306,24 @@ async function* openaiCompatibleStream(
     body.tools = TOOL_DEFINITIONS;
   }
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    // Abort/termination errors are expected when user cancels
+    if (signal?.aborted || (e instanceof TypeError && (e.message === "terminated" || e.message === "The operation was aborted"))) {
+      return;
+    }
+    throw e;
+  }
 
   if (!res.ok) {
     const err = await res.text().catch(() => "");
@@ -477,16 +486,24 @@ async function* anthropicStream(
   // Native function calling
   if (enableTools) body.tools = ANTHROPIC_TOOL_DEFINITIONS;
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    if (signal?.aborted || (e instanceof TypeError && ((e as Error).message === "terminated" || (e as Error).message?.includes("aborted")))) {
+      return;
+    }
+    throw e;
+  }
 
   if (!res.ok) {
     const err = await res.text().catch(() => "");
@@ -618,12 +635,20 @@ async function* googleStream(
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (e) {
+    if (signal?.aborted || (e instanceof TypeError && ((e as Error).message === "terminated" || (e as Error).message?.includes("aborted")))) {
+      return;
+    }
+    throw e;
+  }
 
   if (!res.ok) {
     const err = await res.text().catch(() => "");

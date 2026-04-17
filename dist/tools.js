@@ -4,6 +4,31 @@ import { resolve, dirname, join } from "node:path";
 import { glob } from "glob";
 import { trackChange, captureBeforeState } from "./undo.js";
 const MAX_OUTPUT = 15000; // truncate long outputs
+// ─── Active Agent Tool Filter ───
+// When set, only these tools are allowed for the current agent
+let _activeAgentTools = null;
+/**
+ * Set the active agent's allowed tools. Pass null to clear restrictions.
+ */
+export function setAgentToolFilter(tools) {
+    _activeAgentTools = tools && tools.length > 0 ? new Set(tools.map(t => t.toLowerCase())) : null;
+}
+/**
+ * Check if a tool is allowed for the current agent.
+ */
+export function isToolAllowedForAgent(toolName) {
+    if (!_activeAgentTools)
+        return true;
+    return _activeAgentTools.has(toolName.toLowerCase());
+}
+/**
+ * Get the list of allowed tools for the current agent, or null if unrestricted.
+ */
+export function getAgentToolFilter() {
+    if (!_activeAgentTools)
+        return null;
+    return Array.from(_activeAgentTools);
+}
 // ─── Stats Tracking ───
 export const toolStats = {
     calls: 0,
@@ -591,6 +616,10 @@ export async function executeToolCalls(response, cwd) {
 // Used by providers with native tool/function calling support (OpenAI, Anthropic, Google, Groq, OpenRouter).
 // Takes the parsed tool name and arguments object directly instead of regex-parsing from text.
 export function executeNativeToolCall(name, args, cwd) {
+    // Check agent tool restrictions
+    if (!isToolAllowedForAgent(name)) {
+        return { tool: name, result: `Tool "${name}" ist fuer diesen Agent nicht erlaubt.`, success: false };
+    }
     countTool(name);
     switch (name) {
         case "read":

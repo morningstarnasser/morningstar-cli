@@ -2,12 +2,28 @@
 // Markdown-based rules with YAML frontmatter
 // Loaded from ~/.morningstar/rules/*.md and .morningstar/rules/*.md
 // Also treats MORNINGSTAR.md as a default rule
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import { join, basename, resolve } from "node:path";
 import { homedir } from "node:os";
 import { parseFrontmatter, serializeFrontmatter } from "./frontmatter.js";
 const GLOBAL_RULES_DIR = join(homedir(), ".morningstar", "rules");
-function loadRulesFromDir(dir, source) {
+// Map detected project languages to rule directory names
+const LANGUAGE_DIR_MAP = {
+    "TypeScript/JavaScript": "typescript",
+    "TypeScript": "typescript",
+    "JavaScript": "typescript",
+    "Python": "python",
+    "Go": "golang",
+    "Rust": "rust",
+    "Java": "java",
+    "Kotlin": "kotlin",
+    "C++": "cpp",
+    "C#": "csharp",
+    "PHP": "php",
+    "Swift": "swift",
+    "Perl": "perl",
+};
+function loadRulesFromFlatDir(dir, source, language) {
     const rules = [];
     if (!existsSync(dir))
         return rules;
@@ -18,7 +34,7 @@ function loadRulesFromDir(dir, source) {
                 const filePath = join(dir, file);
                 const raw = readFileSync(filePath, "utf-8");
                 const { frontmatter, content } = parseFrontmatter(raw);
-                const id = basename(file, ".md");
+                const id = language ? `${language}/${basename(file, ".md")}` : basename(file, ".md");
                 // Resolve @import directives
                 const resolvedContent = resolveImports(content, dir, new Set([filePath]));
                 rules.push({
@@ -29,7 +45,59 @@ function loadRulesFromDir(dir, source) {
                     pathPattern: frontmatter.pathPattern,
                     priority: frontmatter.priority ?? 0,
                     description: frontmatter.description || "",
+                    language: language || frontmatter.language,
                 });
+            }
+            catch { }
+        }
+    }
+    catch { }
+    return rules;
+}
+/**
+ * Load rules from a directory, supporting subdirectory structure:
+ *   rules/common/     -> always loaded
+ *   rules/typescript/  -> loaded when project language matches
+ *   rules/*.md         -> flat files, always loaded (backward compat)
+ */
+function loadRulesFromDir(dir, source, projectLanguage) {
+    const rules = [];
+    if (!existsSync(dir))
+        return rules;
+    // Load flat .md files (backward compatibility)
+    rules.push(...loadRulesFromFlatDir(dir, source));
+    // Load common/ subdirectory (always loaded)
+    const commonDir = join(dir, "common");
+    if (existsSync(commonDir)) {
+        rules.push(...loadRulesFromFlatDir(commonDir, source, "common"));
+    }
+    // Load language-specific subdirectory if project language matches
+    if (projectLanguage) {
+        const langDir = LANGUAGE_DIR_MAP[projectLanguage] || projectLanguage.toLowerCase();
+        const langPath = join(dir, langDir);
+        if (existsSync(langPath)) {
+            rules.push(...loadRulesFromFlatDir(langPath, source, langDir));
+        }
+    }
+    // Also scan for any other subdirectories that have .md files
+    // (supports custom language directories like rules/flutter/)
+    try {
+        const entries = readdirSync(dir);
+        for (const entry of entries) {
+            if (entry === "common")
+                continue; // Already loaded
+            const entryPath = join(dir, entry);
+            try {
+                if (statSync(entryPath).isDirectory()) {
+                    const langDir = LANGUAGE_DIR_MAP[projectLanguage || ""] || (projectLanguage || "").toLowerCase();
+                    if (entry === langDir)
+                        continue; // Already loaded
+                    // Skip non-matching language dirs - only load if no project language or if explicitly requested
+                    if (!projectLanguage) {
+                        // No detected language: load all subdirectories
+                        rules.push(...loadRulesFromFlatDir(entryPath, source, entry));
+                    }
+                }
             }
             catch { }
         }
@@ -63,11 +131,12 @@ function resolveImports(content, baseDir, visited) {
 }
 /**
  * Load all rules (global + project + MORNINGSTAR.md).
+ * Optionally filter by detected project language.
  */
-export function loadRules(cwd) {
+export function loadRules(cwd, projectLanguage) {
     const projectDir = join(cwd, ".morningstar", "rules");
-    const globalRules = loadRulesFromDir(GLOBAL_RULES_DIR, "global");
-    const projectRules = loadRulesFromDir(projectDir, "project");
+    const globalRules = loadRulesFromDir(GLOBAL_RULES_DIR, "global", projectLanguage);
+    const projectRules = loadRulesFromDir(projectDir, "project", projectLanguage);
     // Add MORNINGSTAR.md as a default rule if it exists
     const morningstarMd = join(cwd, "MORNINGSTAR.md");
     const defaultRules = [];

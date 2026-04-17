@@ -1,10 +1,15 @@
 import type { MorningstarSettings } from "./settings.js";
 export type HookEvent = "preToolExecution" | "postToolExecution" | "preFileWrite" | "postFileWrite" | "preFileEdit" | "postFileEdit" | "preBash" | "postBash" | "preCommit" | "postCommit" | "sessionStart" | "sessionEnd" | "preMessage" | "postMessage";
+export type HookProfile = "minimal" | "standard" | "strict";
 export interface HookConfig {
+    id?: string;
     matcher?: string;
     command: string;
     timeout?: number;
     failAction?: "continue" | "abort" | "warn";
+    profiles?: HookProfile[];
+    async?: boolean;
+    description?: string;
 }
 export interface HookResult {
     allow: boolean;
@@ -31,8 +36,13 @@ export declare function getHooksForEvent(event: HookEvent, settings: Morningstar
  */
 export declare function executeHook(hook: HookConfig, context: HookContext): Promise<HookResult>;
 /**
+ * Execute a hook asynchronously (fire-and-forget, non-blocking).
+ */
+export declare function executeHookAsync(hook: HookConfig, context: HookContext): void;
+/**
  * Execute all hooks for a given event.
  * Returns false if any hook aborts (allow: false).
+ * Supports hook profiles and async execution.
  */
 export declare function executeHooks(event: HookEvent, context: Omit<HookContext, "event">, settings: MorningstarSettings): Promise<{
     allowed: boolean;

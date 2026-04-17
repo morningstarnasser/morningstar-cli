@@ -6,11 +6,13 @@ export interface Rule {
     pathPattern?: string;
     priority?: number;
     description?: string;
+    language?: string;
 }
 /**
  * Load all rules (global + project + MORNINGSTAR.md).
+ * Optionally filter by detected project language.
  */
-export declare function loadRules(cwd: string): Rule[];
+export declare function loadRules(cwd: string, projectLanguage?: string | null): Rule[];
 /**
  * Get rules applicable to a specific file path.
  */

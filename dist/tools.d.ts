@@ -1,4 +1,16 @@
 import type { ToolResult } from "./types.js";
+/**
+ * Set the active agent's allowed tools. Pass null to clear restrictions.
+ */
+export declare function setAgentToolFilter(tools: string[] | null | undefined): void;
+/**
+ * Check if a tool is allowed for the current agent.
+ */
+export declare function isToolAllowedForAgent(toolName: string): boolean;
+/**
+ * Get the list of allowed tools for the current agent, or null if unrestricted.
+ */
+export declare function getAgentToolFilter(): string[] | null;
 export declare const toolStats: {
     calls: number;
     byTool: Record<string, number>;

@@ -13,11 +13,17 @@ export type HookEvent =
   | "sessionStart" | "sessionEnd"
   | "preMessage" | "postMessage";
 
+export type HookProfile = "minimal" | "standard" | "strict";
+
 export interface HookConfig {
+  id?: string;
   matcher?: string;
   command: string;
   timeout?: number;
   failAction?: "continue" | "abort" | "warn";
+  profiles?: HookProfile[];
+  async?: boolean;
+  description?: string;
 }
 
 export interface HookResult {
@@ -111,8 +117,34 @@ export async function executeHook(hook: HookConfig, context: HookContext): Promi
 }
 
 /**
+ * Check if a hook is active based on current profile and disabled hooks.
+ * Controlled via env vars: MORNINGSTAR_HOOK_PROFILE, MORNINGSTAR_DISABLED_HOOKS
+ */
+function isHookActiveForProfile(hook: HookConfig): boolean {
+  // Check if hook is explicitly disabled via env var
+  const disabledHooks = (process.env.MORNINGSTAR_DISABLED_HOOKS || "").split(",").filter(Boolean);
+  if (hook.id && disabledHooks.includes(hook.id)) return false;
+
+  // Check if hook matches current profile
+  if (hook.profiles && hook.profiles.length > 0) {
+    const currentProfile = (process.env.MORNINGSTAR_HOOK_PROFILE || "standard") as HookProfile;
+    if (!hook.profiles.includes(currentProfile)) return false;
+  }
+
+  return true;
+}
+
+/**
+ * Execute a hook asynchronously (fire-and-forget, non-blocking).
+ */
+export function executeHookAsync(hook: HookConfig, context: HookContext): void {
+  executeHook(hook, context).catch(() => {});
+}
+
+/**
  * Execute all hooks for a given event.
  * Returns false if any hook aborts (allow: false).
+ * Supports hook profiles and async execution.
  */
 export async function executeHooks(
   event: HookEvent,
@@ -125,7 +157,10 @@ export async function executeHooks(
   const messages: string[] = [];
 
   for (const hook of hooks) {
-    // Check matcher
+    // Check profile/disabled status
+    if (!isHookActiveForProfile(hook)) continue;
+
+    // Check matcher (supports pipe syntax: "Bash|Write|Edit")
     if (hook.matcher) {
       const toMatch = context.tool || context.filePath || context.command || "";
       try {
@@ -134,6 +169,12 @@ export async function executeHooks(
       } catch {
         if (!toMatch.includes(hook.matcher)) continue;
       }
+    }
+
+    // Async hooks: fire-and-forget
+    if (hook.async) {
+      executeHookAsync(hook, { ...context, event });
+      continue;
     }
 
     const result = await executeHook(hook, { ...context, event });
@@ -163,14 +204,23 @@ export function formatHooksDisplay(settings: MorningstarSettings): string {
   if (!settings.hooks || Object.keys(settings.hooks).length === 0) {
     lines.push("  Keine Hooks konfiguriert.\n");
   } else {
+    const currentProfile = process.env.MORNINGSTAR_HOOK_PROFILE || "standard";
+    lines.push(`  Aktives Profil: ${currentProfile}\n`);
+
     for (const [event, hooks] of Object.entries(settings.hooks)) {
       const hookList = hooks as HookConfig[];
       lines.push(`  ${event}:`);
       for (const h of hookList) {
-        lines.push(`    command: ${h.command}`);
-        if (h.matcher) lines.push(`    matcher: ${h.matcher}`);
-        if (h.timeout) lines.push(`    timeout: ${h.timeout}ms`);
-        if (h.failAction) lines.push(`    failAction: ${h.failAction}`);
+        const active = isHookActiveForProfile(h);
+        const status = active ? "\u2714" : "\u2718";
+        const idStr = h.id ? ` (${h.id})` : "";
+        lines.push(`    ${status}${idStr} command: ${h.command}`);
+        if (h.description) lines.push(`      ${h.description}`);
+        if (h.matcher) lines.push(`      matcher: ${h.matcher}`);
+        if (h.profiles) lines.push(`      profiles: ${h.profiles.join(", ")}`);
+        if (h.timeout) lines.push(`      timeout: ${h.timeout}ms`);
+        if (h.failAction) lines.push(`      failAction: ${h.failAction}`);
+        if (h.async) lines.push(`      async: true`);
         lines.push("");
       }
     }

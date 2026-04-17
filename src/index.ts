@@ -1,5 +1,28 @@
 #!/usr/bin/env node
 
+// ─── Global Error Safety Net ─────────────────────────────
+// Prevent unhandled fetch termination errors from crashing the process.
+// These occur when the user aborts (Ctrl+C) an active API stream.
+process.on("unhandledRejection", (reason: unknown) => {
+  if (reason instanceof TypeError) {
+    const msg = (reason as Error).message || "";
+    if (msg === "terminated" || msg.includes("aborted") || msg.includes("other side closed")) {
+      return; // Silently ignore abort-related fetch errors
+    }
+  }
+  // Re-throw unexpected errors
+  console.error("Unhandled rejection:", reason);
+});
+
+process.on("uncaughtException", (err: Error) => {
+  const msg = err.message || "";
+  if (msg === "terminated" || msg.includes("aborted") || msg.includes("other side closed") || msg.includes("SocketError")) {
+    return; // Silently ignore abort-related errors
+  }
+  console.error("Uncaught exception:", err);
+  process.exit(1);
+});
+
 import { resolve, join } from "node:path";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";

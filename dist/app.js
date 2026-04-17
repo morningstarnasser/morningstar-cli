@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, Static, useApp, useInput } from "ink";
 import { homedir } from "node:os";
 import { resolve as resolvePath, join as joinPath } from "node:path";
-import { existsSync, statSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, statSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { Banner } from "./components/Banner.js";
 import { Help } from "./components/Help.js";
@@ -59,6 +59,28 @@ import { startDashboard, formatDashboardStatus } from "./web-dashboard.js";
 import { fetchPRData, analyzePRDiff, generateReviewPrompt } from "./pr-review.js";
 import { formatCacheStats } from "./prompt-cache.js";
 import { formatLayoutList, getAvailableLayouts } from "./terminal-multiplexer.js";
+import { runDoctor, runAudit, runRepair, formatDoctorReport, formatAuditReport } from "./harness.js";
+import { formatInstinctsStatus, exportInstincts, importInstincts } from "./continuous-learning.js";
+import { setAgentToolFilter } from "./tools.js";
+// ─── Tool Tag Filter for Display ─────────────────────────
+// Strips <tool:write>..content..</tool> and <tool:edit>..content..</tool> from streaming display text.
+// Replaces with a short summary so the user doesn't see hundreds of code lines streaming by.
+// The full response is preserved separately for actual tool execution.
+function filterToolTagsForDisplay(text) {
+    // Replace completed tool tags with compact summaries
+    let filtered = text.replace(/<tool:(write|edit)>([^\n]*)\n[\s\S]*?<\/tool(?::\w+)?>/g, (_match, tool, firstLine) => {
+        const path = firstLine.trim().split("\n")[0];
+        return `⏺ ${tool}: ${path}\n`;
+    });
+    // Handle unclosed tool tags (still streaming) - hide the content being streamed
+    const unclosedMatch = filtered.match(/<tool:(write|edit)>([^\n]*)\n[\s\S]*$/);
+    if (unclosedMatch) {
+        const beforeTag = filtered.slice(0, filtered.lastIndexOf(`<tool:${unclosedMatch[1]}>`));
+        const path = unclosedMatch[2].trim().split("\n")[0];
+        filtered = beforeTag + `⏺ ${unclosedMatch[1]}: ${path} ...`;
+    }
+    return filtered;
+}
 function buildSlashCommands(customCommands) {
     const cmds = [
         { cmd: "/help", desc: "Alle Befehle" },
@@ -1238,6 +1260,59 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                 addOutput({ type: "info", content: `Rules:\n\n${formatRulesList(rules)}\n\n  /rules add <id> [content] — Rule hinzufuegen\n  /rules show <id> — Rule anzeigen` });
                 return true;
             }
+            // ── /doctor — System health check ──
+            case "/doctor": {
+                runDoctor().then(checks => {
+                    addOutput({ type: "info", content: formatDoctorReport(checks) });
+                });
+                return true;
+            }
+            // ── /audit — Deep system audit ──
+            case "/audit": {
+                runAudit().then(auditChecks => {
+                    addOutput({ type: "info", content: formatAuditReport(auditChecks) });
+                });
+                return true;
+            }
+            // ── /repair — Auto-fix issues ──
+            case "/repair": {
+                runDoctor().then(doctorChecks => {
+                    const repairResult = runRepair(doctorChecks);
+                    addOutput({ type: "success", content: `Repair: ${repairResult.fixed} behoben, ${repairResult.remaining} verbleibend.` });
+                });
+                return true;
+            }
+            // ── /instinct-status — Show learning status ──
+            case "/instinct-status":
+            case "/instincts": {
+                const status = formatInstinctsStatus();
+                addOutput({ type: "info", content: status });
+                return true;
+            }
+            // ── /instinct-export — Export learned instincts ──
+            case "/instinct-export": {
+                const exported = exportInstincts();
+                const exportFile = joinPath(cwd, `instincts-${Date.now()}.json`);
+                writeFileSync(exportFile, exported, "utf-8");
+                addOutput({ type: "success", content: `Instincts exportiert: ${exportFile}` });
+                return true;
+            }
+            // ── /instinct-import — Import instincts ──
+            case "/instinct-import": {
+                if (!arg) {
+                    addOutput({ type: "error", content: "Usage: /instinct-import <pfad-zu-json>" });
+                    return true;
+                }
+                try {
+                    const importData = readFileSync(resolvePath(cwd, arg), "utf-8");
+                    const importResult = importInstincts(importData);
+                    addOutput({ type: "success", content: `${importResult.imported} Instincts importiert.${importResult.errors.length > 0 ? ` Fehler: ${importResult.errors.join(", ")}` : ""}` });
+                }
+                catch (e) {
+                    addOutput({ type: "error", content: `Import fehlgeschlagen: ${e.message}` });
+                }
+                return true;
+            }
             // ── /export — Export conversation ──
             case "/export": {
                 const exportName = arg || `morningstar-export-${Date.now()}`;
@@ -1715,9 +1790,18 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                     addOutput({ type: "error", content: `Unbekannter Agent: ${agentId}. Verfuegbar: ${Object.keys(allAgents).join(", ")}` });
                     return true;
                 }
-                // Custom commands
+                // Custom commands (with agent auto-binding from ECC)
                 const customCmd = customCommands.find(c => cmd === `/${c.name}`);
                 if (customCmd) {
+                    // Auto-activate associated agent if command has agent field
+                    if (customCmd.agent) {
+                        const allAgentsMap = getAllAgents();
+                        if (allAgentsMap[customCmd.agent]) {
+                            setActiveAgent(customCmd.agent);
+                            setAgentToolFilter(allAgentsMap[customCmd.agent].tools || null);
+                            addOutput({ type: "info", content: `Agent aktiviert: ${allAgentsMap[customCmd.agent].name || customCmd.agent}` });
+                        }
+                    }
                     processInput(`${customCmd.content}\n\n${arg || ""}`);
                     return true;
                 }
@@ -1971,7 +2055,8 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                 }
                 else {
                     fullResponse += token.text;
-                    setStreamText(prev => prev + token.text);
+                    // Filter display text: hide tool content, show only summaries
+                    setStreamText(filterToolTagsForDisplay(fullResponse));
                     setStreamedChars(prev => prev + token.text.length);
                 }
             }
@@ -2092,7 +2177,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                             }
                             else {
                                 currentResponse += token.text;
-                                setStreamText(prev => prev + token.text);
+                                setStreamText(filterToolTagsForDisplay(currentResponse));
                                 setTaskTokens(prev => prev + Math.round(token.text.length / 4));
                             }
                         }
@@ -2213,7 +2298,7 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
                                 }
                                 else {
                                     currentResponse += token.text;
-                                    setStreamText(prev => prev + token.text);
+                                    setStreamText(filterToolTagsForDisplay(currentResponse));
                                     setTaskTokens(prev => prev + Math.round(token.text.length / 4));
                                 }
                             }

@@ -100,7 +100,22 @@ src/
 
 ## Commands
 
-50+ slash commands organized in categories: General, Settings, AI/Model, Agents, Memory, Todos, Git, Image/Vision, Files/History/Appearance. Use `/help` to see all.
+50+ slash commands organized in categories: General, Settings, AI/Model, Agents, Memory, Todos, Git, Image/Vision, Files/History/Appearance, Harness/Learning. Use `/help` to see all.
+
+## ECC Integration (Everything Claude Code)
+
+Morningstar CLI includes the full Everything Claude Code ecosystem:
+
+- **28 specialized agents** with model tier routing (opus/sonnet/haiku) and tool restrictions
+- **125 skills** (workflow patterns, coding standards, framework-specific knowledge)
+- **60 commands** with automatic agent-binding (e.g., `/plan` activates planner agent)
+- **64 rule files** across 12 languages (common + TypeScript, Python, Go, Rust, Java, Kotlin, C++, C#, PHP, Swift, Perl)
+- **14 MCP server configs** (reference catalog at `~/.morningstar/mcp-catalog.json`)
+- **Hook profiles** (minimal/standard/strict) with env var control
+- **Continuous Learning** system (observations, instincts, export/import)
+- **Harness tools** (/doctor, /audit, /repair)
+
+Content stored in `~/.morningstar/` (agents/, skills/, commands/, rules/).
 
 ## Development
 

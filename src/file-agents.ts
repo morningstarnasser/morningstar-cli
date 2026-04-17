@@ -25,8 +25,10 @@ interface AgentFrontmatter {
   color?: string;
   tools?: string[];
   preferredModel?: string;
+  model?: string;
   temperature?: number;
   maxTokens?: number;
+  origin?: string;
 }
 
 const GLOBAL_AGENTS_DIR = join(homedir(), ".morningstar", "agents");
@@ -44,6 +46,13 @@ function loadFileAgentsFromDir(dir: string, source: "global" | "project"): Recor
         const { frontmatter, content } = parseFrontmatter<AgentFrontmatter>(raw);
         const id = basename(file, ".md");
 
+        // Normalize tool names to lowercase (ECC uses Read/Grep, morningstar uses read/grep)
+        const rawTools = frontmatter.tools as string[] | undefined;
+        const normalizedTools = rawTools?.map(t => t.toLowerCase());
+
+        // Accept both "model" (ECC format) and "preferredModel" (legacy)
+        const resolvedModel = (frontmatter.model as string) || (frontmatter.preferredModel as string) || undefined;
+
         agents[id] = {
           id,
           name: (frontmatter.name as string) || id,
@@ -52,8 +61,10 @@ function loadFileAgentsFromDir(dir: string, source: "global" | "project"): Recor
           color: (frontmatter.color as string) || "#a855f7",
           source,
           filePath,
-          tools: frontmatter.tools as string[] | undefined,
-          preferredModel: frontmatter.preferredModel as string | undefined,
+          tools: normalizedTools,
+          model: resolvedModel,
+          origin: (frontmatter.origin as string) || undefined,
+          preferredModel: resolvedModel,
           temperature: frontmatter.temperature as number | undefined,
           maxTokens: frontmatter.maxTokens as number | undefined,
         };

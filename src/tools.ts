@@ -7,6 +7,33 @@ import type { ToolResult } from "./types.js";
 
 const MAX_OUTPUT = 15000; // truncate long outputs
 
+// ─── Active Agent Tool Filter ───
+// When set, only these tools are allowed for the current agent
+let _activeAgentTools: Set<string> | null = null;
+
+/**
+ * Set the active agent's allowed tools. Pass null to clear restrictions.
+ */
+export function setAgentToolFilter(tools: string[] | null | undefined): void {
+  _activeAgentTools = tools && tools.length > 0 ? new Set(tools.map(t => t.toLowerCase())) : null;
+}
+
+/**
+ * Check if a tool is allowed for the current agent.
+ */
+export function isToolAllowedForAgent(toolName: string): boolean {
+  if (!_activeAgentTools) return true;
+  return _activeAgentTools.has(toolName.toLowerCase());
+}
+
+/**
+ * Get the list of allowed tools for the current agent, or null if unrestricted.
+ */
+export function getAgentToolFilter(): string[] | null {
+  if (!_activeAgentTools) return null;
+  return Array.from(_activeAgentTools);
+}
+
 // ─── Stats Tracking ───
 export const toolStats = {
   calls: 0,
@@ -570,6 +597,10 @@ export function executeNativeToolCall(
   args: Record<string, unknown>,
   cwd: string,
 ): ToolResult | Promise<ToolResult> {
+  // Check agent tool restrictions
+  if (!isToolAllowedForAgent(name)) {
+    return { tool: name, result: `Tool "${name}" ist fuer diesen Agent nicht erlaubt.`, success: false };
+  }
   countTool(name);
   switch (name) {
     case "read":

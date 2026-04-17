@@ -267,15 +267,25 @@ async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxToke
     if (enableTools && providerName && NATIVE_TOOL_PROVIDERS.has(providerName)) {
         body.tools = TOOL_DEFINITIONS;
     }
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal,
-    });
+    let res;
+    try {
+        res = await fetch(`${baseUrl}/chat/completions`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify(body),
+            signal,
+        });
+    }
+    catch (e) {
+        // Abort/termination errors are expected when user cancels
+        if (signal?.aborted || (e instanceof TypeError && (e.message === "terminated" || e.message === "The operation was aborted"))) {
+            return;
+        }
+        throw e;
+    }
     if (!res.ok) {
         const err = await res.text().catch(() => "");
         throw new Error(`API Fehler ${res.status}: ${err.slice(0, 300)}`);
@@ -439,16 +449,25 @@ async function* anthropicStream(apiKey, model, messages, maxTokens, temperature,
     // Native function calling
     if (enableTools)
         body.tools = ANTHROPIC_TOOL_DEFINITIONS;
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify(body),
-        signal,
-    });
+    let res;
+    try {
+        res = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "x-api-key": apiKey,
+                "anthropic-version": "2023-06-01",
+            },
+            body: JSON.stringify(body),
+            signal,
+        });
+    }
+    catch (e) {
+        if (signal?.aborted || (e instanceof TypeError && (e.message === "terminated" || e.message?.includes("aborted")))) {
+            return;
+        }
+        throw e;
+    }
     if (!res.ok) {
         const err = await res.text().catch(() => "");
         throw new Error(`Anthropic Fehler ${res.status}: ${err.slice(0, 300)}`);
@@ -570,12 +589,21 @@ async function* googleStream(apiKey, model, messages, maxTokens, temperature, si
     if (enableTools)
         body.tools = GOOGLE_TOOL_DEFINITIONS;
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`;
-    const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal,
-    });
+    let res;
+    try {
+        res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal,
+        });
+    }
+    catch (e) {
+        if (signal?.aborted || (e instanceof TypeError && (e.message === "terminated" || e.message?.includes("aborted")))) {
+            return;
+        }
+        throw e;
+    }
     if (!res.ok) {
         const err = await res.text().catch(() => "");
         throw new Error(`Gemini Fehler ${res.status}: ${err.slice(0, 300)}`);

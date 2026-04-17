@@ -3,6 +3,9 @@ export interface Agent {
     description: string;
     systemPrompt: string;
     color: string;
+    tools?: string[];
+    model?: "opus" | "sonnet" | "haiku" | string;
+    origin?: "built-in" | "ecc" | "custom" | string;
 }
 export declare const AGENTS: Record<string, Agent>;
 export declare function getAgentPrompt(agentId: string, baseSystemPrompt: string, allAgents?: Record<string, Agent>): string;

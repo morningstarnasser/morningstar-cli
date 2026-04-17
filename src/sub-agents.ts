@@ -5,10 +5,11 @@
 
 import type { Message, CLIConfig } from "./types.js";
 import { streamChat } from "./ai.js";
-import { executeToolCalls } from "./tools.js";
+import { executeToolCalls, setAgentToolFilter } from "./tools.js";
 import { getAllAgents } from "./custom-agents.js";
 import { getAgentPrompt } from "./agents.js";
 import { trackUsage } from "./cost-tracker.js";
+import { resolveModelTier } from "./fast-model-map.js";
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -74,6 +75,20 @@ export async function executeSubAgent(
     ? getAgentPrompt(agentId, baseSystemPrompt, allAgents)
     : baseSystemPrompt;
 
+  // Resolve model tier if agent specifies one (opus/sonnet/haiku -> actual model ID)
+  let resolvedConfig = config;
+  if (agent?.model) {
+    const resolvedModel = resolveModelTier(agent.model, config.provider);
+    if (resolvedModel) {
+      resolvedConfig = { ...config, model: resolvedModel };
+    }
+  }
+
+  // Set tool restrictions for this sub-agent
+  if (agent?.tools && agent.tools.length > 0) {
+    setAgentToolFilter(agent.tools);
+  }
+
   const messages: Message[] = [
     { role: "system", content: systemPrompt + "\n\nDu bist ein Sub-Agent. Fuehre die folgende Aufgabe autonom aus und berichte das Ergebnis." },
     { role: "user", content: taskDescription },
@@ -87,7 +102,7 @@ export async function executeSubAgent(
     onProgress?.(`Sub-Agent [${agent?.name || agentId}] startet...`);
     let currentResponse = "";
 
-    for await (const token of streamChat(messages, config, signal)) {
+    for await (const token of streamChat(messages, resolvedConfig, signal)) {
       if (signal?.aborted) { task.status = "cancelled"; break; }
       if (token.type === "content") {
         currentResponse += token.text;
@@ -97,7 +112,7 @@ export async function executeSubAgent(
     }
 
     fullResponse = currentResponse;
-    trackUsage(config.model, taskDescription, currentResponse);
+    trackUsage(resolvedConfig.model, taskDescription, currentResponse);
 
     // Multi-turn tool loop
     let depth = 0;
@@ -133,7 +148,7 @@ export async function executeSubAgent(
 
       // Next streaming round
       currentResponse = "";
-      for await (const token of streamChat(latestMessages, config, signal)) {
+      for await (const token of streamChat(latestMessages, resolvedConfig, signal)) {
         if (signal?.aborted) break;
         if (token.type === "content") {
           currentResponse += token.text;
@@ -144,7 +159,7 @@ export async function executeSubAgent(
 
       if (currentResponse) {
         fullResponse = currentResponse;
-        trackUsage(config.model, toolFeedback, currentResponse);
+        trackUsage(resolvedConfig.model, toolFeedback, currentResponse);
       }
 
       depth++;
@@ -156,6 +171,9 @@ export async function executeSubAgent(
     task.status = "failed";
     task.error = (e as Error).message;
   }
+
+  // Clear tool filter after sub-agent completes
+  setAgentToolFilter(null);
 
   task.duration = Date.now() - startTime;
   task.tokensUsed = totalTokens;

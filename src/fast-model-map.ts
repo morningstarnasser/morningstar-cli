@@ -27,3 +27,71 @@ export function getDefaultModel(model: string): string {
   // Reverse lookup: if current is fast, get the default
   return FAST_MAP[model] || model;
 }
+
+// ─── Model Tier Resolution ─────────────────────────────────
+// Maps abstract tiers (opus/sonnet/haiku) to actual model IDs per provider.
+// Used by sub-agents to run on the model specified by the agent definition.
+
+const TIER_MAP: Record<string, Record<string, string>> = {
+  anthropic: {
+    opus: "claude-opus-4-20250514",
+    sonnet: "claude-sonnet-4-20250514",
+    haiku: "claude-haiku-3-5-20241022",
+  },
+  openai: {
+    opus: "gpt-4.1",
+    sonnet: "gpt-4o",
+    haiku: "gpt-4o-mini",
+  },
+  deepseek: {
+    opus: "deepseek-reasoner",
+    sonnet: "deepseek-chat",
+    haiku: "deepseek-chat",
+  },
+  google: {
+    opus: "gemini-2.5-pro",
+    sonnet: "gemini-2.0-pro",
+    haiku: "gemini-2.5-flash",
+  },
+  groq: {
+    opus: "llama-3.3-70b-versatile",
+    sonnet: "llama-3.3-70b-versatile",
+    haiku: "llama-3.1-8b-instant",
+  },
+  openrouter: {
+    opus: "anthropic/claude-opus-4-20250514",
+    sonnet: "anthropic/claude-sonnet-4-20250514",
+    haiku: "anthropic/claude-haiku-3-5-20241022",
+  },
+  ollama: {
+    opus: "qwen2.5-coder:14b",
+    sonnet: "qwen2.5-coder:7b",
+    haiku: "qwen2.5-coder:3b",
+  },
+  nvidia: {
+    opus: "meta/llama-3.3-70b-instruct",
+    sonnet: "meta/llama-3.3-70b-instruct",
+    haiku: "meta/llama-3.1-8b-instruct",
+  },
+  github: {
+    opus: "gpt-4.1",
+    sonnet: "gpt-4o",
+    haiku: "gpt-4o-mini",
+  },
+};
+
+/**
+ * Resolve an abstract model tier ("opus", "sonnet", "haiku") to an actual model ID
+ * for the given provider. Returns null if the tier is not recognized or if the input
+ * is already a concrete model ID.
+ */
+export function resolveModelTier(tier: string, provider?: string): string | null {
+  const lowerTier = tier.toLowerCase();
+  if (!["opus", "sonnet", "haiku"].includes(lowerTier)) return null;
+
+  const providerKey = (provider || "anthropic").toLowerCase();
+  const providerMap = TIER_MAP[providerKey];
+  if (!providerMap) return TIER_MAP.anthropic[lowerTier] || null;
+
+  return providerMap[lowerTier] || null;
+}

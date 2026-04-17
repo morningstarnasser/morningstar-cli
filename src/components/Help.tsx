@@ -188,6 +188,17 @@ const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    title: "Harness & Learning",
+    items: [
+      { cmd: "/doctor", desc: "System-Health-Check ausfuehren" },
+      { cmd: "/audit", desc: "Tiefere Systemanalyse" },
+      { cmd: "/repair", desc: "Probleme automatisch beheben" },
+      { cmd: "/instincts", desc: "Gelernte Instincts anzeigen" },
+      { cmd: "/instinct-export", desc: "Instincts als JSON exportieren" },
+      { cmd: "/instinct-import <file>", desc: "Instincts importieren" },
+    ],
+  },
+  {
     title: "Account & System",
     items: [
       { cmd: "/login [provider]", desc: "API Key setzen" },

@@ -19,6 +19,11 @@ function loadFileAgentsFromDir(dir, source) {
                 const raw = readFileSync(filePath, "utf-8");
                 const { frontmatter, content } = parseFrontmatter(raw);
                 const id = basename(file, ".md");
+                // Normalize tool names to lowercase (ECC uses Read/Grep, morningstar uses read/grep)
+                const rawTools = frontmatter.tools;
+                const normalizedTools = rawTools?.map(t => t.toLowerCase());
+                // Accept both "model" (ECC format) and "preferredModel" (legacy)
+                const resolvedModel = frontmatter.model || frontmatter.preferredModel || undefined;
                 agents[id] = {
                     id,
                     name: frontmatter.name || id,
@@ -27,8 +32,10 @@ function loadFileAgentsFromDir(dir, source) {
                     color: frontmatter.color || "#a855f7",
                     source,
                     filePath,
-                    tools: frontmatter.tools,
-                    preferredModel: frontmatter.preferredModel,
+                    tools: normalizedTools,
+                    model: resolvedModel,
+                    origin: frontmatter.origin || undefined,
+                    preferredModel: resolvedModel,
                     temperature: frontmatter.temperature,
                     maxTokens: frontmatter.maxTokens,
                 };

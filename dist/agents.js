@@ -110,7 +110,16 @@ export function getAgentPrompt(agentId, baseSystemPrompt, allAgents) {
     const agent = agents[agentId];
     if (!agent)
         return baseSystemPrompt;
-    return `${agent.systemPrompt}\n\n--- Projekt-Kontext ---\n${baseSystemPrompt}`;
+    const parts = [agent.systemPrompt];
+    // Add tool restrictions to prompt if agent has limited tools
+    if (agent.tools && agent.tools.length > 0) {
+        parts.push(`\n\n--- Tool Restrictions ---`);
+        parts.push(`Du darfst NUR folgende Tools verwenden: ${agent.tools.join(", ")}`);
+        parts.push(`Andere Tools sind fuer diesen Agent NICHT verfuegbar.`);
+        parts.push(`--- Ende Tool Restrictions ---`);
+    }
+    parts.push(`\n\n--- Projekt-Kontext ---\n${baseSystemPrompt}`);
+    return parts.join("");
 }
 export function listAgents(allAgents, customOnly) {
     const agents = allAgents || AGENTS;
@@ -121,8 +130,12 @@ export function listAgents(allAgents, customOnly) {
         return true;
     })
         .map(([id, a]) => {
-        const tag = id in AGENTS ? chalk.gray("[built-in]") : chalk.hex("#a855f7")("[custom]");
-        return `  /agent:${id.padEnd(12)} ${tag} ${a.name} - ${a.description}`;
+        const origin = a.origin || (id in AGENTS ? "built-in" : "custom");
+        const tag = origin === "built-in" ? chalk.gray("[built-in]")
+            : origin === "ecc" ? chalk.hex("#06b6d4")("[ecc]")
+                : chalk.hex("#a855f7")("[custom]");
+        const modelTag = a.model ? chalk.dim(` [${a.model}]`) : "";
+        return `  /agent:${id.padEnd(12)} ${tag}${modelTag} ${a.name} - ${a.description}`;
     })
         .join("\n");
 }

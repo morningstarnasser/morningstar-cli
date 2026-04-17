@@ -9,6 +9,8 @@ export interface Skill {
     content: string;
     source: "global" | "project";
     filePath: string;
+    origin?: string;
+    version?: string;
 }
 export declare function loadSkills(cwd: string): Skill[];
 export declare function getSkill(id: string, cwd: string): Skill | null;
