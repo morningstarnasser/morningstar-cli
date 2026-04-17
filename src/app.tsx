@@ -15,6 +15,7 @@ import { ToolGroup } from "./components/ToolGroup.js";
 import { CodeBlock } from "./components/CodeBlock.js";
 import { PlanBox } from "./components/PlanBox.js";
 import { ContextRadar } from "./components/ContextRadar.js";
+import { StatusLine } from "./components/StatusLine.js";
 import { TaskProgress, createTaskStep, type TaskStep } from "./components/TaskProgress.js";
 import { buildDepGraph, renderDepGraphAscii } from "./dep-graph.js";
 import { useTheme } from "./hooks/useTheme.js";
@@ -2428,54 +2429,17 @@ Verweigere NIEMALS Bild-Anfragen — leite sie an /imagine weiter. Es gibt keine
         {/* ── Bottom Status Bar ── */}
         {showStatusLine && (
           <>
-            <Box marginLeft={0} marginTop={0}>
-              <Text color={dim}>{"─".repeat(70)}</Text>
-            </Box>
-            <Box marginLeft={1} gap={1}>
-              <Text color={accent} bold>{"📁 "}{cwd.replace(homedir(), "~")}</Text>
-              <Text color={dim}>{"│"}</Text>
-              <Text color={primary} bold>{"🤖 "}{config.model.length > 25 ? config.model.slice(0, 25) + "…" : config.model}</Text>
-              <Text color={dim}>{"│"}</Text>
-              <Text color={(config.provider || "deepseek") === "ollama" ? successColor : info}>
-                {(config.provider || "deepseek") === "ollama" ? "⚡ lokal" : `☁️  ${config.provider || "deepseek"}`}
-              </Text>
-              {activeAgent && (
-                <>
-                  <Text color={dim}>{"│"}</Text>
-                  <Text color={warning}>{"🕵️ "}{activeAgent}</Text>
-                </>
-              )}
-              {activeSkill && (
-                <>
-                  <Text color={dim}>{"│"}</Text>
-                  <Text color={accent}>{"🎯 "}{activeSkill.name}</Text>
-                </>
-              )}
-              {vimMode && (
-                <>
-                  <Text color={dim}>{"│"}</Text>
-                  <Text color={accent}>VIM</Text>
-                </>
-              )}
-              {config.fast && (
-                <>
-                  <Text color={dim}>{"│"}</Text>
-                  <Text color={warning}>FAST</Text>
-                </>
-              )}
-              {debugMode && (
-                <>
-                  <Text color={dim}>{"│"}</Text>
-                  <Text color={errorColor}>DEBUG</Text>
-                </>
-              )}
-              {config.maxBudgetUsd && (
-                <>
-                  <Text color={dim}>{"│"}</Text>
-                  <Text color={info}>{"💰 $"}{getRemainingBudget(config.maxBudgetUsd).toFixed(2)}</Text>
-                </>
-              )}
-            </Box>
+            <StatusLine
+              cwd={cwd}
+              model={config.model}
+              provider={config.provider || "deepseek"}
+              activeAgent={activeAgent}
+              activeSkill={activeSkill?.name || null}
+              vimMode={vimMode}
+              fastMode={Boolean(config.fast)}
+              debugMode={debugMode}
+              remainingBudget={config.maxBudgetUsd ? getRemainingBudget(config.maxBudgetUsd) : undefined}
+            />
             <Box marginLeft={1}>
               <ContextRadar messages={messages} />
             </Box>

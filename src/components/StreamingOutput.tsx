@@ -66,7 +66,7 @@ function parseBlocks(text: string): ParsedBlock[] {
 }
 
 export function StreamingOutput({ text, reasoning, isStreaming, startTime }: StreamingOutputProps) {
-  const { star, dim } = useTheme();
+  const { primary, accent, dim, info } = useTheme();
 
   const elapsed = Date.now() - startTime;
 
@@ -88,9 +88,12 @@ export function StreamingOutput({ text, reasoning, isStreaming, startTime }: Str
 
       {/* Content */}
       {text && (
-        <Box flexDirection="column" marginLeft={2}>
+        <Box flexDirection="column" marginLeft={1}>
           <Box>
-            <Text color={dim}>  ⎿ </Text>
+            <Text color={accent}>● </Text>
+            <Text color={primary}>assistant</Text>
+            <Text color={dim}> · </Text>
+            <Text color={isStreaming ? dim : info}>{isStreaming ? "streaming" : "complete"}</Text>
           </Box>
           {blocks.map((block, i) => {
             if (block.type === "code") {

@@ -48,7 +48,7 @@ function parseBlocks(text) {
     return blocks;
 }
 export function StreamingOutput({ text, reasoning, isStreaming, startTime }) {
-    const { star, dim } = useTheme();
+    const { primary, accent, dim, info } = useTheme();
     const elapsed = Date.now() - startTime;
     // Parse text into blocks
     const blocks = useMemo(() => parseBlocks(text), [text]);
@@ -57,7 +57,7 @@ export function StreamingOutput({ text, reasoning, isStreaming, startTime }) {
         const openCount = (text.match(/```/g) || []).length;
         return openCount % 2 !== 0;
     }, [text]);
-    return (_jsxs(Box, { flexDirection: "column", children: [reasoning && (_jsx(PlanBox, { reasoning: reasoning, elapsed: elapsed })), text && (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsx(Box, { children: _jsx(Text, { color: dim, children: "  \u23BF " }) }), blocks.map((block, i) => {
+    return (_jsxs(Box, { flexDirection: "column", children: [reasoning && (_jsx(PlanBox, { reasoning: reasoning, elapsed: elapsed })), text && (_jsxs(Box, { flexDirection: "column", marginLeft: 1, children: [_jsxs(Box, { children: [_jsx(Text, { color: accent, children: "\u25CF " }), _jsx(Text, { color: primary, children: "assistant" }), _jsx(Text, { color: dim, children: " \u00B7 " }), _jsx(Text, { color: isStreaming ? dim : info, children: isStreaming ? "streaming" : "complete" })] }), blocks.map((block, i) => {
                         if (block.type === "code") {
                             return _jsx(CodeBlock, { code: block.content.replace(/\n$/, ""), lang: block.lang }, i);
                         }
