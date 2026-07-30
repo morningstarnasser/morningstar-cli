@@ -11,7 +11,7 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "MORNINGSTAR CLI — Terminal AI Coding Assistant",
   description:
-    "Open-source terminal AI coding assistant with 7 providers, 9 tools, custom agents, VS Code syntax highlighting, Context Radar, Animated Diffs, and Dependency Graph. Built with Ink (React) + Shiki.",
+    "Open-source terminal AI coding assistant with 11 providers, local Ollama models, agents, tools, context intelligence, and safe project automation.",
   keywords: [
     "AI", "CLI", "terminal", "coding assistant", "DeepSeek", "OpenAI",
     "Claude", "Gemini", "Ollama", "developer tools", "open source",

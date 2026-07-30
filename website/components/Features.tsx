@@ -11,8 +11,8 @@ import type { LucideIcon } from "lucide-react";
 const features: { icon: LucideIcon; title: string; desc: string; color: string; badge?: string }[] = [
   {
     icon: Globe,
-    title: "7 AI Providers",
-    desc: "DeepSeek, OpenAI, Anthropic, Google, Ollama, Groq, OpenRouter — switch mid-session with /model",
+    title: "11 AI Providers",
+    desc: "DeepSeek, OpenAI, Anthropic, Google, NVIDIA, GitHub, Ollama and more — switch mid-session with /model",
     color: "text-amber-400",
   },
   {

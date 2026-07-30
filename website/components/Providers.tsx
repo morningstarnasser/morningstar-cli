@@ -6,7 +6,11 @@ const providers = [
   { name: "OpenAI", models: "o3, o4-mini, GPT-4.1, Codex", color: "#412991", cmd: "o3", css: "provider-openai" },
   { name: "Anthropic", models: "Claude Opus 4, Sonnet 4", color: "#D4A373", cmd: "claude-opus-4-20250514", css: "provider-anthropic" },
   { name: "Google", models: "Gemini 2.5 Flash, 3 Pro + Nano Banana Image", color: "#4285F4", cmd: "gemini-2.0-flash", css: "provider-google" },
-  { name: "Ollama", models: "Morningstar 13B, LLaMA 3, Qwen, any local", color: "#22C55E", cmd: "morningstar", css: "provider-ollama" },
+  { name: "NVIDIA NIM", models: "Nemotron, Llama, hosted inference", color: "#76B900", cmd: "nvidia/llama-3.3-70b", css: "provider-nvidia" },
+  { name: "GitHub Models", models: "Open models via GitHub", color: "#F0F0F0", cmd: "github/phi-4", css: "provider-github" },
+  { name: "Ollama", models: "Qwen, Hydra, GGUF — any local model", color: "#22C55E", cmd: "qwen3.5:27b-int4", css: "provider-ollama" },
+  { name: "Hydra Local", models: "Private local router on :8100", color: "#F59E0B", cmd: "hydra-ch-4b", css: "provider-hydra" },
+  { name: "Claude CLI", models: "Use your local Claude Code login", color: "#D4A373", cmd: "claude-cli", css: "provider-claude-cli" },
   { name: "Groq", models: "LLaMA 3.3, Mixtral", color: "#F55036", cmd: "llama-3.3-70b-versatile", css: "provider-groq" },
   { name: "OpenRouter", models: "Any model via API", color: "#6366F1", cmd: "openrouter/auto", css: "provider-openrouter" },
 ];
@@ -25,7 +29,7 @@ export default function Providers() {
               <div className="h-px w-16 bg-gradient-to-l from-transparent to-amber-500/50" />
             </div>
             <h2 className="text-3xl sm:text-4xl font-bold text-white">
-              7 Providers.{" "}
+              11 Providers.{" "}
               <span className="text-amber-400">Any Model.</span>
             </h2>
           </div>

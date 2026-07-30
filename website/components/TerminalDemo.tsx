@@ -14,7 +14,7 @@ interface DemoLine {
 }
 
 const LINES: DemoLine[] = [
-  { text: "Model    morningstar-14b [local]", color: "text-amber-400", type: "star" },
+  { text: "Model    qwen3.5:27b-int4 [ollama · local]", color: "text-amber-400", type: "star" },
   { text: "Project  my-app (TypeScript / Next.js)", color: "text-gray-400", type: "star" },
   { text: "Branch   main", color: "text-gray-400", type: "star" },
   { text: "Perms    ask", color: "text-gray-400", type: "star" },

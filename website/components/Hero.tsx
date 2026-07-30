@@ -134,7 +134,7 @@ export default function Hero() {
           <div className="text-amber-500/60">
             {"║   "}
             <span className="text-gray-500">{"Model     "}</span>
-            <span className="text-amber-400 font-bold">morningstar-14b</span>
+            <span className="text-amber-400 font-bold">qwen3.5:27b-int4</span>
             <span className="text-gray-600">{"                      [local]"}</span>
             {"║"}
           </div>
