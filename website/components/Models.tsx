@@ -39,15 +39,15 @@ export default function Models() {
           <div className="text-center mb-14">
             <div className="flex items-center justify-center gap-4 mb-4">
               <div className="h-px w-16 bg-gradient-to-r from-transparent to-amber-500/50" />
-              <span className="text-amber-400 text-sm tracking-[0.3em] uppercase">Local model shelf</span>
+              <span className="text-amber-400 text-sm tracking-[0.3em] uppercase">Local inventory snapshot</span>
               <div className="h-px w-16 bg-gradient-to-l from-transparent to-amber-500/50" />
             </div>
             <h2 className="text-3xl sm:text-4xl font-bold text-white">
               Your models. <span className="text-amber-400">Your machine.</span>
             </h2>
             <p className="text-gray-400 mt-4 max-w-2xl mx-auto text-sm leading-relaxed">
-              Morningstar discovers Ollama models dynamically. Nothing is uploaded, and no
-              weights are bundled with the CLI.
+              Morningstar discovers Ollama models dynamically. This is a snapshot of the
+              development machine — weights are not bundled with the CLI or stored in Git.
             </p>
           </div>
         </ScrollReveal>
@@ -61,7 +61,7 @@ export default function Models() {
                     <Cpu size={24} strokeWidth={1.5} />
                   </div>
                   <span className="inline-flex items-center gap-1.5 text-[10px] tracking-widest text-emerald-300 border border-emerald-500/25 bg-emerald-500/10 rounded-full px-2.5 py-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> LOCAL
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> INSTALLED SNAPSHOT
                   </span>
                 </div>
                 <h3 className={`text-xl font-bold ${model.color}`}>{model.name}</h3>
