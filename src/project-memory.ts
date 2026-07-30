@@ -1,0 +1,92 @@
+import { appendFileSync, existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { resolveWithinWorkspace } from "./file-guards.js";
+
+const MEMORY_FILES = ["MORNINGSTAR.md", ".morningstar.md", ".morningstar/config.md"];
+
+function getSafeExistingMemoryPath(cwd: string, name: string): string | null {
+  const lexicalPath = join(cwd, name);
+  try {
+    if (!existsSync(lexicalPath)) return null;
+    const lexicalStat = lstatSync(lexicalPath);
+    if (!lexicalStat.isFile() || lexicalStat.isSymbolicLink()) return null;
+    const checked = resolveWithinWorkspace(lexicalPath, cwd);
+    if (!checked.ok) return null;
+    const resolvedStat = lstatSync(checked.resolved);
+    return resolvedStat.isFile() && !resolvedStat.isSymbolicLink()
+      ? checked.resolved
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function loadProjectMemory(cwd: string): string | null {
+  for (const name of MEMORY_FILES) {
+    const path = getSafeExistingMemoryPath(cwd, name);
+    try {
+      if (path) return readFileSync(path, "utf-8");
+    } catch {}
+  }
+  return null;
+}
+
+export function getProjectMemoryPath(cwd: string): string | null {
+  for (const name of MEMORY_FILES) {
+    const path = getSafeExistingMemoryPath(cwd, name);
+    if (path) return path;
+  }
+  return null;
+}
+
+export function createProjectMemory(
+  cwd: string,
+  context: { language?: string; framework?: string; projectName?: string }
+): string {
+  const lexicalPath = join(cwd, "MORNINGSTAR.md");
+  let existingStat: ReturnType<typeof lstatSync> | undefined;
+  try {
+    existingStat = lstatSync(lexicalPath);
+  } catch {}
+  if (existingStat?.isSymbolicLink()) {
+    throw new Error("MORNINGSTAR.md darf kein symbolischer Link sein.");
+  }
+  const checked = resolveWithinWorkspace(lexicalPath, cwd);
+  if (!checked.ok) {
+    throw new Error(checked.reason || "MORNINGSTAR.md liegt ausserhalb des Arbeitsverzeichnisses.");
+  }
+  const path = checked.resolved;
+  const content = `# ${context.projectName || "Projekt"}
+
+## Tech Stack
+- Language: ${context.language || "(hier eintragen)"}
+- Framework: ${context.framework || "(hier eintragen)"}
+
+## Conventions
+- (Coding-Konventionen hier eintragen)
+
+## Important
+- (Wichtige Hinweise fuer die AI hier eintragen)
+
+## Do NOT
+- (Was die AI NICHT tun soll)
+
+## Scripts
+- \`npm run dev\` — Development Server
+- \`npm test\` — Tests ausfuehren
+- \`npm run build\` — Build
+`;
+  writeFileSync(path, content, "utf-8");
+  return path;
+}
+
+export function appendProjectMemory(cwd: string, text: string): boolean {
+  const path = getProjectMemoryPath(cwd);
+  if (!path) return false;
+  try {
+    appendFileSync(path, "\n" + text + "\n", "utf-8");
+    return true;
+  } catch {
+    return false;
+  }
+}

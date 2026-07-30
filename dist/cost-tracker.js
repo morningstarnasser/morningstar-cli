@@ -1,0 +1,166 @@
+// Preise pro 1M Tokens (USD)
+const PRICING = {
+    // DeepSeek
+    "deepseek-reasoner": { input: 0.55, output: 2.19 },
+    "deepseek-chat": { input: 0.27, output: 1.10 },
+    // OpenAI Reasoning
+    "o3": { input: 2.00, output: 8.00 },
+    "o3-mini": { input: 1.10, output: 4.40 },
+    "o3-pro": { input: 20.00, output: 80.00 },
+    "o4-mini": { input: 1.10, output: 4.40 },
+    "o1": { input: 15.00, output: 60.00 },
+    "o1-mini": { input: 1.10, output: 4.40 },
+    "o1-pro": { input: 150.00, output: 600.00 },
+    // OpenAI GPT-4.1
+    "gpt-4.1": { input: 2.00, output: 8.00 },
+    "gpt-4.1-mini": { input: 0.40, output: 1.60 },
+    "gpt-4.1-nano": { input: 0.10, output: 0.40 },
+    // OpenAI GPT-4o
+    "gpt-4o": { input: 2.50, output: 10.00 },
+    "gpt-4o-mini": { input: 0.15, output: 0.60 },
+    "gpt-4-turbo": { input: 10.00, output: 30.00 },
+    // OpenAI Specialized
+    "codex-mini-latest": { input: 1.50, output: 6.00 },
+    "gpt-4o-search-preview": { input: 2.50, output: 10.00 },
+    "gpt-4o-mini-search-preview": { input: 0.15, output: 0.60 },
+    // Anthropic
+    "claude-opus-4-6-20260204": { input: 15.00, output: 75.00 },
+    "claude-sonnet-4-6-20260514": { input: 3.00, output: 15.00 },
+    "claude-sonnet-4-5-20250929": { input: 3.00, output: 15.00 },
+    "claude-haiku-4-5-20251001": { input: 0.80, output: 4.00 },
+    "claude-sonnet-4-20250514": { input: 3.00, output: 15.00 },
+    "claude-opus-4-20250514": { input: 15.00, output: 75.00 },
+    "claude-haiku-3-5-20241022": { input: 0.80, output: 4.00 },
+    // Google
+    "gemini-2.5-flash": { input: 0.15, output: 0.60 },
+    "gemini-2.5-pro": { input: 1.25, output: 10.00 },
+    "gemini-2.0-flash": { input: 0.10, output: 0.40 },
+    "gemini-2.0-pro": { input: 1.25, output: 5.00 },
+    "gemini-1.5-pro": { input: 1.25, output: 5.00 },
+    // NVIDIA NIM (free tier on NVIDIA API)
+    "nvidia/moonshotai/kimi-k2.6": { input: 0.00, output: 0.00 },
+    "nvidia/deepseek-ai/deepseek-v4-pro": { input: 0.00, output: 0.00 },
+    "nvidia/deepseek-ai/deepseek-v4-flash": { input: 0.00, output: 0.00 },
+    "nvidia/qwen/qwen3.5-397b-a17b": { input: 0.00, output: 0.00 },
+    "nvidia/qwen/qwen3.5-122b-a10b": { input: 0.00, output: 0.00 },
+    "nvidia/qwen/qwen3-next-80b-a3b-instruct": { input: 0.00, output: 0.00 },
+    "nvidia/nvidia/nemotron-3-ultra-550b-a55b": { input: 0.00, output: 0.00 },
+    "nvidia/nvidia/nemotron-3-super-120b-a12b": { input: 0.00, output: 0.00 },
+    "nvidia/nvidia/llama-3.3-nemotron-super-49b-v1.5": { input: 0.00, output: 0.00 },
+    "nvidia/nvidia/llama-3.1-nemotron-ultra-253b-v1": { input: 0.00, output: 0.00 },
+    "nvidia/meta/llama-3.3-70b-instruct": { input: 0.00, output: 0.00 },
+    "nvidia/mistralai/mistral-large-3-675b-instruct-2512": { input: 0.00, output: 0.00 },
+    "nvidia/mistralai/codestral-22b-instruct-v0.1": { input: 0.00, output: 0.00 },
+    "nvidia/openai/gpt-oss-120b": { input: 0.00, output: 0.00 },
+    "nvidia/openai/gpt-oss-20b": { input: 0.00, output: 0.00 },
+    "nvidia/minimaxai/minimax-m3": { input: 0.00, output: 0.00 },
+    "nvidia/minimaxai/minimax-m2.7": { input: 0.00, output: 0.00 },
+    "nvidia/z-ai/glm-5.1": { input: 0.00, output: 0.00 },
+    // GitHub Models (free tier)
+    "github/gpt-4.1": { input: 0.00, output: 0.00 },
+    "github/gpt-4.1-mini": { input: 0.00, output: 0.00 },
+    "github/gpt-4.1-nano": { input: 0.00, output: 0.00 },
+    "github/o3-mini": { input: 0.00, output: 0.00 },
+    "github/o4-mini": { input: 0.00, output: 0.00 },
+    "github/DeepSeek-R1": { input: 0.00, output: 0.00 },
+    "github/DeepSeek-V3-0324": { input: 0.00, output: 0.00 },
+    "github/Llama-3.3-70B-Instruct": { input: 0.00, output: 0.00 },
+    "github/Llama-4-Scout-17B-16E-Instruct": { input: 0.00, output: 0.00 },
+    "github/Llama-4-Maverick-17B-128E-Instruct-FP8": { input: 0.00, output: 0.00 },
+    "github/grok-3": { input: 0.00, output: 0.00 },
+    "github/grok-3-mini": { input: 0.00, output: 0.00 },
+    "github/Mistral-Large-2411": { input: 0.00, output: 0.00 },
+    "github/Mistral-Small-24B-Instruct-2501": { input: 0.00, output: 0.00 },
+    "github/Phi-4": { input: 0.00, output: 0.00 },
+    "github/Phi-4-mini-instruct": { input: 0.00, output: 0.00 },
+    "github/command-r-plus-08-2024": { input: 0.00, output: 0.00 },
+    "github/Jamba-1.5-Large": { input: 0.00, output: 0.00 },
+    "github/Jamba-1.5-Mini": { input: 0.00, output: 0.00 },
+    "github/Codestral-2501": { input: 0.00, output: 0.00 },
+    // Groq (free tier)
+    "llama-3.3-70b-versatile": { input: 0.00, output: 0.00 },
+    "mixtral-8x7b-32768": { input: 0.00, output: 0.00 },
+    "gemma2-9b-it": { input: 0.00, output: 0.00 },
+};
+const DEFAULT_CLOUD_PRICING = { input: 1.0, output: 3.0 };
+const ZERO_MARGINAL_COST_PROVIDERS = [
+    "ollama",
+    "hydra-local",
+    "claude-cli",
+];
+function hasZeroMarginalCost(provider) {
+    if (!provider)
+        return false;
+    return ZERO_MARGINAL_COST_PROVIDERS.some((freeProvider) => freeProvider === provider.toLowerCase());
+}
+function resolvePricing(model, provider) {
+    if (hasZeroMarginalCost(provider))
+        return { input: 0, output: 0 };
+    return PRICING[model] ?? DEFAULT_CLOUD_PRICING;
+}
+// Session state
+let session = { totalInput: 0, totalOutput: 0, totalCost: 0, messages: 0, byModel: {} };
+export function estimateTokens(text) {
+    return Math.ceil(text.length / 4);
+}
+export function getCostPerMessage(model, inputTokens, outputTokens, provider) {
+    const price = resolvePricing(model, provider);
+    return (inputTokens * price.input + outputTokens * price.output) / 1_000_000;
+}
+/**
+ * Track usage with real token counts from API, or estimate from text.
+ * If realInput/realOutput are provided (> 0), they are used instead of estimation.
+ */
+export function trackUsage(model, inputText, outputText, realInput, realOutput, provider) {
+    const inputTokens = (realInput && realInput > 0) ? realInput : estimateTokens(inputText);
+    const outputTokens = (realOutput && realOutput > 0) ? realOutput : estimateTokens(outputText);
+    const cost = getCostPerMessage(model, inputTokens, outputTokens, provider);
+    session.totalInput += inputTokens;
+    session.totalOutput += outputTokens;
+    session.totalCost += cost;
+    session.messages++;
+    if (!session.byModel[model])
+        session.byModel[model] = { input: 0, output: 0, cost: 0, count: 0 };
+    session.byModel[model].input += inputTokens;
+    session.byModel[model].output += outputTokens;
+    session.byModel[model].cost += cost;
+    session.byModel[model].count++;
+    return { inputTokens, outputTokens, model, cost, timestamp: new Date().toISOString() };
+}
+export function getSessionCosts() {
+    return { ...session };
+}
+export function formatCostDisplay() {
+    const lines = [];
+    lines.push(`  Messages:    ${session.messages}`);
+    lines.push(`  Tokens in:   ${session.totalInput.toLocaleString()}`);
+    lines.push(`  Tokens out:  ${session.totalOutput.toLocaleString()}`);
+    lines.push(`  Kosten:      $${session.totalCost.toFixed(4)}`);
+    if (Object.keys(session.byModel).length > 0) {
+        lines.push("");
+        for (const [model, data] of Object.entries(session.byModel)) {
+            lines.push(`  ${model}: ${data.count} msgs, $${data.cost.toFixed(4)}`);
+        }
+    }
+    return lines.join("\n");
+}
+export function resetSessionCosts() {
+    session = { totalInput: 0, totalOutput: 0, totalCost: 0, messages: 0, byModel: {} };
+}
+export function isFreeTier(model, provider) {
+    const price = resolvePricing(model, provider);
+    return price.input === 0 && price.output === 0;
+}
+/**
+ * Check if session cost exceeds the budget limit.
+ */
+export function isBudgetExceeded(maxBudgetUsd) {
+    return session.totalCost >= maxBudgetUsd;
+}
+/**
+ * Get remaining budget.
+ */
+export function getRemainingBudget(maxBudgetUsd) {
+    return Math.max(0, maxBudgetUsd - session.totalCost);
+}
+//# sourceMappingURL=cost-tracker.js.map

@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-07-29T05:46:28Z",
+  "title": "Design System: Morningstar CLI",
+  "extensions": {
+    "colorMeta": {
+      "copper-glow": {
+        "role": "primary",
+        "displayName": "Copper Glow",
+        "canonical": "#f4c27a",
+        "tonalRamp": ["#241b12", "#49351f", "#72502c", "#9d6e3c", "#c98f50", "#e9ad66", "#f4c27a", "#fbe4be"]
+      },
+      "burnished-copper": {
+        "role": "secondary",
+        "displayName": "Burnished Copper",
+        "canonical": "#c98b52",
+        "tonalRamp": ["#211811", "#44301f", "#67482d", "#8c623b", "#b17b49", "#c98b52", "#e4b58b", "#f5dfca"]
+      },
+      "quiet-mint": {
+        "role": "secondary",
+        "displayName": "Quiet Mint",
+        "canonical": "#7ed7c1",
+        "tonalRamp": ["#10221e", "#1c4439", "#286654", "#398b70", "#52ad8e", "#6bc9aa", "#7ed7c1", "#ccefe5"]
+      },
+      "success-green": {
+        "role": "semantic",
+        "displayName": "Success Green",
+        "canonical": "#7bd88f",
+        "tonalRamp": ["#112318", "#1c4529", "#29683b", "#398d50", "#50b368", "#6ace81", "#7bd88f", "#ceefd5"]
+      },
+      "error-coral": {
+        "role": "semantic",
+        "displayName": "Error Coral",
+        "canonical": "#ff7d7d",
+        "tonalRamp": ["#2b1114", "#572025", "#842f36", "#b54148", "#df5960", "#f66e70", "#ff7d7d", "#ffd1d1"]
+      },
+      "warning-amber": {
+        "role": "semantic",
+        "displayName": "Warning Amber",
+        "canonical": "#ffb86b",
+        "tonalRamp": ["#281b0d", "#513719", "#7b5325", "#a97032", "#d58e42", "#f3a856", "#ffb86b", "#ffe0bb"]
+      },
+      "information-blue": {
+        "role": "semantic",
+        "displayName": "Information Blue",
+        "canonical": "#8ecdf8",
+        "tonalRamp": ["#10202b", "#1b4057", "#286184", "#3984af", "#55a7d5", "#76c0ee", "#8ecdf8", "#d4edfd"]
+      },
+      "graphite-muted": {
+        "role": "neutral",
+        "displayName": "Graphite Muted",
+        "canonical": "#6f7785",
+        "tonalRamp": ["#181a1d", "#2d3137", "#434951", "#5a626d", "#6f7785", "#9299a4", "#bbc0c8", "#e7e9ec"]
+      },
+      "terminal-ink": {
+        "role": "neutral",
+        "displayName": "Terminal Ink",
+        "canonical": "#e5e7eb",
+        "tonalRamp": ["#202226", "#3d4046", "#5c6068", "#7e838d", "#a4a9b2", "#c7cbd1", "#e5e7eb", "#f5f6f7"]
+      },
+      "terminal-shadow": {
+        "role": "neutral",
+        "displayName": "Terminal Shadow",
+        "canonical": "#3f4652",
+        "tonalRamp": ["#15171b", "#24282f", "#343a44", "#3f4652", "#626c7c", "#8992a0", "#b6bcc5", "#e5e7eb"]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Terminal Title",
+        "purpose": "Product identity, overlay titles, and the highest-priority state."
+      },
+      "body": {
+        "displayName": "Terminal Body",
+        "purpose": "Conversation, code-adjacent prose, and expanded tool output."
+      },
+      "label": {
+        "displayName": "Terminal Label",
+        "purpose": "Tools, commands, modes, model identity, and compact metadata."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "state-fast",
+        "value": "160ms cubic-bezier(0.25, 1, 0.5, 1)",
+        "purpose": "Selection and state feedback in environments that can animate."
+      },
+      {
+        "name": "state-standard",
+        "value": "220ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Overlay and progressive-disclosure transitions outside reduced-motion mode."
+      }
+    ],
+    "breakpoints": [
+      { "name": "terminal-narrow", "value": "60ch" },
+      { "name": "terminal-standard", "value": "80ch" },
+      { "name": "terminal-wide", "value": "120ch" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Composer",
+      "kind": "input",
+      "refersTo": "composer",
+      "description": "Full-width terminal input lane with a Copper prompt and stable focus.",
+      "html": "<label class=\"ds-composer\"><span aria-hidden=\"true\">&gt;</span><input aria-label=\"Message Morningstar\" value=\"Refactor the session runtime\" /></label>",
+      "css": ".ds-composer { display:flex; gap:1ch; align-items:center; padding:10px 0; border-top:1px solid #6f7785; border-bottom:1px solid #6f7785; color:#f4c27a; font:400 15px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; } .ds-composer input { width:100%; color:#e5e7eb; background:transparent; border:0; outline:0; font:inherit; } .ds-composer:focus-within { border-color:#f4c27a; }"
+    },
+    {
+      "name": "Selected Command",
+      "kind": "custom",
+      "refersTo": "command-selected",
+      "description": "Explicit picker selection with backing, glyph, command, and description.",
+      "html": "<div class=\"ds-command\" role=\"option\" aria-selected=\"true\"><span>›</span><strong>/model</strong><small>Choose a model</small></div>",
+      "css": ".ds-command { display:grid; grid-template-columns:2ch 14ch 1fr; gap:1ch; padding:7px 10px; color:#f4c27a; background:#3f4652; font:500 14px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace; } .ds-command small { color:#e5e7eb; opacity:.72; } .ds-command:focus-visible { outline:2px solid #7ed7c1; outline-offset:2px; }"
+    },
+    {
+      "name": "Local Model Row",
+      "kind": "custom",
+      "refersTo": "command-selected",
+      "description": "First-class model discovery row with exact local manifest identity.",
+      "html": "<div class=\"ds-model\" role=\"option\"><span>★</span><strong>qwen3.5:27b-int4</strong><span class=\"ds-model-meta\">Ollama · local</span></div>",
+      "css": ".ds-model { display:grid; grid-template-columns:2ch minmax(24ch,1fr) auto; gap:1ch; padding:8px 10px; color:#e5e7eb; font:500 14px/1.25 ui-monospace,SFMono-Regular,Menlo,monospace; } .ds-model > span:first-child { color:#f4c27a; } .ds-model-meta { color:#7bd88f; } .ds-model:hover { background:#3f4652; } .ds-model:focus-visible { outline:2px solid #f4c27a; outline-offset:2px; }"
+    },
+    {
+      "name": "Active Tool",
+      "kind": "custom",
+      "refersTo": "tool-active",
+      "description": "Compact, unboxed tool activity with the primary argument and elapsed time.",
+      "html": "<div class=\"ds-tool\"><span>✦</span><strong>Reading</strong><code>src/app.tsx</code><small>1.8s</small></div>",
+      "css": ".ds-tool { display:flex; gap:1ch; align-items:baseline; color:#e5e7eb; font:400 14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; } .ds-tool > span,.ds-tool strong { color:#f4c27a; } .ds-tool code,.ds-tool small { color:#6f7785; }"
+    },
+    {
+      "name": "Tool Success",
+      "kind": "custom",
+      "refersTo": "tool-success",
+      "description": "Finished tool call with a non-color success marker and concise result.",
+      "html": "<div class=\"ds-success\"><span>✓</span><strong>Updated</strong><code>src/runtime/session.ts</code><small>42 lines</small></div>",
+      "css": ".ds-success { display:flex; gap:1ch; align-items:baseline; color:#e5e7eb; font:400 14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; } .ds-success > span,.ds-success strong { color:#7bd88f; } .ds-success code,.ds-success small { color:#6f7785; }"
+    },
+    {
+      "name": "Permission Prompt",
+      "kind": "card",
+      "refersTo": "permission-danger",
+      "description": "Bounded, consequential choice with exact target and explicit scope.",
+      "html": "<section class=\"ds-permission\" aria-labelledby=\"permission-title\"><strong id=\"permission-title\">Allow Bash?</strong><code>git push origin feature/runtime</code><p>External write to the remote repository.</p><button>Allow once</button><button>Reject</button></section>",
+      "css": ".ds-permission { display:grid; gap:9px; padding:12px 14px; border:1px solid #ff7d7d; border-radius:8px; color:#e5e7eb; font:400 14px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; } .ds-permission strong { color:#ff7d7d; } .ds-permission p { margin:0; color:#6f7785; } .ds-permission button { width:max-content; padding:5px 9px; color:#e5e7eb; background:#3f4652; border:1px solid #6f7785; font:inherit; } .ds-permission button:hover,.ds-permission button:focus-visible { color:#f4c27a; border-color:#f4c27a; outline:0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Sovereign Workbench",
+    "overview": "Morningstar is the terminal developers return to when real work must move. The interface is warm but restrained: a compact identity masthead gives way immediately to the transcript, the active task, and a stable composer. Copper carries identity and active intent; muted terminal neutrals let long sessions remain calm. The layout borrows the clarity of the best agentic coding tools without becoming a Claude Code skin.",
+    "keyCharacteristics": [
+      "One continuous transcript with a fixed interaction point.",
+      "Warm Copper identity with Claude-inspired restraint.",
+      "Dense enough for experts, quiet enough for long sessions.",
+      "Details, tools, and diagnostics collapse until requested.",
+      "State is always communicated by a glyph and text, never color alone.",
+      "Layout adapts at 60, 80, and 120 terminal columns."
+    ],
+    "rules": [
+      {
+        "name": "The One Warm Voice Rule",
+        "body": "Copper marks identity and the current action only. If three unrelated regions glow Copper at once, the hierarchy has failed.",
+        "section": "colors"
+      },
+      {
+        "name": "The Semantic Pair Rule",
+        "body": "Every success, warning, error, and active state includes a glyph or label in addition to color.",
+        "section": "colors"
+      },
+      {
+        "name": "The Native Cell Rule",
+        "body": "Never fake a display font, gradient text, or giant ASCII headline. The terminal cell is the type scale.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Transcript Rule",
+        "body": "Messages and tool calls sit directly in the flow. Never wrap every response, metric, or command in a card.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Boundary Earns a Box Rule",
+        "body": "A border is justified only when the user must make a contained choice, such as permissions, model selection, session resume, or destructive confirmation.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do make Copper Glow the single warm voice for identity and current intent.",
+      "Do keep transcript content unboxed and reveal depth on demand.",
+      "Do show every installed Ollama model directly in model discovery.",
+      "Do verify terminal layouts at 60, 80, and 120 columns.",
+      "Do pair every color state with a glyph or textual label."
+    ],
+    "donts": [
+      "Don't create a Claude Code skin, reuse Anthropic mascots or ASCII art, imitate trademarked product identity, or copy proprietary wording and assets.",
+      "Don't turn the terminal into a crowded dashboard or a wall of boxed cards.",
+      "Don't use neon cyberpunk styling, decorative gradients, gradient text, or default glassmorphism.",
+      "Don't advertise a command, tool, permission mode, or integration unless it is wired end to end.",
+      "Don't hide failure, denial, model unavailability, or fallback behind silent substitution."
+    ]
+  }
+}
