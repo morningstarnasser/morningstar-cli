@@ -3,15 +3,15 @@ import ScrollReveal from "./ScrollReveal";
 
 const providers = [
   { name: "DeepSeek", models: "R1 Reasoner, Chat", color: "#4A90D9", cmd: "deepseek-reasoner", css: "provider-deepseek" },
-  { name: "OpenAI", models: "o3, o4-mini, GPT-4.1, Codex", color: "#412991", cmd: "o3", css: "provider-openai" },
-  { name: "Anthropic", models: "Claude Opus 4, Sonnet 4", color: "#D4A373", cmd: "claude-opus-4-20250514", css: "provider-anthropic" },
-  { name: "Google", models: "Gemini 2.5 Flash, 3 Pro + Nano Banana Image", color: "#4285F4", cmd: "gemini-2.0-flash", css: "provider-google" },
-  { name: "NVIDIA NIM", models: "Nemotron, Llama, hosted inference", color: "#76B900", cmd: "nvidia/llama-3.3-70b", css: "provider-nvidia" },
-  { name: "GitHub Models", models: "Open models via GitHub", color: "#F0F0F0", cmd: "github/phi-4", css: "provider-github" },
+  { name: "OpenAI", models: "GPT-5.2, o4-mini, GPT-4.1, Codex", color: "#412991", cmd: "gpt-5.2", css: "provider-openai" },
+  { name: "Anthropic", models: "Claude Opus, Sonnet, Haiku 4–5", color: "#D4A373", cmd: "claude-opus-5", css: "provider-anthropic" },
+  { name: "Google", models: "Gemini 3.6 Flash, 3.5 Pro/Flash", color: "#4285F4", cmd: "gemini-3.6-flash", css: "provider-google" },
+  { name: "NVIDIA NIM", models: "Kimi K2.6, DeepSeek V4, Qwen, Nemotron", color: "#76B900", cmd: "nvidia/deepseek-ai/deepseek-v4-pro", css: "provider-nvidia" },
+  { name: "GitHub Models", models: "GPT-4.1, o3/o4-mini, DeepSeek, Grok", color: "#F0F0F0", cmd: "github/openai/gpt-4.1", css: "provider-github" },
   { name: "Ollama", models: "Qwen, Hydra, GGUF — any local model", color: "#22C55E", cmd: "qwen3.5:27b-int4", css: "provider-ollama" },
   { name: "Hydra Local", models: "Private local router on :8100", color: "#F59E0B", cmd: "hydra-ch-4b", css: "provider-hydra" },
   { name: "Claude CLI", models: "Use your local Claude Code login", color: "#D4A373", cmd: "claude-cli", css: "provider-claude-cli" },
-  { name: "Groq", models: "LLaMA 3.3, Mixtral", color: "#F55036", cmd: "llama-3.3-70b-versatile", css: "provider-groq" },
+  { name: "Groq", models: "LLaMA 3.3, Mixtral, Gemma 2", color: "#F55036", cmd: "groq/llama-3.3-70b-versatile", css: "provider-groq" },
   { name: "OpenRouter", models: "Any model via API", color: "#6366F1", cmd: "openrouter/auto", css: "provider-openrouter" },
 ];
 

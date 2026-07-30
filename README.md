@@ -202,7 +202,7 @@ One tool. Any model. Maximum control.
 | **@File Autocomplete** | Reference files with `@path/to/file` for inline context |
 | **Memory System** | Persistent notes across sessions |
 | **Undo System** | Revert file changes with full undo stack |
-| **Image Generation** | Nano Banana Pro (Gemini 3) + local RealVisXL fallback |
+| **Image Generation** | Nano Banana Pro, Nano Banana Flash + local RealVisXL fallback |
 | **7 Themes** | Default, Ocean, Hacker, Sunset, Nord, Rose, Claude |
 | **Cost Tracking** | Real token counting with per-model cost breakdown |
 | **Crash-Proof** | Global error handlers prevent any crash |
@@ -426,6 +426,21 @@ to choose a provider first and then one of its models. Hosted catalogs refresh
 from their provider APIs, use a 15-minute cache, and fall back to the bundled
 offline catalog when a key or API is unavailable.
 
+### Local Ollama models
+
+Ollama models are discovered from the local runtime and appear automatically in the
+provider → model picker. The current development inventory includes:
+
+```text
+qwen3.5:27b-int4
+creativesync/hydra-ai:latest
+hf.co/huihui-ai/Huihui-Qwythos-9B-Claude-Mythos-5-1M-abliterated-GGUF:BF16
+```
+
+Weights stay in Ollama and are never committed to this repository. See the
+[model repository](https://github.com/morningstarnasser/MORNINGSTAR-AI-MODEL) for Modelfiles,
+evaluation and training tooling.
+
 ---
 
 ## 56 Agents (6 Built-in + 50 Extended)
@@ -484,7 +499,7 @@ Custom agents are stored in `~/.morningstar/agents.json` and support export/impo
 ```
 > /vision screenshot.png "What's wrong with this UI?"
 
-  ★ Analyzing with morningstar-vision (LLaVA 13B)...
+  ★ Analyzing with moondream (Ollama)...
 
   The screenshot shows a React component with several issues:
   1. The button lacks aria-label for accessibility

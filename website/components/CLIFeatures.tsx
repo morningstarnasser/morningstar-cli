@@ -94,7 +94,7 @@ const cliFeatures: CLIFeature[] = [
     icon: Image,
     title: "AI Image Generation",
     description: "Nano Banana Pro (Gemini 3) + local RealVisXL with auto-fallback.",
-    detail: "/imagine <prompt> \u00B7 6 models \u00B7 no content filters",
+    detail: "/imagine <prompt> \u00B7 3 image models \u00B7 local fallback",
   },
   {
     icon: History,

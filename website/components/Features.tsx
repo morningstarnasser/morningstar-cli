@@ -180,7 +180,7 @@ const features: { icon: LucideIcon; title: string; desc: string; color: string; 
   {
     icon: Paintbrush,
     title: "AI Image Generation",
-    desc: "Nano Banana Pro (Gemini 3) + RealVisXL local fallback — 6 models, auto-fallback, no content filters, saves to ~/Downloads",
+    desc: "Nano Banana Pro, Nano Banana Flash and RealVisXL local fallback — saves to ~/Downloads",
     color: "text-pink-400",
     badge: "NEW",
   },
