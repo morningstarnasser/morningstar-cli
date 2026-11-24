@@ -1,4 +1,6 @@
-import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { useEffect, useState, useMemo } from "react";
+import { STARTUP_FRAMES, STARTUP_FRAME_MS } from "../runtime/motion.js";
 import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
 import { useTerminalColumns } from "../hooks/useTerminalColumns.js";
@@ -7,23 +9,45 @@ import { getPermissionMode } from "../permissions.js";
 import { projectSettingsExist } from "../settings.js";
 import { getAllAgents } from "../custom-agents.js";
 import { fitText, getProviderLocation, getTerminalDensity } from "../tui-layout.js";
-export function Banner({ config, ctx, skipPermissions }) {
+export function Banner({ config, ctx, skipPermissions, frame = STARTUP_FRAMES }) {
     const { primary, accent, info, dim, success, warning, star } = useTheme();
     const columns = useTerminalColumns();
     const density = getTerminalDensity(columns);
     const provider = config.provider || detectProvider(config.model);
     const location = getProviderLocation(provider);
     const modelName = fitText(getModelDisplayName(config.model), density === "compact" ? 27 : density === "comfortable" ? 42 : 60);
-    const permissionMode = skipPermissions
+    const permissionMode = config.yolo ? "YOLO · auto" : skipPermissions
         ? "bypassPermissions"
         : config.permissionMode || getPermissionMode();
-    const settingsActive = projectSettingsExist(ctx.cwd);
-    const agentCount = Object.keys(getAllAgents()).length;
+    const settingsActive = useMemo(() => projectSettingsExist(ctx.cwd), [ctx.cwd]);
+    const agentCount = useMemo(() => Object.keys(getAllAgents()).length, []);
     const project = fitText(ctx.projectName, density === "compact" ? 24 : 38);
     const language = ctx.language
         ? `${ctx.language}${ctx.framework ? ` / ${ctx.framework}` : ""}`
         : null;
     const locationColor = location === "local" ? success : location === "subscription" ? accent : info;
-    return (_jsxs(Box, { flexDirection: "column", marginTop: 1, marginBottom: 1, marginLeft: 1, children: [_jsxs(Box, { width: Math.max(20, columns - 2), justifyContent: "space-between", children: [_jsxs(Text, { children: [_jsx(Text, { color: star, children: "\u2726 " }), _jsx(Text, { color: primary, bold: true, children: "MORNINGSTAR" }), density !== "compact" ? _jsx(Text, { color: dim, children: "  sovereign coding agent" }) : null] }), density === "wide" ? _jsx(Text, { color: dim, children: "local \u00B7 private workspace" }) : null] }), _jsxs(Text, { children: [_jsx(Text, { color: dim, children: "model  " }), _jsx(Text, { color: primary, children: modelName }), _jsx(Text, { color: dim, children: "  \u00B7  " }), _jsx(Text, { color: locationColor, children: location }), density !== "compact" ? (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "  \u00B7  " }), _jsx(Text, { color: skipPermissions ? warning : accent, children: permissionMode })] })) : null] }), _jsxs(Text, { children: [_jsx(Text, { color: dim, children: "work   " }), _jsx(Text, { color: accent, children: project }), ctx.gitBranch ? (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "  \u00B7  " }), _jsxs(Text, { color: success, children: ["\u2387 ", fitText(ctx.gitBranch, 24)] })] })) : null, density === "wide" && language ? (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "  \u00B7  " }), _jsx(Text, { color: info, children: language })] })) : null, density === "wide" ? (_jsxs(_Fragment, { children: [_jsx(Text, { color: dim, children: "  \u00B7  " }), _jsx(Text, { color: settingsActive ? success : dim, children: settingsActive ? "project settings" : "global settings" }), _jsx(Text, { color: dim, children: "  \u00B7  " }), _jsxs(Text, { color: primary, children: [agentCount, " agents"] })] })) : null] }), _jsxs(Text, { color: dim, children: [_jsx(Text, { color: accent, children: "/help" }), "  ", _jsx(Text, { color: accent, children: "/model" }), "  ", _jsx(Text, { color: accent, children: "/permissions" }), density !== "compact" ? (_jsxs(_Fragment, { children: ["  ", _jsx(Text, { color: accent, children: "/agents" }), "  ", _jsx(Text, { color: accent, children: "/skills" })] })) : null] })] }));
+    const width = Math.max(20, columns - 4);
+    const art = ["       ╷       ", "    ╲  │  ╱    ", "  ─── ◇✦◇ ───  ", "    ╱  │  ╲    ", "       ╵       "];
+    const glow = [dim, dim, "#966f49", "#c98b52", primary, "#ffe7bc", primary];
+    const shimmer = frame < STARTUP_FRAMES ? glow[Math.min(glow.length - 1, Math.floor(frame / 2))] : primary;
+    return (_jsxs(Box, { flexDirection: "column", marginY: 1, marginLeft: 2, width: width, children: [_jsxs(Box, { children: [density !== "compact" ? _jsx(Box, { flexDirection: "column", width: 19, flexShrink: 0, children: art.map((line, i) => _jsx(Text, { color: i === 2 ? shimmer : frame >= i + 2 ? primary : dim, children: line }, i)) }) : null, _jsxs(Box, { flexDirection: "column", flexGrow: 1, children: [_jsx(Text, { color: dim, children: density === "compact" ? "✦  YOUR TERMINAL. YOUR TEAM." : "YOUR TERMINAL. YOUR TEAM." }), _jsx(Text, { color: shimmer, bold: true, children: density === "compact" ? "M O R N I N G S T A R" : "M O R N I N G S T A R" }), _jsx(Text, { color: dim, children: " " }), _jsxs(Text, { children: [_jsx(Text, { color: accent, children: fitText(project, Math.max(12, width - 22)) }), ctx.gitBranch && density !== "compact" ? _jsxs(Text, { color: dim, children: ["  \u2387 ", fitText(ctx.gitBranch, 22)] }) : null] }), _jsx(Text, { color: dim, children: fitText(`${modelName} · ${location}`, Math.max(18, width - (density === "compact" ? 0 : 19))) })] })] }), _jsx(Text, { color: dim, children: "─".repeat(width) }), _jsxs(Text, { children: [_jsx(Text, { color: accent, children: "\u25C8 " }), _jsxs(Text, { color: primary, children: [agentCount, " agents"] }), _jsx(Text, { color: dim, children: "  /  " }), _jsx(Text, { color: skipPermissions ? warning : accent, children: fitText(permissionMode, 22) }), density === "wide" ? _jsxs(Text, { color: dim, children: ["  /  ", settingsActive ? "project settings" : "global settings", language ? `  /  ${language}` : ""] }) : null] }), _jsxs(Text, { color: dim, children: [_jsx(Text, { color: accent, children: "/swarm" }), " Team starten   ", _jsx(Text, { color: accent, children: "/skills" }), " Wissen   ", _jsx(Text, { color: accent, children: "/help" }), " Hilfe"] })] }));
+}
+/** Local state only: startup frames never rerender the app or delay input. */
+export function StartupBanner({ onDone, ...props }) {
+    const [frame, setFrame] = useState(0);
+    useEffect(() => {
+        let next = 0;
+        const timer = setInterval(() => {
+            next++;
+            if (next >= STARTUP_FRAMES) {
+                clearInterval(timer);
+                onDone();
+            }
+            else
+                setFrame(next);
+        }, STARTUP_FRAME_MS);
+        return () => clearInterval(timer);
+    }, [onDone]);
+    return _jsx(Banner, { ...props, frame: frame });
 }
 //# sourceMappingURL=Banner.js.map

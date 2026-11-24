@@ -162,7 +162,7 @@ test("catalog refresh uses TTL cache and skips credentialed providers without ke
   );
   assert.equal(first.filter(({ status }) => status === "skipped").length, 7);
   assert.equal(first.find(({ provider }) => provider === "openrouter")?.status, "updated");
-  assert.equal(requests, 1);
+  assert.equal(requests, 2);
 
   const second = await refreshProviderModelCatalogs(
     () => "",
@@ -170,10 +170,10 @@ test("catalog refresh uses TTL cache and skips credentialed providers without ke
   );
   assert.equal(second.find(({ provider }) => provider === "openrouter")?.status, "cached");
   assert.equal(getProviderModelRefreshStatus("openrouter"), "cached");
-  assert.equal(requests, 1);
+  assert.equal(requests, 2);
 });
 
-test("failed discovery remains non-throwing so static catalogs stay available", async (t) => {
+test("failed discovery remains non-throwing without inventing selectable models", async (t) => {
   clearDiscoveredProviderModels();
   t.after(clearDiscoveredProviderModels);
 
@@ -188,7 +188,7 @@ test("failed discovery remains non-throwing so static catalogs stay available", 
   assert.equal(results.every(({ status }) => status === "failed"), true);
   assert.equal(getDiscoveredProviderModels("anthropic"), undefined);
   assert.ok(
-    (listProviders().find(({ name }) => name === "anthropic")?.models.length ?? 0) > 0,
+    (listProviders().find(({ name }) => name === "anthropic")?.models.length ?? 0) === 0,
   );
 });
 
@@ -214,7 +214,7 @@ test("catalog discovery rejects redirects without forwarding credentials", async
     { fetchFn, force: true },
   );
 
-  assert.equal(calls.length, 8);
+  assert.equal(calls.length, 9);
   assert.equal(calls.every(({ redirect }) => redirect === "manual"), true);
   assert.equal(
     calls.some(({ url }) => url.includes("credential-thief.invalid")),
@@ -227,3 +227,13 @@ test("catalog discovery rejects redirects without forwarding credentials", async
     assert.equal(result.error?.includes("credential-thief.invalid"), false);
   }
 });
+
+ test("Ollama catalog follows the running server and drops stopped or deleted models", async () => {
+  clearDiscoveredProviderModels();
+  const fetchFn: typeof fetch = async url => String(url).includes("11434") ? jsonResponse({ models: [{ name: "fixture:latest" }] }) : jsonResponse({}, 503);
+  await refreshProviderModelCatalogs(() => "", { fetchFn, force: true });
+  assert.deepEqual(listProviders().find(p => p.name === "ollama")?.models, ["fixture:latest"]);
+  await refreshProviderModelCatalogs(() => "", { fetchFn: async () => jsonResponse({}, 503), force: true });
+  assert.deepEqual(listProviders().find(p => p.name === "ollama")?.models, []);
+  clearDiscoveredProviderModels();
+ });

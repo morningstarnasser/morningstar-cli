@@ -1,3 +1,4 @@
+import { vendorCommand } from "../runtime/platform-process.js";
 // ─── Claude CLI Provider ─────────────────────────────────────────────────────
 // Use the locally-installed `claude` CLI (Claude Code, subscription OAuth — no
 // API key, no per-token cost) as Carry's model backend. We run it in print mode
@@ -8,6 +9,7 @@
 // Additive: a new provider plugged into the registry; existing providers are
 // untouched. The runner is injectable so tests never spawn a real process.
 import { spawn } from "node:child_process";
+import { conversationImages, imageData } from "../runtime/images.js";
 /** Claude Code's native tools, disabled so it acts as a plain text model. */
 export const DISABLED_CLAUDE_CODE_TOOLS = [
     "Bash", "Read", "Write", "Edit", "Glob", "Grep", "WebFetch", "WebSearch",
@@ -26,22 +28,37 @@ export function buildClaudePrompt(messages) {
     return { system, prompt };
 }
 /** Build the `claude` CLI argv for a print-mode, tool-free brain call. */
-export function buildClaudeArgs(modelAlias, system) {
-    const args = ["-p", "--output-format", "text"];
+export function buildClaudeArgs(modelAlias, system, images = false) {
+    const args = ["-p", "--output-format", images ? "stream-json" : "text"];
+    if (images)
+        args.push("--input-format", "stream-json", "--verbose", "--include-partial-messages");
     if (modelAlias)
         args.push("--model", modelAlias);
     if (system)
         args.push("--system-prompt", system);
-    args.push("--disallowedTools", DISABLED_CLAUDE_CODE_TOOLS.join(" "));
+    // Empty tools is the vendor's tool-free print mode. An expanding deny list
+    // misses newly introduced tools and breaks Windows shell initialization.
+    args.push("--tools", "", "--disallowedTools", "mcp__*");
     return args;
 }
 const defaultRunner = async function* (args, prompt, signal) {
-    const child = spawn("claude", args, { stdio: ["pipe", "pipe", "pipe"], signal });
+    const executable = vendorCommand("claude", args);
+    const child = spawn(executable.file, executable.args, { stdio: ["pipe", "pipe", "pipe"], signal });
     let stderr = "";
     child.stderr?.on("data", (d) => {
         stderr += d.toString();
     });
-    const closed = new Promise((resolve) => child.on("close", (code) => resolve(code ?? 0)));
+    // Without an "error" listener a failed spawn — or an abort delivered through
+    // the signal — becomes an uncaught exception on the child process.
+    const closed = new Promise((resolve, reject) => {
+        child.on("close", (code) => resolve(code ?? 0));
+        child.on("error", (error) => {
+            if (error.name === "AbortError")
+                resolve(0);
+            else
+                reject(error);
+        });
+    });
     child.stdin?.write(prompt);
     child.stdin?.end();
     try {
@@ -62,12 +79,72 @@ const defaultRunner = async function* (args, prompt, signal) {
 /** Stream a model response by driving the local `claude` CLI as a text brain. */
 export async function* claudeCliStream(modelAlias, messages, signal, runner = defaultRunner) {
     const { system, prompt } = buildClaudePrompt(messages);
-    const args = buildClaudeArgs(modelAlias, system);
-    for await (const chunk of runner(args, prompt, signal)) {
+    const images = conversationImages(messages);
+    const args = buildClaudeArgs(modelAlias, system, images.length > 0);
+    const input = images.length ? JSON.stringify({ type: "user", parent_tool_use_id: null, message: { role: "user", content: [
+                { type: "text", text: prompt },
+                ...images.flatMap(image => [
+                    { type: "text", text: `[Image #${image.id}]` },
+                    { type: "image", source: { type: "base64", media_type: image.mimeType, data: imageData(image) } },
+                ]),
+            ] } }) + "\n" : prompt;
+    let buffer = "", streamed = false, emitted = false;
+    function parse(line) {
+        if (!line.trim())
+            return "";
+        let event;
+        try {
+            event = JSON.parse(line);
+        }
+        catch {
+            return "";
+        }
+        if (event.type === "stream_event") {
+            if (event.event?.type === "message_start")
+                streamed = false;
+            if (event.event?.delta?.type === "text_delta") {
+                streamed = true;
+                emitted = true;
+                return event.event.delta.text ?? "";
+            }
+        }
+        if (event.type === "assistant" && !streamed) {
+            const text = (event.message?.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("\n\n");
+            if (text)
+                emitted = true;
+            return text;
+        }
+        if (event.type === "result") {
+            if (event.is_error)
+                throw new Error((event.errors ?? [event.result ?? "Claude-Bildanfrage fehlgeschlagen."]).join("\n"));
+            if (!emitted && typeof event.result === "string") {
+                emitted = true;
+                return event.result;
+            }
+        }
+        return "";
+    }
+    for await (const chunk of runner(args, input, signal)) {
         if (signal?.aborted)
             return;
-        if (chunk)
-            yield { type: "content", text: chunk };
+        if (!images.length) {
+            if (chunk)
+                yield { type: "content", text: chunk };
+            continue;
+        }
+        buffer += chunk;
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+            const text = parse(line);
+            if (text)
+                yield { type: "content", text };
+        }
+    }
+    if (images.length && !signal?.aborted) {
+        const text = parse(buffer);
+        if (text)
+            yield { type: "content", text };
     }
 }
 //# sourceMappingURL=claude-cli.js.map

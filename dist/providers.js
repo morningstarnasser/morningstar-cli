@@ -1,9 +1,11 @@
+import { imageData, conversationImages } from "./runtime/images.js";
 import { execFileSync } from "child_process";
 import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { getAnthropicToolDefinitions, getGoogleToolDefinitions, getOpenAIToolDefinitions, } from "./tool-definitions.js";
 import { claudeCliStream } from "./providers/claude-cli.js";
+import { codexCliStream, getCodexModelDisplayName, listCodexModels, } from "./providers/codex-cli.js";
 import { getDiscoveredProviderModels } from "./provider-model-discovery.js";
 export const PROVIDER_NAMES = [
     "deepseek",
@@ -15,6 +17,7 @@ export const PROVIDER_NAMES = [
     "hydra-local",
     "ollama",
     "claude-cli",
+    "codex-cli",
     "groq",
     "openrouter",
 ];
@@ -37,6 +40,7 @@ const NATIVE_TOOL_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", 
  * messages while retaining every call id.
  */
 export function serializeOpenAIMessages(messages) {
+    conversationImages(messages);
     return messages.map((message) => {
         if (message.role === "tool") {
             return {
@@ -60,6 +64,11 @@ export function serializeOpenAIMessages(messages) {
                 })),
             };
         }
+        if (message.role === "user" && message.images?.length)
+            return { role: "user", content: [
+                    { type: "text", text: message.content },
+                    ...message.images.map(image => ({ type: "image_url", image_url: { url: `data:${image.mimeType};base64,${imageData(image)}` } })),
+                ] };
         return { role: message.role, content: message.content };
     });
 }
@@ -78,6 +87,7 @@ function appendAnthropicMessage(target, role, blocks) {
 }
 /** Serialize native turns into Anthropic tool_use/tool_result content blocks. */
 export function serializeAnthropicMessages(messages) {
+    conversationImages(messages);
     const serialized = [];
     for (const message of messages) {
         if (message.role === "system")
@@ -94,6 +104,9 @@ export function serializeAnthropicMessages(messages) {
         const blocks = [];
         if (message.content)
             blocks.push({ type: "text", text: message.content });
+        if (message.role === "user")
+            for (const image of message.images ?? [])
+                blocks.push({ type: "image", source: { type: "base64", media_type: image.mimeType, data: imageData(image) } });
         for (const call of message.toolCalls ?? []) {
             blocks.push({
                 type: "tool_use",
@@ -118,6 +131,7 @@ function appendGeminiContent(target, role, parts) {
 }
 /** Serialize native turns into Gemini functionCall/functionResponse parts. */
 export function serializeGeminiMessages(messages) {
+    conversationImages(messages);
     const serialized = [];
     for (const message of messages) {
         if (message.role === "system")
@@ -137,6 +151,9 @@ export function serializeGeminiMessages(messages) {
         const parts = [];
         if (message.content)
             parts.push({ text: message.content });
+        if (message.role === "user")
+            for (const image of message.images ?? [])
+                parts.push({ inlineData: { mimeType: image.mimeType, data: imageData(image) } });
         for (const call of message.toolCalls ?? []) {
             parts.push({
                 functionCall: {
@@ -303,6 +320,9 @@ export function detectProvider(model) {
     // Claude CLI brain (subscription OAuth) — check BEFORE "claude-" and "/" rules.
     if (m === "claude-cli" || m.startsWith("claude-cli/") || m.startsWith("claude-cli-"))
         return "claude-cli";
+    // Codex CLI brain (ChatGPT subscription OAuth) — before the "codex" → openai rule.
+    if (m === "codex-cli" || m.startsWith("codex-cli/"))
+        return "codex-cli";
     if (m === "hydra-ch-4b" || m.startsWith("hydra-ch"))
         return "hydra-local";
     // Hugging Face-backed Ollama models contain slashes, so installed local
@@ -310,6 +330,8 @@ export function detectProvider(model) {
     if (isInstalledOllamaModel(m))
         return "ollama";
     // Provider-prefixed models (check BEFORE generic "/" openrouter check)
+    if (m.startsWith("ollama/"))
+        return "ollama";
     if (m.startsWith("hf.co/"))
         return "ollama";
     if (m.startsWith("nvidia/"))
@@ -389,6 +411,7 @@ export function getProviderApiKeyEnv(provider) {
         case "github-models": return "GITHUB_MODELS_TOKEN";
         case "ollama": return "";
         case "claude-cli": return "";
+        case "codex-cli": return "";
         default: return "OPENAI_API_KEY";
     }
 }
@@ -410,6 +433,8 @@ const OLLAMA_MODEL_MAP = {
     "morningstar-vision": "morningstar-vision",
 };
 export function resolveModelName(model, provider) {
+    if (provider === "ollama" && model.toLowerCase().startsWith("ollama/"))
+        return model.slice("ollama/".length);
     if (provider === "ollama" && OLLAMA_MODEL_MAP[model]) {
         return OLLAMA_MODEL_MAP[model];
     }
@@ -424,92 +449,47 @@ export function resolveModelName(model, provider) {
         return model.slice("groq/".length);
     }
     // claude-cli: "claude-cli" -> "" (Claude CLI default model); "claude-cli/opus" -> "opus".
-    if (provider === "claude-cli") {
+    // codex-cli behaves identically: "codex-cli/gpt-5.2" -> "gpt-5.2".
+    if (provider === "claude-cli" || provider === "codex-cli") {
         const slash = model.indexOf("/");
         return slash >= 0 ? model.slice(slash + 1) : "";
     }
     return model;
 }
+/** The `claude` CLI's own short aliases, which always track its defaults. */
+const CLAUDE_CLI_ALIASES = ["claude-cli", "claude-cli/opus", "claude-cli/sonnet", "claude-cli/haiku"];
+/**
+ * Models offered for the Claude subscription: the CLI aliases first, then the
+ * full Anthropic catalog. `claude -p --model claude-fable-5` is accepted, so the
+ * subscription is not limited to the three aliases — listing only those made
+ * `/model` look like it had failed to load anything.
+ */
+export function buildClaudeCliModels(anthropicModels) {
+    const prefixed = anthropicModels
+        .filter((model) => !model.startsWith("("))
+        .map((model) => `claude-cli/${model}`);
+    return [...CLAUDE_CLI_ALIASES, ...prefixed.filter((model) => !CLAUDE_CLI_ALIASES.includes(model))];
+}
+/**
+ * Models offered for the ChatGPT subscription: the CLI default first, then the
+ * catalog Codex itself keeps on disk. Without that catalog only the default is
+ * listed — better one entry that works than invented ids that fail at runtime.
+ */
+export function buildCodexCliModels(catalog) {
+    return ["codex-cli", ...catalog.map((model) => `codex-cli/${model.slug}`)];
+}
 export function listProviders() {
-    const installedOllama = listInstalledOllamaModels();
-    const currentModels = (provider, fallback) => getDiscoveredProviderModels(provider) ?? fallback;
+    const models = (provider) => getDiscoveredProviderModels(provider) ?? [];
     return [
-        { name: "deepseek", models: currentModels("deepseek", ["deepseek-reasoner", "deepseek-chat"]), envKey: "DEEPSEEK_API_KEY" },
-        { name: "openai", models: currentModels("openai", ["gpt-5.2", "gpt-5.2-mini", "o4-mini", "gpt-4.1", "gpt-4.1-mini"]), envKey: "OPENAI_API_KEY" },
-        { name: "anthropic", models: currentModels("anthropic", [
-                "claude-fable-5",
-                "claude-opus-5",
-                "claude-sonnet-5",
-                "claude-opus-4-8",
-                "claude-opus-4-7",
-                "claude-opus-4-6",
-                "claude-sonnet-4-6",
-                "claude-sonnet-4-5-20250929",
-                "claude-haiku-4-5-20251001",
-            ]), envKey: "ANTHROPIC_API_KEY" },
-        { name: "google", models: currentModels("google", ["gemini-3.6-flash", "gemini-3.5-pro", "gemini-3.5-flash"]), envKey: "GOOGLE_API_KEY" },
-        { name: "nvidia", models: currentModels("nvidia", [
-                // Kimi K2 (kimi-k2-instruct EOL 2026-05-12 -> k2.6)
-                "nvidia/moonshotai/kimi-k2.6",
-                // DeepSeek V4
-                "nvidia/deepseek-ai/deepseek-v4-pro",
-                "nvidia/deepseek-ai/deepseek-v4-flash",
-                // Qwen
-                "nvidia/qwen/qwen3.5-397b-a17b",
-                "nvidia/qwen/qwen3.5-122b-a10b",
-                "nvidia/qwen/qwen3-next-80b-a3b-instruct",
-                // NVIDIA Nemotron
-                "nvidia/nvidia/nemotron-3-ultra-550b-a55b",
-                "nvidia/nvidia/nemotron-3-super-120b-a12b",
-                "nvidia/nvidia/llama-3.3-nemotron-super-49b-v1.5",
-                "nvidia/nvidia/llama-3.1-nemotron-ultra-253b-v1",
-                // Meta Llama
-                "nvidia/meta/llama-4-maverick-17b-128e-instruct",
-                "nvidia/meta/llama-3.3-70b-instruct",
-                // Mistral
-                "nvidia/mistralai/mistral-large-3-675b-instruct-2512",
-                "nvidia/mistralai/mistral-medium-3.5-128b",
-                "nvidia/mistralai/mistral-small-4-119b-2603",
-                "nvidia/mistralai/codestral-22b-instruct-v0.1",
-                // OpenAI GPT-OSS
-                "nvidia/openai/gpt-oss-120b",
-                "nvidia/openai/gpt-oss-20b",
-                // Others
-                "nvidia/minimaxai/minimax-m3",
-                "nvidia/minimaxai/minimax-m2.7",
-                "nvidia/z-ai/glm-5.1",
-            ]), envKey: "NVIDIA_NIM_API_KEY" },
-        { name: "github-models", models: currentModels("github-models", [
-                "github/openai/gpt-4.1",
-                "github/openai/gpt-4.1-mini",
-                "github/openai/gpt-4.1-nano",
-                "github/openai/o3-mini",
-                "github/openai/o4-mini",
-                "github/deepseek/DeepSeek-R1",
-                "github/deepseek/DeepSeek-V3-0324",
-                "github/meta/Llama-3.3-70B-Instruct",
-                "github/xai/grok-3",
-                "github/xai/grok-3-mini",
-                "github/mistral-ai/Mistral-Large-2411",
-            ]), envKey: "GITHUB_MODELS_TOKEN" },
-        { name: "hydra-local", models: ["hydra-ch-4b"], envKey: "(lokal, Router auf :8100 — ./scripts/hydra-up.sh)" },
-        {
-            name: "ollama",
-            models: installedOllama.length > 0 ? installedOllama : ["(keine installierten Modelle gefunden)"],
-            envKey: "(lokal · ~/.ollama/models)",
-            modelMetadata: Object.fromEntries(installedOllama.map((model) => [
-                model,
-                { deployment: "local", availabilityHint: "Installed in Ollama" },
-            ])),
-        },
-        { name: "claude-cli", models: ["claude-cli", "claude-cli/opus", "claude-cli/sonnet", "claude-cli/haiku"], envKey: "(Claude-Abo/OAuth)" },
-        { name: "groq", models: currentModels("groq", ["groq/llama-3.3-70b-versatile", "groq/mixtral-8x7b-32768", "groq/gemma2-9b-it"]), envKey: "GROQ_API_KEY" },
-        { name: "openrouter", models: currentModels("openrouter", ["(Modell-ID manuell als provider/model eingeben)"]), envKey: "OPENROUTER_API_KEY" },
+        ...["deepseek", "openai", "anthropic", "google", "nvidia", "github-models", "groq", "openrouter"].map(name => ({ name, models: models(name), envKey: name === "nvidia" ? "NVIDIA_NIM_API_KEY" : name === "github-models" ? "GITHUB_MODELS_TOKEN" : `${name.toUpperCase()}_API_KEY` })),
+        { name: "ollama", models: models("ollama"), envKey: "(lokal · laufender Ollama-Server)", modelMetadata: Object.fromEntries(models("ollama").map(model => [model, { deployment: "local", availabilityHint: "Vom lokalen Server gemeldet" }])) },
+        { name: "claude-cli", models: [...CLAUDE_CLI_ALIASES], envKey: "(Claude-Abo/OAuth)" },
+        { name: "codex-cli", models: buildCodexCliModels(listCodexModels()), envKey: "(ChatGPT-Abo/OAuth)" },
     ];
 }
 export function getModelDisplayName(model) {
     const names = {
-        "hydra-ch-4b": "Morningstar Hydra (lokal, 89,7% HydraCH v2)",
+        "hydra-ch-4b": "Hydra (alter manueller Eintrag)",
         "deepseek-reasoner": "DeepSeek R1 (Thinking)",
         "deepseek-chat": "DeepSeek Chat",
         // OpenAI Reasoning
@@ -534,7 +514,12 @@ export function getModelDisplayName(model) {
         "gpt-4o-mini-search-preview": "GPT-4o Mini Search",
         // Anthropic
         "claude-fable-5": "Claude Fable 5 (Mythos-class, godmode)",
+        "claude-opus-5": "Claude Opus 5",
+        "claude-sonnet-5": "Claude Sonnet 5",
         "claude-opus-4-8": "Claude Opus 4.8",
+        "claude-opus-4-7": "Claude Opus 4.7",
+        "claude-opus-4-6": "Claude Opus 4.6",
+        "claude-sonnet-4-6": "Claude Sonnet 4.6",
         "claude-opus-4-6-20260204": "Claude Opus 4.6",
         "claude-sonnet-4-6-20260514": "Claude Sonnet 4.6",
         "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
@@ -600,16 +585,26 @@ export function getModelDisplayName(model) {
         "claude-cli/opus": "Claude Opus (CLI · Abo)",
         "claude-cli/sonnet": "Claude Sonnet (CLI · Abo)",
         "claude-cli/haiku": "Claude Haiku (CLI · Abo)",
+        "codex-cli": "Codex (CLI · ChatGPT-Abo)",
     };
     if (names[model])
         return names[model];
+    // Subscription models mirror a hosted catalog, so reuse that label instead of
+    // maintaining a second list that would drift with every model release.
+    if (model.startsWith("claude-cli/")) {
+        return `${getModelDisplayName(model.slice("claude-cli/".length))} · Abo`;
+    }
+    if (model.startsWith("codex-cli/")) {
+        // Codex ships its own display names; prefer them over our generic table.
+        return `${getCodexModelDisplayName(model.slice("codex-cli/".length))} · Abo`;
+    }
     if (isInstalledOllamaModel(model))
         return `Ollama — ${model}`;
     return model;
 }
 // ─── OpenAI-Compatible SSE Parser ────────────────────────
 // Works for: OpenAI, DeepSeek, Ollama, Groq, OpenRouter
-async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxTokens, temperature, signal, enableTools, providerName) {
+async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxTokens, temperature, signal, enableTools, providerName, allowedTools, enableSwarm = true) {
     const body = {
         model,
         messages: serializeOpenAIMessages(messages),
@@ -621,7 +616,9 @@ async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxToke
     body.stream_options = { include_usage: true };
     // Add native function calling tools for supported providers
     if (enableTools && providerName && NATIVE_TOOL_PROVIDERS.has(providerName)) {
-        body.tools = getOpenAIToolDefinitions();
+        const tools = getOpenAIToolDefinitions(allowedTools, enableSwarm);
+        if (tools.length)
+            body.tools = tools;
     }
     let res;
     try {
@@ -778,13 +775,13 @@ async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxToke
             }
         }
         try {
-            reader.cancel();
+            await reader.cancel();
         }
         catch { }
     }
 }
 // ─── Anthropic Provider ──────────────────────────────────
-async function* anthropicStream(apiKey, model, messages, maxTokens, temperature, signal, enableTools) {
+async function* anthropicStream(apiKey, model, messages, maxTokens, temperature, signal, enableTools, allowedTools, enableSwarm = true) {
     // Convert messages: system role handled separately
     const systemMsg = messages.find(m => m.role === "system");
     const chatMsgs = serializeAnthropicMessages(messages);
@@ -800,8 +797,11 @@ async function* anthropicStream(apiKey, model, messages, maxTokens, temperature,
     if (temperature > 0 && !model.includes("opus"))
         body.temperature = temperature;
     // Native function calling
-    if (enableTools)
-        body.tools = getAnthropicToolDefinitions();
+    if (enableTools) {
+        const tools = getAnthropicToolDefinitions(allowedTools, enableSwarm);
+        if (tools.length)
+            body.tools = tools;
+    }
     let res;
     try {
         res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -918,13 +918,13 @@ async function* anthropicStream(apiKey, model, messages, maxTokens, temperature,
     }
     finally {
         try {
-            reader.cancel();
+            await reader.cancel();
         }
         catch { }
     }
 }
 // ─── Google Gemini Provider ──────────────────────────────
-async function* googleStream(apiKey, model, messages, maxTokens, temperature, signal, enableTools) {
+async function* googleStream(apiKey, model, messages, maxTokens, temperature, signal, enableTools, allowedTools, enableSwarm = true) {
     // Convert messages to Gemini format
     const systemMsg = messages.find(m => m.role === "system");
     const contents = serializeGeminiMessages(messages);
@@ -945,8 +945,11 @@ async function* googleStream(apiKey, model, messages, maxTokens, temperature, si
         body.systemInstruction = { parts: [{ text: systemMsg.content }] };
     }
     // Native function calling
-    if (enableTools)
-        body.tools = getGoogleToolDefinitions();
+    if (enableTools) {
+        const tools = getGoogleToolDefinitions(allowedTools, enableSwarm);
+        if (tools[0].functionDeclarations.length)
+            body.tools = tools;
+    }
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
     let res;
     try {
@@ -1041,7 +1044,7 @@ async function* googleStream(apiKey, model, messages, maxTokens, temperature, si
     }
     finally {
         try {
-            reader.cancel();
+            await reader.cancel();
         }
         catch { }
     }
@@ -1063,7 +1066,7 @@ function createOpenAICompatible(name, defaultBaseUrl) {
                 : (config.baseUrl !== "https://api.deepseek.com/v1" ? config.baseUrl : runtimeDefaultBaseUrl);
             const apiKey = resolveApiKey(name, config.apiKey);
             const actualModel = resolveModelName(config.model, name);
-            yield* openaiCompatibleStream(baseUrl, apiKey, actualModel, messages, config.maxTokens, config.temperature, signal, enableTools, name);
+            yield* openaiCompatibleStream(baseUrl, apiKey, actualModel, messages, config.maxTokens, config.temperature, signal, enableTools, name, config.toolAllowlist, config.enableSwarm !== false);
         },
     };
 }
@@ -1082,7 +1085,7 @@ const PROVIDERS = {
         supportsTools: true,
         async *streamChat(messages, config, signal, enableTools) {
             const apiKey = resolveApiKey("anthropic", config.apiKey);
-            yield* anthropicStream(apiKey, config.model, messages, config.maxTokens, config.temperature, signal, enableTools);
+            yield* anthropicStream(apiKey, config.model, messages, config.maxTokens, config.temperature, signal, enableTools, config.toolAllowlist, config.enableSwarm !== false);
         },
     },
     google: {
@@ -1090,7 +1093,7 @@ const PROVIDERS = {
         supportsTools: true,
         async *streamChat(messages, config, signal, enableTools) {
             const apiKey = resolveApiKey("google", config.apiKey);
-            yield* googleStream(apiKey, config.model, messages, config.maxTokens, config.temperature, signal, enableTools);
+            yield* googleStream(apiKey, config.model, messages, config.maxTokens, config.temperature, signal, enableTools, config.toolAllowlist, config.enableSwarm !== false);
         },
     },
     // Local `claude` CLI (Claude Code, subscription OAuth) as a pure text brain.
@@ -1101,6 +1104,16 @@ const PROVIDERS = {
         async *streamChat(messages, config, signal) {
             const modelAlias = resolveModelName(config.model, "claude-cli");
             yield* claudeCliStream(modelAlias || undefined, messages, signal);
+        },
+    },
+    // Local `codex` CLI (OpenAI Codex, ChatGPT subscription OAuth) as a pure
+    // text brain, same contract as claude-cli above.
+    "codex-cli": {
+        name: "codex-cli",
+        supportsTools: false,
+        async *streamChat(messages, config, signal) {
+            const modelAlias = resolveModelName(config.model, "codex-cli");
+            yield* codexCliStream(modelAlias || undefined, messages, signal);
         },
     },
 };

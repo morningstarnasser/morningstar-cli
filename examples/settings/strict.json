@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "defaultMode": "ask",
+    "disableBypassPermissionsMode": "disable",
+    "ask": ["Bash"],
+    "deny": ["WebFetch", "WebSearch"]
+  },
+  "disableAllHooks": true
+}

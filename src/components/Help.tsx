@@ -16,10 +16,14 @@ const MENTIONS = [
 ] as const;
 
 const SHORTCUTS = [
-  ["Ctrl+C", "Aktiven Lauf abbrechen; erneut drücken beendet"],
+  ["Ctrl+C", "Markierung kopieren; sonst Lauf abbrechen / beenden"],
+  ["Shift+← / →", "Text markieren; mit Ctrl wortweise"],
+  ["Ctrl+S / Ctrl+X", "Gesamte Eingabe markieren / Auswahl ausschneiden"],
+  ["Alt+Enter", "Neue Zeile in der Eingabe"],
+  ["Maus + Cmd+C", "Terminal-Ausgabe markieren und kopieren (Mac)"],
   ["Ctrl+O", "Letzte Tool-Gruppe ein-/ausklappen"],
   ["↑ / ↓", "Eingabeverlauf oder Auswahl navigieren"],
-  ["Tab", "Command- oder Datei-Vervollständigung"],
+  ["Tab / Shift+Tab", "Modus vor/zurück; Tab vervollständigt offene Vorschläge"],
   ["Esc", "Auswahl oder wartende Eingabe verwerfen"],
   ["!<cmd>", "Shell-Befehl über die Permission-Schicht ausführen"],
 ] as const;

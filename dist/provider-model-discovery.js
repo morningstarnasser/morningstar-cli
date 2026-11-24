@@ -9,6 +9,7 @@ const MAX_MODELS_PER_PROVIDER = 2_000;
 const catalogs = new Map();
 const refreshStatuses = new Map();
 const DISCOVERY_SPECS = [
+    { provider: "ollama", url: "http://127.0.0.1:11434/api/tags", requiresCredential: false, headers: () => ({}) },
     {
         provider: "anthropic",
         url: "https://api.anthropic.com/v1/models?limit=1000",
@@ -123,7 +124,7 @@ function parseProviderModels(provider, payload) {
     }
     else if (payload && typeof payload === "object") {
         const object = payload;
-        if (provider === "google" && Array.isArray(object.models)) {
+        if (["google", "ollama"].includes(provider) && Array.isArray(object.models)) {
             entries = object.models;
         }
         else if (Array.isArray(object.data)) {
@@ -145,7 +146,7 @@ function parseProviderModels(provider, payload) {
             if (Array.isArray(outputs) && !outputs.includes("text"))
                 continue;
         }
-        const raw = provider === "google"
+        const raw = provider === "ollama" ? (item.model ?? item.name) : provider === "google"
             ? (typeof item.baseModelId === "string"
                 ? item.baseModelId
                 : typeof item.name === "string"
@@ -208,7 +209,7 @@ async function discoverOne(spec, credential, fetchFn) {
             throw new Error(`HTTP ${response.status}`);
         }
         const models = parseProviderModels(spec.provider, await readBoundedJson(response));
-        if (models.length === 0)
+        if (models.length === 0 && spec.provider !== "ollama")
             throw new Error("provider returned no chat models");
         return models;
     }
@@ -259,6 +260,8 @@ export async function refreshProviderModelCatalogs(resolveCredential, options = 
             });
         }
         catch (error) {
+            if (spec.provider === "ollama")
+                catalogs.delete(spec.provider);
             return record({
                 provider: spec.provider,
                 status: "failed",

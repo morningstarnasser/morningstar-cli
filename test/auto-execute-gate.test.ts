@@ -22,7 +22,7 @@ function withEnv(value: string | undefined, fn: () => Promise<void> | void) {
 test("plain bash code blocks are not executed by default", async () => {
   const marker = join(tmpdir(), `mcli_gate_${process.pid}_${Date.now()}.txt`);
   if (existsSync(marker)) unlinkSync(marker);
-  const response = "Beispiel für ein Backup:\n\n```bash\ntouch " + marker + "\n```\n";
+  const response = "Beispiel für ein Backup:\n\n```bash\ntouch " + JSON.stringify(marker.replaceAll("\\", "/")) + "\n```\n";
 
   await withEnv(undefined, async () => {
     const { results } = await executeToolCalls(response, process.cwd());
@@ -48,7 +48,7 @@ test("plain python code blocks are not executed by default", async () => {
 test("auto execution runs only when explicitly enabled", async () => {
   const marker = join(tmpdir(), `mcli_gate_on_${process.pid}_${Date.now()}.txt`);
   if (existsSync(marker)) unlinkSync(marker);
-  const response = "```bash\ntouch " + marker + "\n```";
+  const response = "```bash\ntouch " + JSON.stringify(marker.replaceAll("\\", "/")) + "\n```";
 
   await withEnv("1", async () => {
     assert.equal(autoExecuteEnabled(), true);

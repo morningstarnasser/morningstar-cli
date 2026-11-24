@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
 import { ClaudeCodeDiff } from "./ClaudeCodeDiff.js";
+import { fileChange } from "../runtime/work-log.js";
 import type { ToolResult as ToolResultType } from "../types.js";
 
 // Tool display names
@@ -31,8 +32,7 @@ function getShortSummary(r: ToolResultType): string {
     case "write": return `${r.linesChanged || "?"} lines written`;
     case "edit": {
       if (r.diff) {
-        const added = r.diff.newStr.split("\n").length;
-        const removed = r.diff.oldStr.split("\n").length;
+        const { added, removed } = fileChange(r.diff.oldStr, r.diff.newStr);
         return `${added} added, ${removed} removed`;
       }
       return `${r.linesChanged ? r.linesChanged + " lines changed" : "updated"}`;
@@ -76,7 +76,7 @@ function SingleToolView({ r }: { r: ToolResultType }) {
   const toolLabel = TOOL_LABELS[r.tool] || r.tool;
   const toolColor = r.success ? (TOOL_COLORS[r.tool] || primary) : error;
   const arg = getToolArg(r.tool, r.filePath, r.command);
-  const hasDiff = r.tool === "edit" && r.diff && r.diff.oldStr && r.diff.newStr;
+  const hasDiff = r.success && r.diff !== undefined;
   const isFullOutput = FULL_OUTPUT_TOOLS.has(r.tool);
   const outputLines = r.result.split("\n").filter(l => l.trim());
 
@@ -197,7 +197,7 @@ export function ToolGroup({ results, duration, tokenCount, expanded, label, tool
         const toolColor = r.success ? (TOOL_COLORS[r.tool] || primary) : error;
         const arg = getToolArg(r.tool, r.filePath, r.command);
         const summary = getShortSummary(r);
-        const hasDiff = r.tool === "edit" && r.diff && r.diff.oldStr && r.diff.newStr;
+        const hasDiff = r.success && r.diff !== undefined;
         const isFullOutput = FULL_OUTPUT_TOOLS.has(r.tool);
         const outputLines = r.result.split("\n").filter(l => l.trim());
 

@@ -67,7 +67,7 @@ export function loadTelegramConfig() {
         allowedUsers: envAllowed.length > 0 ? envAllowed : file.allowedUsers ?? [],
         model: process.env.MORNINGSTAR_TELEGRAM_MODEL || file.model,
         defaultCwd: process.env.MORNINGSTAR_TELEGRAM_CWD || file.defaultCwd || process.cwd(),
-        maxTurns: file.maxTurns ?? 12,
+        maxTurns: file.maxTurns ?? 0,
         historyLimit: file.historyLimit ?? 20,
         fallbackModels: normalizeFallbackModels(file.fallbackModels),
         distillSchedule: file.distillSchedule ?? "30 21 * * *",

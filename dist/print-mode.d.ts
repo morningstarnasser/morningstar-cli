@@ -1,8 +1,12 @@
-import { type AgentLifecycleEvent, type ToolInvocation } from "./agent-runner.js";
-import type { CLIConfig } from "./types.js";
+import type { Readable } from "node:stream";
+import type { AgentRunOptions } from "./agent-runner.js";
+import { type AgentLifecycleEvent, type AgentRunResult, type ToolInvocation } from "./agent-runner.js";
+import type { Message, CLIConfig } from "./types.js";
 import type { PolicyVerdict } from "./policy-engine.js";
 import type { UsageData } from "./providers.js";
-export type PrintStreamEvent = {
+export type PrintStreamEvent = Extract<AgentLifecycleEvent, {
+    type: "backend_activity";
+}> | import("./swarm-tool.js").SwarmEvent | {
     type: "turn_start";
     turn: number;
 } | {
@@ -54,8 +58,17 @@ export type PrintStreamEvent = {
     aborted: boolean;
     hitTurnLimit: boolean;
     loopDetected: boolean;
+    structured_output?: unknown;
+    structured_output_error?: string;
+    tool_protocol_error?: string;
 };
 /** Convert internal lifecycle events to the stable NDJSON print contract. */
 export declare function toPrintStreamEvent(event: AgentLifecycleEvent): PrintStreamEvent;
-export declare function runPrintMode(prompt: string, systemPrompt: string, config: CLIConfig, cwd: string): Promise<void>;
+export declare function printExitCode(result: AgentRunResult): number;
+export interface PrintIO {
+    input?: Readable;
+    write?: (text: string) => void;
+    runnerOptions?: AgentRunOptions;
+}
+export declare function runPrintMode(prompt: string, systemPrompt: string, config: CLIConfig, cwd: string, resumedMessages?: Message[], io?: PrintIO): Promise<number>;
 //# sourceMappingURL=print-mode.d.ts.map

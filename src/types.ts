@@ -4,9 +4,20 @@ export interface MessageToolCall {
   arguments: Record<string, unknown>;
 }
 
+export interface ImageAttachment {
+  id: number;
+  path: string;
+  name: string;
+  mimeType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  sha256: string;
+}
+
 export interface Message {
+  /** Internal context classification; never a provider role. */
+  contextKind?: "knowledge" | "summary" | "tool-feedback";
   role: "system" | "user" | "assistant" | "tool";
   content: string;
+  images?: ImageAttachment[];
   /** Provider-neutral assistant tool calls for a native continuation turn. */
   toolCalls?: MessageToolCall[];
   /** Provider call id referenced by a tool-result message. */
@@ -27,6 +38,8 @@ export interface ToolResult {
   linesChanged?: number;
   command?: string;
   startLineNumber?: number;
+  exitCode?: number | null;
+  exitSignal?: string | null;
 }
 
 export interface ProjectContext {
@@ -52,7 +65,23 @@ export interface CLIConfig {
   quiet?: boolean;
   allowedTools?: string[];
   disallowedTools?: string[];
+  askTools?: string[];
+  toolAllowlist?: string[];
+  /** Disable autonomous delegation for nested workers or constrained clients. */
+  enableSwarm?: boolean;
+  /** This invocation was started with --yolo; do not persist it as a default. */
+  yolo?: boolean;
+  disableBypassPermissions?: boolean;
+  runtimeSettings?: import("./settings.js").MorningstarSettings;
+  inputFormat?: "text" | "stream-json";
+  noSessionPersistence?: boolean;
+  sessionName?: string;
+  /** 0 or omission: unlimited. */
   maxTurns?: number;
+  /** Normal frontends enable local Superbrain recall; embedders opt in. */
+  autoKnowledge?: boolean;
+  /** Request character budget including retained system/task text. */
+  contextChars?: number;
   fallbackModel?: string;
   fast?: boolean;
   additionalDirs?: string[];

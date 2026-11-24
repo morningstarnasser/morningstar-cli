@@ -54,3 +54,5 @@ export type {
   MessageToolCall,
   ToolResult,
 } from "./types.js";
+
+export { runSwarm, prepareSwarmPlan, validateSwarmPlan, type SwarmPlan, type SwarmTask, type SwarmOptions } from "./swarm.js";

@@ -8,7 +8,7 @@ export declare function buildClaudePrompt(messages: Message[]): {
     prompt: string;
 };
 /** Build the `claude` CLI argv for a print-mode, tool-free brain call. */
-export declare function buildClaudeArgs(modelAlias: string | undefined, system: string): string[];
+export declare function buildClaudeArgs(modelAlias: string | undefined, system: string, images?: boolean): string[];
 /** Streams stdout chunks of a `claude` invocation. Injectable for tests. */
 export type ClaudeRunner = (args: string[], prompt: string, signal?: AbortSignal) => AsyncIterable<string>;
 /** Stream a model response by driving the local `claude` CLI as a text brain. */

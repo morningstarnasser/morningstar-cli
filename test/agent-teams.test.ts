@@ -36,7 +36,7 @@ test("team lifecycle validates ids, members, roles, and execution order", (t) =>
 
   assert.equal(createTeam("__proto__", "bad", "", []).success, false);
   assert.equal(createTeam("ship", "Ship Team", "Build and review", []).success, true);
-  assert.equal(statSync(join(root, "teams.json")).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(statSync(join(root, "teams.json")).mode & 0o777, 0o600);
   assert.equal(createTeam("ship", "Duplicate", "", []).success, false);
   assert.equal(addTeamMember("ship", "code", "lead").success, true);
   assert.equal(addTeamMember("ship", "test", "worker").success, true);
@@ -80,6 +80,6 @@ test("trusted parent override never follows a final teams-file symlink", (t) => 
   assert.equal(createTeam("safe", "Safe Team", "", []).success, true);
   assert.equal(readFileSync(outside, "utf-8"), "DO_NOT_OVERWRITE");
   assert.equal(lstatSync(teamsPath).isSymbolicLink(), false);
-  assert.equal(statSync(teamsPath).mode & 0o777, 0o600);
+  if (process.platform !== "win32") assert.equal(statSync(teamsPath).mode & 0o777, 0o600);
   assert.equal(getTeam("safe")?.name, "Safe Team");
 });

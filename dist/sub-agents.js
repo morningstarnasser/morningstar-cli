@@ -44,11 +44,11 @@ export function createSubAgentToolExecutors(allowedTools, dependencies = {}) {
  * - Its own agent system prompt
  * - The task description as user message
  * - Access to all tools
- * - A limited number of turns (maxTurns)
+ * - Unlimited turns by default; an explicit maxTurns is respected
  *
  * Returns the completed task with results.
  */
-export async function executeSubAgent(agentId, taskDescription, config, cwd, baseSystemPrompt, signal, maxTurns = 5, onProgress, options = {}) {
+export async function executeSubAgent(agentId, taskDescription, config, cwd, baseSystemPrompt, signal, maxTurns = config.maxTurns ?? 0, onProgress, options = {}) {
     const startTime = Date.now();
     const task = {
         id: `sub-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -79,20 +79,30 @@ export async function executeSubAgent(agentId, taskDescription, config, cwd, bas
         { role: "user", content: taskDescription },
     ];
     let fullResponse = "";
+    let transcript = messages;
     try {
         onProgress?.(`Sub-Agent [${agent?.name || agentId}] startet...`);
         const executors = createSubAgentToolExecutors(agent?.tools, options);
         const result = await runAgent(messages, resolvedConfig, cwd, {
             signal,
             maxTurns,
+            enableSwarm: false,
             streamFn: options.streamFn,
             toolAllowlist: agent?.tools?.length ? agent.tools : undefined,
             textToolExecFn: executors.textToolExecFn,
             nativeToolExecFn: executors.nativeToolExecFn,
             onApproval: options.onApproval,
+            onEvent: (event) => {
+                options.onEvent?.(event);
+                if (event.type === "tool_requested") {
+                    const args = event.invocation.args;
+                    const target = args.filePath ?? args.notebookPath ?? args.command ?? args.query ?? args.pattern ?? "";
+                    onProgress?.(`${event.invocation.name} · ${String(target).replace(/[\r\n]/g, " ").slice(0, 120)}`);
+                }
+            },
             onTurnStart: (turn) => {
                 if (turn > 1) {
-                    onProgress?.(`Sub-Agent [${agent?.name || agentId}] Turn ${turn}/${maxTurns}...`);
+                    onProgress?.(`Sub-Agent [${agent?.name || agentId}] Turn ${turn}/${maxTurns || "∞"}...`);
                 }
             },
             onTool: (tool) => {
@@ -101,17 +111,28 @@ export async function executeSubAgent(agentId, taskDescription, config, cwd, bas
             },
         });
         fullResponse = result.finalText;
+        transcript = result.messages ?? messages;
         task.tokensUsed = result.usage.totalTokens;
         trackUsage(resolvedConfig.model, taskDescription, fullResponse, result.usage.inputTokens, result.usage.outputTokens, resolvedConfig.provider);
-        task.status = result.aborted || signal?.aborted ? "cancelled" : "completed";
+        // A final model sentence cannot turn a denied/failed tool into verified work.
+        // The parent receives the report and can retry in a fresh task if appropriate.
+        const failedTool = result.toolCalls.find(tool => !tool.success);
+        task.status = result.aborted || signal?.aborted ? "cancelled"
+            : result.hitTurnLimit || result.budgetExceeded || result.loopDetected || result.toolProtocolError || failedTool ? "failed" : "completed";
+        if (task.status === "failed")
+            task.error = result.hitTurnLimit ? "Explizites Turn-Limit erreicht."
+                : result.budgetExceeded ? "Budget-Limit erreicht."
+                    : result.loopDetected ? "Kein Fortschritt: Tool-Schleife erkannt."
+                        : result.toolProtocolError ? result.toolProtocolError
+                            : `Tool ${failedTool.tool} fehlgeschlagen: ${failedTool.result.slice(0, 500)}`;
         task.result = fullResponse;
     }
     catch (e) {
-        task.status = "failed";
+        task.status = signal?.aborted ? "cancelled" : "failed";
         task.error = e.message;
     }
     task.duration = Date.now() - startTime;
-    return { task, messages, fullResponse };
+    return { task, messages: transcript, fullResponse };
 }
 /**
  * Execute multiple sub-agent tasks sequentially.
@@ -133,7 +154,7 @@ export async function executeSubAgentPipeline(tasks, config, cwd, baseSystemProm
             enrichedDescription += `\n\n--- Ergebnisse vorheriger Agents ---\n${previousContext}\n--- Ende ---`;
         }
         onProgress?.(i, `Starte Task ${i + 1}/${tasks.length}...`);
-        const result = await executeSubAgent(task.agentId, enrichedDescription, config, cwd, baseSystemPrompt, signal, 5, (status) => onProgress?.(i, status), options);
+        const result = await executeSubAgent(task.agentId, enrichedDescription, config, cwd, baseSystemPrompt, signal, config.maxTurns ?? 0, (status) => onProgress?.(i, status), options);
         results.push(result);
     }
     return results;
@@ -166,7 +187,7 @@ export async function executeSubAgentsParallel(tasks, config, cwd, baseSystemPro
             state[idx].detail = "starting";
             tick();
             try {
-                const result = await executeSubAgent(task.agentId, task.description, config, cwd, baseSystemPrompt, signal, 5, (status) => {
+                const result = await executeSubAgent(task.agentId, task.description, config, cwd, baseSystemPrompt, signal, config.maxTurns ?? 0, (status) => {
                     state[idx].detail = status.length > 48 ? `${status.slice(0, 45)}…` : status;
                 }, options);
                 state[idx].status = result.task.status;

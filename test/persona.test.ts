@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadPersonaFrom, buildPersonaPrompt, AGENT_NAME } from "../src/persona.js";
@@ -7,7 +8,7 @@ test("agent is named Carry", () => {
 });
 
 test("loads only files that exist", () => {
-  const present = new Set(["/p/SOUL.md", "/p/USER.md"]);
+  const present = new Set([join("/p", "SOUL.md"), join("/p", "USER.md")]);
   const files = loadPersonaFrom(
     "/p",
     (path) => (path.endsWith("SOUL.md") ? "ich bin carry" : "user profile"),

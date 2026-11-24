@@ -6,6 +6,9 @@ const MAX_TOOL_LIST_PAGES = 32;
 const MAX_LISTED_TOOLS = 128;
 const INHERITED_ENV_KEYS = [
     "HOME",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
     "USER",
     "LOGNAME",
     "PATH",
@@ -76,6 +79,13 @@ export class MCPClient {
             // MCP servers may log to stderr — ignore
         });
         child.on("error", (error) => {
+            this.closeCurrentConnection(child, generation, error);
+        });
+        // A server may close its pipe before its exit event arrives (notably on
+        // Windows). Handle stale pipe errors too, without closing a new connection.
+        child.stdin?.on("error", (error) => {
+            if (this.ownsConnection(child, generation))
+                child.kill();
             this.closeCurrentConnection(child, generation, error);
         });
         child.on("exit", () => {

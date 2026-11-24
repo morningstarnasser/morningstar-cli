@@ -1,3 +1,13 @@
+import { compactRequest } from "./runtime/request-context.js";
+import { prepareKnowledge } from "./knowledge.js";
+import { canonicalToolName } from "./policy-engine.js";
+import { createOutputValidator } from "./structured-output.js";
+import { runRuntimeHooks } from "./runtime-hooks.js";
+import { autonomousSwarmPrompt, executeAutonomousSwarm, type SwarmEvent } from "./swarm-tool.js";
+import { WORK_GUIDANCE } from "./runtime/work-guidance.js";
+import { isMalformedToolAttempt } from "./runtime/tool-protocol.js";
+import { formatConnectedMCPToolsForPrompt } from "./mcp.js";
+import { getOpenAIToolDefinitions } from "./tool-definitions.js";
 // ─── Shared Headless Agentic Engine ──────────────────────────────────────────
 // Canonical model -> authorization -> tool -> feedback loop used by every
 // non-interactive runtime. Provider-native and text tool calls are normalized
@@ -9,6 +19,7 @@ import {
   executeToolCall as realExecuteToolCall,
   parseToolCalls,
 } from "./tools.js";
+import { extractFinalAnswerText, isFinalAnswerTool } from "./final-answer.js";
 import { decidePermission } from "./policy-engine.js";
 import { getCostPerMessage } from "./cost-tracker.js";
 import type { Decision, PolicyVerdict } from "./policy-engine.js";
@@ -17,7 +28,12 @@ import type { Message, CLIConfig, ToolResult } from "./types.js";
 import type { ParsedToolCall } from "./tools.js";
 import type { StreamToken, UsageData } from "./providers.js";
 
-const DEFAULT_MAX_TURNS = 12;
+/** Zero and omission mean unlimited; explicit finite limits remain available. */
+export function resolveTurnLimit(value?: number): number {
+  if (value === undefined || value === 0) return Infinity;
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error("maxTurns must be a non-negative integer (0 = unlimited)");
+  return value;
+}
 const LOOP_SENSITIVE_TOOLS = new Set([
   "write",
   "edit",
@@ -31,6 +47,7 @@ const LOOP_SENSITIVE_TOOLS = new Set([
   "auto-python",
   "auto-html",
   "jerry",
+  "swarm",
 ]);
 
 export type StreamFn = (
@@ -95,6 +112,8 @@ export interface ApprovalDecision {
 }
 
 export type AgentLifecycleEvent =
+  | SwarmEvent
+  | { type: "backend_activity"; turn: number; activity: import("./providers/backend-events.js").BackendActivity }
   | { type: "turn_start"; turn: number }
   | { type: "content_delta"; turn: number; delta: string }
   | { type: "reasoning_delta"; turn: number; delta: string }
@@ -107,7 +126,9 @@ export type AgentLifecycleEvent =
   | { type: "completion"; result: AgentRunResult };
 
 export interface AgentRunOptions {
-  /** Hard cap on model<->tool round trips. Default 12. */
+  /** Root runs may delegate; workers cannot recursively start teams. */
+  enableSwarm?: boolean;
+  /** Optional model/tool turn cap. Omitted or 0 means unlimited. */
   maxTurns?: number;
   /** External abort signal (e.g. user pressed /stop). */
   signal?: AbortSignal;
@@ -146,6 +167,8 @@ export interface AgentRunOptions {
   ) => ToolApprovalResponse | Promise<ToolApprovalResponse>;
   /** Inject a fake model stream (tests). Defaults to the real provider. */
   streamFn?: StreamFn;
+  /** Injectable local knowledge retrieval, still gated by tool policy. */
+  knowledgeFn?: typeof prepareKnowledge;
   /** Legacy whole-response executor retained for compatibility. */
   toolExecFn?: ToolExecFn;
   /** Inject the normalized text-call executor. */
@@ -157,12 +180,20 @@ export interface AgentRunOptions {
 export interface AgentRunResult {
   /** The model's final natural-language answer (tool tags stripped). */
   finalText: string;
+  /** Actual provider transcript for resuming; includes tool calls and results. */
+  messages?: Message[];
+  structuredOutput?: unknown;
+  structuredOutputError?: string;
+  toolProtocolError?: string;
   /** Number of model turns executed. */
   turns: number;
   /** Every tool result produced across all turns, in order. */
   toolCalls: ToolResult[];
   /** Aggregate provider usage across turns. */
   usage: UsageData;
+  /** Worker usage is separate so global tracking never bills it twice. */
+  delegatedUsage?: UsageData;
+  delegatedCostUsd?: number;
   /** Estimated billed cost incurred by this run. */
   costUsd: number;
   /** True when maxBudgetUsd stopped this run before another model/tool turn. */
@@ -206,6 +237,7 @@ function resolvePermissionMode(
   config: CLIConfig,
   preserveLegacyBehavior: boolean,
 ): PermissionMode {
+  if (config.runtimeSettings?.managedPermissionMode) return config.runtimeSettings.managedPermissionMode.replace(/^default$/, "ask") as PermissionMode;
   if (config.dangerouslySkipPermissions) return "bypassPermissions";
   if (config.permissionMode) return config.permissionMode as PermissionMode;
   // Existing injected whole-response executors historically ran without a
@@ -354,25 +386,61 @@ export async function runAgent(
   cwd: string,
   options: AgentRunOptions = {},
 ): Promise<AgentRunResult> {
-  const maxTurns = Math.max(0, options.maxTurns ?? config.maxTurns ?? DEFAULT_MAX_TURNS);
+  const maxTurns = resolveTurnLimit(options.maxTurns ?? config.maxTurns);
   const streamFn = options.streamFn ?? realStreamChat;
   const textToolExecFn = options.textToolExecFn ?? realExecuteToolCall;
   const nativeToolExecFn = options.nativeToolExecFn ?? realExecuteNativeToolCall;
   const signal = options.signal;
-  const toolAllowlist = options.toolAllowlist
-    ? new Set(options.toolAllowlist.map((tool) => tool.toLowerCase()))
+  const permittedTools = options.toolAllowlist && config.toolAllowlist
+    ? options.toolAllowlist.filter((tool) => config.toolAllowlist!.some((allowed) => canonicalToolName(allowed) === canonicalToolName(tool)))
+    : options.toolAllowlist ?? config.toolAllowlist;
+  const toolAllowlist = options.enableTools === false ? new Set<string>() : permittedTools
+    ? new Set(permittedTools.map(canonicalToolName))
     : undefined;
+  const swarmEnabled = options.enableSwarm !== false && config.enableSwarm !== false
+    && options.enableTools !== false && (!toolAllowlist || toolAllowlist.has("swarm"));
+  const providerConfig: CLIConfig = {
+    ...config,
+    ...(toolAllowlist ? { toolAllowlist: [...toolAllowlist] } : {}),
+    enableSwarm: swarmEnabled,
+  };
 
+  const outputValidator = config.jsonSchema ? createOutputValidator(config.jsonSchema) : undefined;
   let conversation: Message[] = [...messages];
+  const advertiseSwarm = swarmEnabled && decidePermission("swarm", "", resolvePermissionMode(config, false), config.allowedTools,
+    config.disallowedTools, config.askTools, config.disableBypassPermissions, cwd).decision !== "deny";
+  providerConfig.enableSwarm = advertiseSwarm;
+  const swarmInstruction = advertiseSwarm ? autonomousSwarmPrompt()
+    : (options.enableSwarm === false || config.enableSwarm === false) && options.enableTools !== false
+      ? "Du bist ein Worker. swarm steht hier nicht zur Verfügung; erledige die Teilaufgabe selbst mit den erlaubten Werkzeugen."
+      : "";
+  // Capabilities belong only in the request; resumed transcripts stay unchanged.
+  const providerMessages = (): Message[] => {
+    const mcp = options.enableTools === false ? "" : formatConnectedMCPToolsForPrompt();
+    const addition = `\n\n<morningstar-work-style>\n${WORK_GUIDANCE}\n</morningstar-work-style>${swarmInstruction ? `\n\n<morningstar-swarm>\n${swarmInstruction}\n</morningstar-swarm>` : ""}\n\n${mcp || "Keine MCP-Tools verbunden. Skills und Vault-Notizen installieren keine Werkzeuge; erfinde keine MCP-Namen."}\nWenn native Tools angeboten werden, verwende diese; andernfalls vollständige <tool:NAME>...</tool>-Tags. Gib einen Tool-Aufruf niemals als bloßen Antworttext aus. Antworte in der Sprache des Nutzers. Nach einer Statusabfrage nenne die gemessenen Werte und ihren Zeitstempel.`;
+    if (conversation[0]?.role === "system") return [{ ...conversation[0], content: conversation[0].content + addition }, ...conversation.slice(1)];
+    return [{ role: "system", content: addition.trim() }, ...conversation];
+  };
+  if (config.jsonSchema) {
+    const instruction = `Return your final answer as JSON matching this JSON Schema. Do not wrap it in prose.\n${config.jsonSchema}`;
+    if (conversation[0]?.role === "system") conversation[0] = { ...conversation[0], content: conversation[0].content + "\n\n" + instruction };
+    else conversation.unshift({ role: "system", content: instruction });
+  }
   let finalText = "";
   const toolCalls: ToolResult[] = [];
   let usage = emptyUsage();
   let costUsd = 0;
+  let delegatedUsage = emptyUsage();
+  let delegatedCostUsd = 0;
   let budgetExceeded = false;
   let turns = 0;
   let hitTurnLimit = false;
   let loopDetected = false;
   let previousInvocationSignature = "";
+  let previousStableResult = "";
+  let unchangedReadBatches = 0;
+  let protocolRepairs = 0;
+  let toolProtocolError: string | undefined;
 
   const emit = (event: AgentLifecycleEvent): void => {
     options.onEvent?.(event);
@@ -400,21 +468,60 @@ export async function runAgent(
   const complete = (
     aborted: boolean,
   ): AgentRunResult => {
+    const structured = outputValidator && !aborted && !hitTurnLimit && !budgetExceeded && !loopDetected ? outputValidator(finalText) : undefined;
     const result: AgentRunResult = {
       finalText: finalText.trim(),
+      messages: [...conversation],
+      ...(structured?.error ? { structuredOutputError: structured.error } : structured ? { structuredOutput: structured.value } : {}),
       turns,
       toolCalls,
       usage,
       costUsd,
+      ...(delegatedUsage.totalTokens || delegatedCostUsd ? { delegatedUsage, delegatedCostUsd } : {}),
       budgetExceeded,
       aborted,
       hitTurnLimit,
       loopDetected,
+      ...(toolProtocolError ? { toolProtocolError } : {}),
     };
     emit({ type: "completion", result });
     options.onComplete?.(result);
     return result;
   };
+
+  const hooks = config.runtimeSettings?.trustedHooks;
+  const promptHook = await runRuntimeHooks(hooks, "UserPromptSubmit", { cwd, session_id: config.sessionId, prompt: messages.filter((m) => m.role === "user").at(-1)?.content }, signal);
+  if (!promptHook.allowed) { finalText = promptHook.messages.join("\n"); return complete(true); }
+  if (promptHook.messages.length) conversation.push({ role: "user", contextKind: "knowledge", content: `Hook context:\n${promptHook.messages.join("\n")}` });
+
+  if (config.autoKnowledge && options.enableTools !== false && !signal?.aborted) {
+    const beforeKnowledge = conversation.length;
+    const allowed = async (tool: "skill" | "vault", command: string) => {
+      if (toolAllowlist && !toolAllowlist.has(tool)) return false;
+      if (decidePermission(tool, command, resolvePermissionMode(config, false), config.allowedTools,
+        config.disallowedTools, config.askTools, config.disableBypassPermissions, cwd).decision !== "allow") return false;
+      const hook = await runRuntimeHooks(hooks, "PreToolUse", { cwd, session_id: config.sessionId,
+        tool_name: tool, tool_input: { command } }, signal);
+      if (hook.messages.length) conversation.push({ role: "user", contextKind: "knowledge", content: `Knowledge hook context:\n${hook.messages.join("\n")}` });
+      return hook.allowed;
+    };
+    const filterResult = async (tool: "skill" | "vault", command: string, result: string) => {
+      const hook = await runRuntimeHooks(hooks, "PostToolUse", { cwd, session_id: config.sessionId,
+        tool_name: tool, tool_input: { command }, tool_response: result }, signal);
+      return hook.allowed ? [result, ...hook.messages].join("\n") : `Knowledge result blocked by hook: ${hook.messages.join("\n")}`;
+    };
+    try {
+      conversation.push(...await (options.knowledgeFn ?? prepareKnowledge)({ cwd,
+        query: messages.filter((m) => m.role === "user" && !m.contextKind).at(-1)?.content ?? "", signal, allowed, filterResult }));
+    } catch (error) { if (signal?.aborted) return complete(true); throw error; }
+    const context = conversation.splice(beforeKnowledge);
+    let taskIndex = conversation.length;
+    for (let i = conversation.length - 1; i >= 0; i--) {
+      if (conversation[i].role === "user" && !conversation[i].contextKind) { taskIndex = i; break; }
+    }
+    // Keep the actual task last, after lower-trust reference material.
+    conversation.splice(taskIndex, 0, ...context);
+  }
 
   for (let turnIndex = 0; turnIndex < maxTurns; turnIndex++) {
     if (signal?.aborted) return complete(true);
@@ -439,13 +546,19 @@ export async function runAgent(
       // `true` is intentional: every supporting provider should expose native
       // tools to the canonical runner.
       for await (const token of streamFn(
-        conversation,
-        config,
+        compactRequest(providerMessages(), config.contextChars).messages,
+        providerConfig,
         signal,
         options.enableTools ?? true,
       )) {
         if (signal?.aborted) return complete(true);
-        if (token.type === "content") {
+        if (token.type === "backend_activity" && token.activity) {
+          emit({ type: "backend_activity", turn, activity: token.activity });
+          if (token.activity.result && !["error", "todo_list"].includes(token.activity.result.tool)) {
+            toolCalls.push(token.activity.result);
+            options.onTool?.(token.activity.result);
+          }
+        } else if (token.type === "content") {
           response += token.text;
           options.onContent?.(token.text);
           emit({ type: "content_delta", turn, delta: token.text });
@@ -502,6 +615,28 @@ export async function runAgent(
     }
 
     const parsedText = parseToolCalls(response);
+    if (!parsedText.calls.length && !nativeCalls.size && isMalformedToolAttempt(response)) {
+      // Ask the model to correct its protocol. Never execute or guess a broken
+      // call, never resolve a fabricated MCP alias to a similarly named tool.
+      const retry = options.enableTools !== false && protocolRepairs < 2 && turnIndex < maxTurns - 1;
+      const text = retry
+        ? "Unvollständiger Werkzeugaufruf erkannt; Morningstar fordert einen gültigen Aufruf an."
+        : "Werkzeugaufruf fehlgeschlagen: Das Modell lieferte wiederholt einen unvollständigen Aufruf. Dieser wurde nicht ausgeführt und lieferte keine Messwerte.";
+      conversation.push({ role: "assistant", content: response });
+      if (retry) {
+        protocolRepairs++;
+        const names = getOpenAIToolDefinitions(toolAllowlist ? [...toolAllowlist] : undefined, advertiseSwarm).map(tool => tool.function.name);
+        conversation.push({ role: "user", contextKind: "tool-feedback", content: `Dein letzter Tool-Aufruf war unvollständig und wurde NICHT ausgeführt. Verwende einen nativen Function-Call mit einem EXAKT angebotenen Namen: ${names.join(", ")}. Wenn native Tools fehlen: <tool:NAME>Argumente</tool> vollständig schließen. Erfinde keine MCP-Namen aus Skills. Ist das benötigte Tool nicht verfügbar, erkläre das ehrlich in normalem Text. Für Live-Status zuerst wirklich messen, dann Werte und Zeitstempel ausgeben.` });
+      } else {
+        toolProtocolError = text;
+        finalText = text;
+        conversation.push({ role: "assistant", content: text });
+      }
+      options.onTurnEnd?.(text, []);
+      emit({ type: "turn_end", turn, text, tools: [] });
+      if (retry) continue;
+      break;
+    }
     finalText = parsedText.cleanResponse || (parsedText.calls.length === 0 ? response : "");
     const parsedInvocations: PendingInvocation[] = parsedText.calls.map((call, index) => ({
       invocation: {
@@ -529,22 +664,42 @@ export async function runAgent(
       });
     }
 
+    // Weak models invent a tool for replying (`<tool:answer>`, `final_answer`,
+    // …). That call IS the answer: unwrap it as text instead of failing it as
+    // an unknown tool, which would burn the turn and invite the same invention
+    // again next turn.
+    const answerInvocations = parsedInvocations.filter(({ invocation }) =>
+      invocation.source !== "legacy" && isFinalAnswerTool(invocation.name));
+    if (answerInvocations.length > 0) {
+      const answered = answerInvocations
+        .map(({ invocation }) => extractFinalAnswerText(invocation.args))
+        .filter(Boolean)
+        .join("\n\n");
+      if (answered) finalText = finalText ? `${finalText}\n\n${answered}` : answered;
+    }
+    const toolInvocations = answerInvocations.length === 0
+      ? parsedInvocations
+      : parsedInvocations.filter(({ invocation }) =>
+        invocation.source === "legacy" || !isFinalAnswerTool(invocation.name));
+
     // Providers can occasionally emit the same action as both a fallback
     // <tool:...> tag and a native function call. Run that exact action once,
     // retaining the native invocation so its provider call id gets a result.
     const nativeInvocationIdentities = new Set(
-      parsedInvocations
+      toolInvocations
         .filter(({ invocation }) => invocation.source === "native")
         .map(({ invocation }) => invocationIdentity(invocation)),
     );
-    const pending = parsedInvocations.filter(({ invocation }) =>
+    const pending = toolInvocations.filter(({ invocation }) =>
       invocation.source !== "text"
       || !nativeInvocationIdentities.has(invocationIdentity(invocation)));
 
     // Compatibility discovery for injected whole-response executors. Standard
     // calls never need this path because they were parsed above.
     const useOpaqueLegacyExecutor =
-      options.toolExecFn !== undefined && pending.length === 0;
+      options.toolExecFn !== undefined
+      && pending.length === 0
+      && answerInvocations.length === 0;
     if (useOpaqueLegacyExecutor) {
       pending.push({
         invocation: {
@@ -604,7 +759,9 @@ export async function runAgent(
       const { invocation } = item;
       emit({ type: "tool_requested", turn, invocation });
 
-      const verdict: PolicyVerdict = toolAllowlist && !toolAllowlist.has(invocation.name)
+      const verdict: PolicyVerdict = budgetExceeded
+        ? { decision: "deny", risk: "high", reason: "shared run budget exceeded" }
+        : (invocation.name === "swarm" && !swarmEnabled) || (toolAllowlist && !toolAllowlist.has(invocation.name))
         ? {
             decision: "deny",
             risk: "high",
@@ -619,6 +776,9 @@ export async function runAgent(
             ),
             config.allowedTools,
             config.disallowedTools,
+            config.askTools,
+            config.disableBypassPermissions,
+            cwd,
           );
 
       let approved = verdict.decision === "allow";
@@ -692,7 +852,20 @@ export async function runAgent(
         results = [errorResult(invocation, invocation.parseError)];
       } else {
         try {
-          if (invocation.source === "native") {
+          const hook = await runRuntimeHooks(hooks, "PreToolUse", { cwd, session_id: config.sessionId, tool_name: invocation.name, tool_input: invocation.args }, signal);
+          if (!hook.allowed) throw new Error(hook.messages.join("\n") || "Blocked by PreToolUse hook");
+          if (invocation.name === "swarm") {
+            const delegated = await executeAutonomousSwarm(
+              `swarm-${turn}-${invocation.id}`, invocation.args, conversation,
+              { ...providerConfig, permissionMode: resolvePermissionMode(config, options.toolExecFn !== undefined) },
+              cwd, { ...options, signal }, (options.initialCostUsd ?? 0) + costUsd, emit,
+            );
+            delegatedUsage = addUsage(delegatedUsage, delegated.usage);
+            delegatedCostUsd += delegated.costUsd;
+            costUsd += delegated.costUsd;
+            if (config.maxBudgetUsd !== undefined && (options.initialCostUsd ?? 0) + costUsd >= config.maxBudgetUsd) budgetExceeded = true;
+            results = [delegated.result];
+          } else if (invocation.source === "native") {
             results = [
               await Promise.resolve(
                 nativeToolExecFn(invocation.name, invocation.args, cwd, signal),
@@ -728,6 +901,14 @@ export async function runAgent(
 
       if (signal?.aborted) return complete(true);
 
+      if (approved && !invocation.parseError && results.length) {
+        const hook = await runRuntimeHooks(hooks, results.every((r) => r.success) ? "PostToolUse" : "PostToolUseFailure", { cwd, session_id: config.sessionId, tool_name: invocation.name, tool_input: invocation.args, tool_response: results }, signal);
+        if (hook.messages.length || !hook.allowed) {
+          results = results.map((result, index) => index === results.length - 1
+            ? { ...result, success: result.success && hook.allowed, result: `${result.result}\n\nHook context:\n${hook.messages.join("\n")}` }
+            : result);
+        }
+      }
       for (const result of results) {
         turnResults.push(result);
         invocationResults.push({ invocation, result });
@@ -743,7 +924,10 @@ export async function runAgent(
     options.onTurnEnd?.(finalText, turnResults);
     emit({ type: "turn_end", turn, text: finalText, tools: turnResults });
 
-    if (turnResults.length === 0) break;
+    if (turnResults.length === 0) {
+      conversation = [...conversation, { role: "assistant", content: finalText }];
+      break;
+    }
 
     const toolFeedback = turnResults
       .map((result) =>
@@ -785,6 +969,7 @@ export async function runAgent(
     const textFeedback = textResults.length > 0
       ? [{
           role: "user" as const,
+          contextKind: "tool-feedback" as const,
           content:
             `Tool results:\n${textResults
               .map((result) =>
@@ -794,6 +979,7 @@ export async function runAgent(
       : nativeResults.length === 0
         ? [{
             role: "user" as const,
+            contextKind: "tool-feedback" as const,
             content: `Tool results:\n${toolFeedback}\n\n${continuationPrompt}`,
           }]
         : [];
@@ -805,8 +991,20 @@ export async function runAgent(
       ...textFeedback,
     ];
 
+    // Read-only/unknown calls may repeat while their output changes (polling).
+    // Three identical requests with identical outcomes indicate no progress.
+    const stableResult = JSON.stringify({ signature, results: turnResults });
+    unchangedReadBatches = !canDetectLoop && stableResult === previousStableResult ? unchangedReadBatches + 1 : 1;
+    previousStableResult = stableResult;
+    if (!canDetectLoop && pending.every(({ invocation }) => invocation.source !== "legacy") && unchangedReadBatches >= 3) {
+      loopDetected = true;
+      finalText ||= "Kein Fortschritt: dieselben Werkzeugaufrufe lieferten dreimal unveränderte Ergebnisse.";
+      break;
+    }
     if (turnIndex === maxTurns - 1) hitTurnLimit = true;
   }
 
+  const stop = await runRuntimeHooks(hooks, "Stop", { cwd, session_id: config.sessionId, reason: hitTurnLimit ? "turn_limit" : "complete" }, signal);
+  if (!stop.allowed) { finalText += `\n${stop.messages.join("\n")}`; return complete(true); }
   return complete(false);
 }

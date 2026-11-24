@@ -34,7 +34,7 @@ test("resolveWithinWorkspace blocks ../ escape", () => {
 
 test("resolveWithinWorkspace blocks symlink escape", () => {
   // target resolves (via realpath) to outside the workspace
-  const r = resolveWithinWorkspace("link", "/repo", (p) => (p.endsWith("/link") ? "/etc/secret" : p), () => true);
+  const r = resolveWithinWorkspace("link", "/repo", (p) => (p.endsWith(join("/", "link")) ? "/etc/secret" : p), () => true);
   assert.equal(r.ok, false);
 });
 

@@ -37,6 +37,7 @@ const catalogs = new Map<string, CachedCatalog>();
 const refreshStatuses = new Map<string, ProviderModelRefreshResult["status"]>();
 
 const DISCOVERY_SPECS: DiscoverySpec[] = [
+  { provider: "ollama", url: "http://127.0.0.1:11434/api/tags", requiresCredential: false, headers: () => ({}) },
   {
     provider: "anthropic",
     url: "https://api.anthropic.com/v1/models?limit=1000",
@@ -157,7 +158,7 @@ function parseProviderModels(
     entries = payload;
   } else if (payload && typeof payload === "object") {
     const object = payload as Record<string, unknown>;
-    if (provider === "google" && Array.isArray(object.models)) {
+    if (["google", "ollama"].includes(provider) && Array.isArray(object.models)) {
       entries = object.models;
     } else if (Array.isArray(object.data)) {
       entries = object.data;
@@ -177,7 +178,7 @@ function parseProviderModels(
       if (Array.isArray(outputs) && !outputs.includes("text")) continue;
     }
 
-    const raw = provider === "google"
+    const raw = provider === "ollama" ? (item.model ?? item.name) : provider === "google"
       ? (typeof item.baseModelId === "string"
           ? item.baseModelId
           : typeof item.name === "string"
@@ -247,7 +248,7 @@ async function discoverOne(
       spec.provider,
       await readBoundedJson(response),
     );
-    if (models.length === 0) throw new Error("provider returned no chat models");
+    if (models.length === 0 && spec.provider !== "ollama") throw new Error("provider returned no chat models");
     return models;
   } finally {
     clearTimeout(timeout);
@@ -311,6 +312,7 @@ export async function refreshProviderModelCatalogs(
         modelCount: models.length,
       });
     } catch (error) {
+      if (spec.provider === "ollama") catalogs.delete(spec.provider);
       return record({
         provider: spec.provider,
         status: "failed" as const,

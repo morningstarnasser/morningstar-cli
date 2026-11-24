@@ -1,1 +1,1 @@
-{"version":3,"file":"useTerminalColumns.d.ts","sourceRoot":"","sources":["../../src/hooks/useTerminalColumns.ts"],"names":[],"mappings":"AAIA,wBAAgB,kBAAkB,IAAI,MAAM,CAgB3C"}
+{"version":3,"file":"useTerminalColumns.d.ts","sourceRoot":"","sources":["../../src/hooks/useTerminalColumns.ts"],"names":[],"mappings":"AAyBA,iFAAiF;AACjF,wBAAgB,kBAAkB,IAAI,MAAM,CAG3C;AACD,wBAAgB,eAAe,IAAI,MAAM,CAGxC"}

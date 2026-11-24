@@ -5,6 +5,7 @@ interface ClaudeCodeDiffProps {
     startLineNumber?: number;
     maxLines?: number;
 }
-export declare function ClaudeCodeDiff({ oldStr, newStr, filePath, startLineNumber, maxLines, }: ClaudeCodeDiffProps): import("react/jsx-runtime").JSX.Element;
+/** Shared bounded diff for legacy tool panels and inline edits. */
+export declare function ClaudeCodeDiff({ oldStr, newStr, filePath, startLineNumber, maxLines }: ClaudeCodeDiffProps): import("react/jsx-runtime").JSX.Element;
 export {};
 //# sourceMappingURL=ClaudeCodeDiff.d.ts.map

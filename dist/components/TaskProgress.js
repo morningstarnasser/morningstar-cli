@@ -62,7 +62,7 @@ export function TaskProgress({ steps, currentLabel, startTime, tokenCount, turnN
                 const iconColor = STATUS_COLOR[step.status];
                 const toolColor = TOOL_COLORS[step.tool] || "#94a3b8";
                 return (_jsxs(Box, { children: [_jsxs(Text, { color: iconColor, children: [" ", icon, " "] }), _jsx(Text, { color: step.status === "pending" ? dim : toolColor, bold: step.status === "in_progress", children: step.label }), step.detail && (_jsxs(Text, { color: dim, children: [" ", step.detail] })), step.duration != null && step.status === "completed" && (_jsxs(Text, { color: dim, children: [" (", (step.duration / 1000).toFixed(1), "s)"] }))] }, step.id));
-            }), _jsxs(Box, { marginTop: 0, children: [_jsxs(Text, { color: dim, children: ["  ", elapsed, " \u00B7 \\u2193 ", tokenStr, " tokens \u00B7 Turn ", turnNumber, "/", maxTurns] }), failedCount > 0 && (_jsxs(Text, { color: "#f87171", children: [" \u00B7 ", failedCount, " failed"] }))] })] }));
+            }), _jsxs(Box, { marginTop: 0, children: [_jsxs(Text, { color: dim, children: ["  ", elapsed, " \u00B7 \\u2193 ", tokenStr, " tokens \u00B7 Turn ", turnNumber, "/", maxTurns || "∞"] }), failedCount > 0 && (_jsxs(Text, { color: "#f87171", children: [" \u00B7 ", failedCount, " failed"] }))] })] }));
 }
 // ─── Helper: Create step from tool call ──────────────────
 const TOOL_LABELS = {

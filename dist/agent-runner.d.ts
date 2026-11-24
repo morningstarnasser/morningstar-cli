@@ -1,7 +1,11 @@
+import { prepareKnowledge } from "./knowledge.js";
+import { type SwarmEvent } from "./swarm-tool.js";
 import type { Decision, PolicyVerdict } from "./policy-engine.js";
 import type { Message, CLIConfig, ToolResult } from "./types.js";
 import type { ParsedToolCall } from "./tools.js";
 import type { StreamToken, UsageData } from "./providers.js";
+/** Zero and omission mean unlimited; explicit finite limits remain available. */
+export declare function resolveTurnLimit(value?: number): number;
 export type StreamFn = (messages: Message[], config: CLIConfig, signal?: AbortSignal, enableTools?: boolean) => AsyncGenerator<StreamToken>;
 /**
  * Legacy whole-response executor seam. It is retained for existing consumers
@@ -42,7 +46,11 @@ export interface ApprovalDecision {
     source: "policy" | "user" | "missing_callback";
     reason: string;
 }
-export type AgentLifecycleEvent = {
+export type AgentLifecycleEvent = SwarmEvent | {
+    type: "backend_activity";
+    turn: number;
+    activity: import("./providers/backend-events.js").BackendActivity;
+} | {
     type: "turn_start";
     turn: number;
 } | {
@@ -82,7 +90,9 @@ export type AgentLifecycleEvent = {
     result: AgentRunResult;
 };
 export interface AgentRunOptions {
-    /** Hard cap on model<->tool round trips. Default 12. */
+    /** Root runs may delegate; workers cannot recursively start teams. */
+    enableSwarm?: boolean;
+    /** Optional model/tool turn cap. Omitted or 0 means unlimited. */
     maxTurns?: number;
     /** External abort signal (e.g. user pressed /stop). */
     signal?: AbortSignal;
@@ -119,6 +129,8 @@ export interface AgentRunOptions {
     onApproval?: (request: ToolApprovalRequest) => ToolApprovalResponse | Promise<ToolApprovalResponse>;
     /** Inject a fake model stream (tests). Defaults to the real provider. */
     streamFn?: StreamFn;
+    /** Injectable local knowledge retrieval, still gated by tool policy. */
+    knowledgeFn?: typeof prepareKnowledge;
     /** Legacy whole-response executor retained for compatibility. */
     toolExecFn?: ToolExecFn;
     /** Inject the normalized text-call executor. */
@@ -129,12 +141,20 @@ export interface AgentRunOptions {
 export interface AgentRunResult {
     /** The model's final natural-language answer (tool tags stripped). */
     finalText: string;
+    /** Actual provider transcript for resuming; includes tool calls and results. */
+    messages?: Message[];
+    structuredOutput?: unknown;
+    structuredOutputError?: string;
+    toolProtocolError?: string;
     /** Number of model turns executed. */
     turns: number;
     /** Every tool result produced across all turns, in order. */
     toolCalls: ToolResult[];
     /** Aggregate provider usage across turns. */
     usage: UsageData;
+    /** Worker usage is separate so global tracking never bills it twice. */
+    delegatedUsage?: UsageData;
+    delegatedCostUsd?: number;
     /** Estimated billed cost incurred by this run. */
     costUsd: number;
     /** True when maxBudgetUsd stopped this run before another model/tool turn. */

@@ -1,3 +1,4 @@
+import { terminalReport } from "../runtime/composer-layout.js";
 import React, { useEffect, useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { createHash } from "node:crypto";
@@ -55,6 +56,7 @@ export function ApprovalPrompt({
   }, [tool, target, reason, risk]);
 
   useInput((input, key) => {
+    if (terminalReport(input)) return;
     if (input === "[" && pages.length > 1) {
       setPage((current) => Math.max(0, current - 1));
       return;

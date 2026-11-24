@@ -141,6 +141,9 @@ export function mergeSettings(global, local) {
         permissions: {
             allow: mergeArrays(global.permissions?.allow, local.permissions?.allow),
             deny: mergeArrays(global.permissions?.deny, local.permissions?.deny),
+            ask: mergeArrays(global.permissions?.ask, local.permissions?.ask),
+            defaultMode: global.permissions?.defaultMode,
+            disableBypassPermissionsMode: global.permissions?.disableBypassPermissionsMode,
             allowedCommands: mergeArrays(global.permissions?.allowedCommands, local.permissions?.allowedCommands),
             deniedCommands: mergeArrays(global.permissions?.deniedCommands, local.permissions?.deniedCommands),
         },
@@ -159,11 +162,16 @@ export function mergeSettings(global, local) {
         // MCP commands spawn child processes. Project-local settings are untrusted,
         // so they must never add or shadow globally approved MCP server definitions.
         mcpServers: global.mcpServers ? { ...global.mcpServers } : undefined,
+        allowManagedPermissionRulesOnly: global.allowManagedPermissionRulesOnly,
+        allowManagedHooksOnly: global.allowManagedHooksOnly,
+        disableAllHooks: global.disableAllHooks,
+        sandbox: global.sandbox,
+        language: local.language ?? global.language,
+        outputStyle: local.outputStyle ?? global.outputStyle,
+        trustedHooks: global.trustedHooks ?? global.hooks,
     };
 }
-export function loadSettings(cwd) {
-    return mergeSettings(loadGlobalSettings(), loadProjectSettings(cwd));
-}
+export { loadSettings } from "./settings-sources.js";
 // ─── Init ───────────────────────────────────────────────────
 const DEFAULT_SETTINGS = {
     permissions: {

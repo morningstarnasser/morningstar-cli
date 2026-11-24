@@ -538,6 +538,7 @@ export class TelegramGateway {
       provider,
       baseUrl: getProviderBaseUrl(provider),
       maxTokens: 8192,
+      autoKnowledge: true,
       temperature: 0.6,
       maxTurns: this.config.maxTurns,
     };

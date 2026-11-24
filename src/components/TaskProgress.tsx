@@ -122,7 +122,7 @@ export function TaskProgress({ steps, currentLabel, startTime, tokenCount, turnN
       {/* Footer: duration, tokens, turn */}
       <Box marginTop={0}>
         <Text color={dim}>
-          {"  "}{elapsed} · \u2193 {tokenStr} tokens · Turn {turnNumber}/{maxTurns}
+          {"  "}{elapsed} · \u2193 {tokenStr} tokens · Turn {turnNumber}/{maxTurns || "∞"}
         </Text>
         {failedCount > 0 && (
           <Text color="#f87171"> · {failedCount} failed</Text>

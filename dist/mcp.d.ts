@@ -16,6 +16,8 @@ export declare function formatConnectedMCPToolsForPrompt(): string;
  * Get MCP server configurations from settings.
  */
 export declare function getMCPServers(settings: MorningstarSettings): Record<string, MCPServerConfig>;
+/** Only explicitly opted-in, trusted server configurations start automatically. */
+export declare function connectConfiguredMCPServers(settings: MorningstarSettings): Promise<string[]>;
 /**
  * Add an MCP server to settings.
  */

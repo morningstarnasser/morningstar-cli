@@ -1,4 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { terminalReport } from "../runtime/composer-layout.js";
 import { useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import { getModelDisplayName, listProviders } from "../providers.js";
@@ -10,7 +11,7 @@ function modelLocation(provider, deployment) {
     if (deployment === "local" || provider === "ollama" || provider === "hydra-local") {
         return "local";
     }
-    if (provider === "claude-cli")
+    if (provider === "claude-cli" || provider === "codex-cli")
         return "subscription";
     return "hosted";
 }
@@ -61,6 +62,7 @@ const PROVIDER_LABELS = {
     ollama: "Ollama · lokal",
     "hydra-local": "Hydra · lokal",
     "claude-cli": "Claude CLI · Abo",
+    "codex-cli": "Codex CLI · ChatGPT-Abo",
     anthropic: "Anthropic",
     deepseek: "DeepSeek",
     google: "Google",
@@ -157,6 +159,8 @@ export function ModelPicker({ currentModel, currentProvider, hasCredential, onSe
         setSelected(0);
     };
     useInput((input, key) => {
+        if (terminalReport(input))
+            return;
         if (key.escape) {
             if (selectedProvider)
                 returnToProviders();
@@ -225,7 +229,7 @@ export function ModelPicker({ currentModel, currentProvider, hasCredential, onSe
                                 : needsCredential
                                     ? "Key fehlt"
                                     : refreshStatus === "failed"
-                                        ? "Fallback"
+                                        ? "nicht erreichbar"
                                         : refreshStatus === "updated" || refreshStatus === "cached"
                                             ? "live"
                                             : "bereit";

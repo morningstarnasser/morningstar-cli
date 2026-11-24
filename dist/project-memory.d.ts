@@ -1,3 +1,4 @@
+/** Existing Morningstar memory plus project guidance; AGENTS takes precedence over CLAUDE. */
 export declare function loadProjectMemory(cwd: string): string | null;
 export declare function getProjectMemoryPath(cwd: string): string | null;
 export declare function createProjectMemory(cwd: string, context: {

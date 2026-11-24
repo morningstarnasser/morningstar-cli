@@ -147,43 +147,23 @@ export function listHookEvents() {
  * Format hooks display for /hooks command.
  */
 export function formatHooksDisplay(settings) {
-    const lines = ["Hooks-Konfiguration:\n"];
-    if (!settings.hooks || Object.keys(settings.hooks).length === 0) {
-        lines.push("  Keine Hooks konfiguriert.\n");
-    }
-    else {
-        const currentProfile = process.env.MORNINGSTAR_HOOK_PROFILE || "standard";
-        lines.push(`  Aktives Profil: ${currentProfile}\n`);
-        for (const [event, hooks] of Object.entries(settings.hooks)) {
-            const hookList = hooks;
-            lines.push(`  ${event}:`);
-            for (const h of hookList) {
-                const active = isHookActiveForProfile(h);
-                const status = active ? "\u2714" : "\u2718";
-                const idStr = h.id ? ` (${h.id})` : "";
-                lines.push(`    ${status}${idStr} command: ${h.command}`);
-                if (h.description)
-                    lines.push(`      ${h.description}`);
-                if (h.matcher)
-                    lines.push(`      matcher: ${h.matcher}`);
-                if (h.profiles)
-                    lines.push(`      profiles: ${h.profiles.join(", ")}`);
-                if (h.timeout)
-                    lines.push(`      timeout: ${h.timeout}ms`);
-                if (h.failAction)
-                    lines.push(`      failAction: ${h.failAction}`);
-                if (h.async)
-                    lines.push(`      async: true`);
-                lines.push("");
+    const trusted = settings.trustedHooks ?? {};
+    const lines = ["Aktive Command-Hooks (vertrauenswürdige Quellen):", ""];
+    for (const [event, entries] of Object.entries(trusted)) {
+        lines.push(`  ${event}:`);
+        for (const entry of entries) {
+            for (const hook of entry.hooks ?? [entry]) {
+                lines.push(`    ${entry.matcher || "*"} → ${hook.command}`);
             }
         }
     }
-    lines.push("  Verfuegbare Hook-Events:");
-    for (const event of ALL_EVENTS) {
-        lines.push(`    ${event}`);
-    }
-    lines.push("\n  Konfiguriere in .morningstar/settings.json → hooks");
-    lines.push('  Beispiel: { "hooks": { "preBash": [{ "command": "echo hook!", "matcher": "rm" }] } }');
+    if (!Object.keys(trusted).length)
+        lines.push("  Keine aktiven Hooks.");
+    const configured = Object.values(settings.hooks ?? {}).reduce((sum, entries) => sum + entries.length, 0);
+    if (configured && !Object.keys(trusted).length)
+        lines.push("  Projekt-Hooks benötigen --trust-project oder explizite --settings.");
+    lines.push("", "Events: SessionStart, UserPromptSubmit, PreToolUse, PostToolUse, PostToolUseFailure, Stop, SessionEnd.");
+    lines.push("HTTP-, Prompt- und asynchrone Hooks werden zurückgewiesen.");
     return lines.join("\n");
 }
 //# sourceMappingURL=hooks-system.js.map

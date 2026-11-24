@@ -1,5 +1,5 @@
 export function classifyLocalInput(input, runContext = {}) {
-    if (runContext.promptTemplate)
+    if (runContext.promptTemplate || runContext.images?.length)
         return "prompt";
     if (input.startsWith("/"))
         return "slash";

@@ -1,0 +1,24 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { createWorktreeSession } from "../src/worktree-session.js";
+test("worktree session preserves dirty work and does not execute checkout hooks", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "morningstar-worktree-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repo = join(root, "repo"); mkdirSync(repo);
+  const git = (args: string[]) => execFileSync("git", args, { cwd: repo, stdio: "pipe" });
+  git(["init"]); git(["config", "user.name", "Test"]); git(["config", "user.email", "test@example.invalid"]);
+  writeFileSync(join(repo, "file.txt"), "committed"); git(["add", "."]); git(["commit", "-m", "fixture"]);
+  writeFileSync(join(repo, "file.txt"), "dirty");
+  const marker = join(root, "hook-ran");
+  writeFileSync(join(repo, ".git/hooks/post-checkout"), `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o700 });
+  const session = createWorktreeSession(repo, "feature", join(root, "storage"));
+  assert.equal(readFileSync(join(repo, "file.txt"), "utf8"), "dirty");
+  assert.equal(readFileSync(join(session.path, "file.txt"), "utf8"), "committed");
+  assert.equal(existsSync(marker), false);
+  assert.match(session.branch, /^morningstar\/feature-/);
+  assert.throws(() => createWorktreeSession(repo, "../escape", join(root, "storage")));
+});

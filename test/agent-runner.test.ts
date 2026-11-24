@@ -712,3 +712,43 @@ test("does not charge arbitrary local models against maxBudgetUsd", async () => 
   assert.equal(result.costUsd, 0);
   assert.equal(result.finalText, "local completion");
 });
+
+// ─── Hallucinated answer tools ───────────────────────────────────────────────
+
+test("an invented answer tool becomes the reply instead of an unknown-tool error", async () => {
+  const result = await runAgent([{ role: "user", content: "wer bist du?" }], CONFIG, "/tmp", {
+    streamFn: fakeStream(["<tool:answer>Ich bin Morningstar.</tool>"]),
+  });
+  assert.equal(result.finalText, "Ich bin Morningstar.");
+  assert.equal(result.toolCalls.length, 0, "no tool ran");
+  assert.equal(result.turns, 1, "the run ends instead of burning turns");
+});
+
+test("prose around an invented answer tool is kept", async () => {
+  const result = await runAgent([{ role: "user", content: "hi" }], CONFIG, "/tmp", {
+    streamFn: fakeStream(["Kurz gesagt:\n<tool:final_answer>Alles bereit.</tool>"]),
+  });
+  assert.equal(result.finalText, "Kurz gesagt:\n\nAlles bereit.");
+  assert.equal(result.toolCalls.length, 0);
+});
+
+test("a real tool still runs when it arrives alongside an invented answer tool", async () => {
+  const executed: string[] = [];
+  const result = await runAgent(
+    [{ role: "user", content: "los" }],
+    { ...CONFIG, permissionMode: "bypassPermissions" },
+    "/tmp",
+    {
+      streamFn: fakeStream([
+        "<tool:answer>Ich lese die Datei.</tool>\n<tool:read>/tmp/x.txt</tool>",
+        "Fertig.",
+      ]),
+      textToolExecFn: (call) => {
+        executed.push(call.tool);
+        return { tool: call.tool, result: "content", success: true };
+      },
+    },
+  );
+  assert.deepEqual(executed, ["read"], "only the real tool executes");
+  assert.equal(result.finalText, "Fertig.");
+});

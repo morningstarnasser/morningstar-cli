@@ -7,6 +7,8 @@ export interface MCPServerConfig {
     command: string;
     args?: string[];
     env?: Record<string, string>;
+    /** Explicit opt-in from trusted settings; project files cannot grant this. */
+    autoConnect?: boolean;
 }
 export interface MCPTool {
     name: string;

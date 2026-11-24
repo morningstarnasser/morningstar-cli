@@ -1,0 +1,1 @@
+{"version":3,"file":"useTerminalDetails.d.ts","sourceRoot":"","sources":["../../src/hooks/useTerminalDetails.ts"],"names":[],"mappings":"AAEA,MAAM,WAAW,cAAc;IAAG,KAAK,EAAE,MAAM,CAAC;IAAC,IAAI,EAAE,MAAM,CAAA;CAAE;AAC/D,eAAO,MAAM,eAAe,6DAA0D,CAAC;AAEvF;8EAC8E;AAC9E,wBAAgB,iBAAiB,CAAC,MAAM,EAAE,cAAc,GAAG,MAAM,GAAG,IAAI,CAOvE"}

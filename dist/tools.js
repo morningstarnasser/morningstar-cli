@@ -1,3 +1,4 @@
+import { bashExecutable, gitExecutable } from "./runtime/platform-process.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { execSync, spawn, spawnSync } from "node:child_process";
 import { lookup as dnsLookup } from "node:dns/promises";
@@ -10,9 +11,10 @@ import { trackChange, captureBeforeState } from "./undo.js";
 import { checkCommand } from "./safety.js";
 import { askJerry } from "./jerry-bridge.js";
 import { extractToolCalls } from "./tool-parser.js";
+import { unknownToolMessage } from "./final-answer.js";
 import { verifyProject, formatVerification } from "./verification.js";
 import { runSkillCommand } from "./skills-runtime.js";
-import { runVaultCommand } from "./vault.js";
+import { runVaultCommandAsync } from "./vault.js";
 import { callQualifiedMCPTool, isMCPToolName } from "./mcp.js";
 import { guardRead, guardWrite, resolvePatternWithinWorkspace, resolveWithinWorkspace } from "./file-guards.js";
 import { sandboxCommand } from "./sandbox.js";
@@ -137,7 +139,7 @@ export function writeFile(filePath, content, cwd) {
         writeFileSync(abs, content, "utf-8");
         const lineCount = content.split("\n").length;
         toolStats.filesWritten++;
-        return { tool: "write", result: `Wrote ${lineCount} lines to ${filePath}`, success: true, filePath, linesChanged: lineCount };
+        return { tool: "write", result: `Wrote ${lineCount} lines to ${filePath}`, success: true, filePath, linesChanged: lineCount, diff: { filePath, oldStr: prev ?? "", newStr: content }, startLineNumber: 1 };
     }
     catch (e) {
         return { tool: "write", result: `Fehler: ${e.message}`, success: false };
@@ -173,12 +175,9 @@ export function editFile(filePath, oldStr, newStr, cwd, replaceAll = false) {
         const occurrences = replaceAll ? content.split(oldStr).length - 1 : 1;
         const delta = (addedLines - removedLines) * occurrences;
         const deltaStr = delta >= 0 ? `+${delta}` : `${delta}`;
-        // Compute 1-based line number where the edit starts
-        const editIndex = content.indexOf(oldStr);
-        const startLineNumber = editIndex >= 0 ? content.substring(0, editIndex).split("\n").length : 1;
         const replaceInfo = replaceAll && occurrences > 1 ? ` (${occurrences} occurrences)` : "";
         toolStats.filesEdited++;
-        return { tool: "edit", result: `Updated ${filePath} (${deltaStr} lines)${replaceInfo}`, success: true, diff: { filePath, oldStr, newStr }, filePath, linesChanged: addedLines, startLineNumber };
+        return { tool: "edit", result: `Updated ${filePath} (${deltaStr} lines)${replaceInfo}`, success: true, diff: { filePath, oldStr: content, newStr: newContent }, filePath, linesChanged: addedLines, startLineNumber: 1 };
     }
     catch (e) {
         return { tool: "edit", result: `Fehler: ${e.message}`, success: false };
@@ -206,7 +205,7 @@ export function deleteFile(filePath, cwd) {
         });
         unlinkSync(abs);
         toolStats.filesDeleted++;
-        return { tool: "delete", result: `Deleted ${filePath}`, success: true, filePath };
+        return { tool: "delete", result: `Deleted ${filePath}`, success: true, filePath, diff: { filePath, oldStr: prev ?? "", newStr: "" }, startLineNumber: 1 };
     }
     catch (e) {
         return { tool: "delete", result: `Fehler: ${e.message}`, success: false };
@@ -228,7 +227,7 @@ export async function bash(command, cwd, timeout, runInBackground, signal) {
     // Background execution via spawn
     if (runInBackground) {
         const taskId = generateTaskId();
-        const child = spawn("bash", ["-c", executableCommand], {
+        const child = spawn(bashExecutable(), ["-c", executableCommand], {
             cwd,
             stdio: ["pipe", "pipe", "pipe"],
             detached: false,
@@ -255,7 +254,7 @@ export async function bash(command, cwd, timeout, runInBackground, signal) {
     const timeoutMs = Math.min(Math.max((timeout || 30) * 1000, 1000), 600000);
     const maxOutputBytes = 5 * 1024 * 1024;
     return new Promise((resolveResult) => {
-        const child = spawn("bash", ["-c", executableCommand], {
+        const child = spawn(bashExecutable(), ["-c", executableCommand], {
             cwd,
             stdio: ["pipe", "pipe", "pipe"],
             detached: process.platform !== "win32",
@@ -268,11 +267,16 @@ export async function bash(command, cwd, timeout, runInBackground, signal) {
         const terminate = () => {
             if (!child.pid)
                 return;
+            if (process.platform === "win32") {
+                // Terminate the owned process tree before killing its root: otherwise
+                // Windows reparents grandchildren and they can continue writing files.
+                spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
+                    stdio: "ignore", timeout: 5000, windowsHide: true,
+                });
+                return;
+            }
             try {
-                if (process.platform !== "win32")
-                    process.kill(-child.pid, "SIGTERM");
-                else
-                    child.kill("SIGTERM");
+                process.kill(-child.pid, "SIGTERM");
             }
             catch {
                 try {
@@ -282,10 +286,7 @@ export async function bash(command, cwd, timeout, runInBackground, signal) {
             }
             forceKillTimer = setTimeout(() => {
                 try {
-                    if (process.platform !== "win32")
-                        process.kill(-child.pid, "SIGKILL");
-                    else
-                        child.kill("SIGKILL");
+                    process.kill(-child.pid, "SIGKILL");
                 }
                 catch {
                     try {
@@ -335,19 +336,19 @@ export async function bash(command, cwd, timeout, runInBackground, signal) {
         child.once("close", (code, closeSignal) => {
             const output = (stdout + stderr).trim();
             if (stopReason === "abort") {
-                finish({ tool: "bash", result: truncate(`Abgebrochen.\n${output}`.trim()), success: false, command });
+                finish({ tool: "bash", result: truncate(`Abgebrochen.\n${output}`.trim()), success: false, command, exitCode: code, exitSignal: closeSignal });
                 return;
             }
             if (stopReason === "timeout") {
-                finish({ tool: "bash", result: truncate(`Timeout nach ${timeoutMs / 1000}s.\n${output}`.trim()), success: false, command });
+                finish({ tool: "bash", result: truncate(`Timeout nach ${timeoutMs / 1000}s.\n${output}`.trim()), success: false, command, exitCode: code, exitSignal: closeSignal });
                 return;
             }
             if (stopReason === "output") {
-                finish({ tool: "bash", result: truncate(`Output-Limit von 5 MB erreicht.\n${output}`.trim()), success: false, command });
+                finish({ tool: "bash", result: truncate(`Output-Limit von 5 MB erreicht.\n${output}`.trim()), success: false, command, exitCode: code, exitSignal: closeSignal });
                 return;
             }
             if (code === 0) {
-                finish({ tool: "bash", result: truncate(output || "(kein Output)"), success: true, command });
+                finish({ tool: "bash", result: truncate(output || "(kein Output)"), success: true, command, exitCode: 0 });
                 return;
             }
             finish({
@@ -355,6 +356,8 @@ export async function bash(command, cwd, timeout, runInBackground, signal) {
                 result: truncate(output || `Bash beendet (${closeSignal || `exit ${code ?? "?"}`}).`),
                 success: false,
                 command,
+                exitCode: code,
+                exitSignal: closeSignal,
             });
         });
     });
@@ -390,7 +393,7 @@ export function grepSearch(pattern, cwd, fileGlob, contextBefore, contextAfter, 
         for (const include of includeGlobs)
             flags.push(`--include=${include}`);
         const limit = Math.min(Math.max(maxResults, 1), 500);
-        const proc = spawnSync("grep", [...flags, "--", pattern, "."], {
+        const proc = spawnSync(gitExecutable("grep"), [...flags, "--", pattern, "."], {
             cwd: cwdCheck.resolved,
             encoding: "utf-8",
             timeout: 10000,
@@ -919,7 +922,7 @@ export function notebookEdit(notebookPath, cellNumber, editMode, cwd, cellType, 
         });
         writeFileSync(abs, newContent, "utf-8");
         toolStats.filesEdited++;
-        return { tool: "notebook_edit", result: `Notebook ${notebookPath}: cell ${cellNumber} ${editMode}d. Total cells: ${nb.cells.length}`, success: true, filePath: notebookPath };
+        return { tool: "notebook_edit", result: `Notebook ${notebookPath}: cell ${cellNumber} ${editMode}d. Total cells: ${nb.cells.length}`, success: true, filePath: notebookPath, diff: { filePath: notebookPath, oldStr: prevContent, newStr: newContent }, startLineNumber: 1 };
     }
     catch (e) {
         return { tool: "notebook_edit", result: `Fehler: ${e.message}`, success: false };
@@ -1034,18 +1037,19 @@ export function parseToolCalls(response) {
             case "gh":
                 call.args = { command: value.trim() };
                 break;
+            case "swarm":
             case "notebook_edit": {
                 try {
                     const parsed = JSON.parse(value);
                     if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-                        call.error = "notebook_edit erwartet ein JSON-Objekt.";
+                        call.error = `${tool} erwartet ein JSON-Objekt.`;
                     }
                     else {
                         call.args = parsed;
                     }
                 }
                 catch {
-                    call.error = "notebook_edit erwartet gültiges JSON.";
+                    call.error = `${tool} erwartet gültiges JSON.`;
                 }
                 break;
             }
@@ -1227,9 +1231,12 @@ export async function executeToolCall(call, cwd, signal) {
                 return { tool: "verify", result: formatVerification(report), success: report.checks.every((check) => check.ok) };
             }
             case "skill":
-                return { tool: "skill", result: runSkillCommand(args.command), success: true };
+                {
+                    const result = runSkillCommand(args.command, cwd);
+                    return { tool: "skill", result, success: !result.startsWith("Skill-Fehler:") };
+                }
             case "vault":
-                return { tool: "vault", result: runVaultCommand(args.command), success: true };
+                return runVaultCommandAsync(args.command, signal).then((result) => ({ tool: "vault", result, success: !result.startsWith("Vault-Fehler:") }));
             case "create":
             case "mkdir":
                 return createDirectory(args.dirPath, cwd, "create");
@@ -1262,7 +1269,7 @@ export async function executeToolCall(call, cwd, signal) {
                 }
                 return {
                     tool,
-                    result: `Unbekanntes Tool: ${tool}. Verfuegbar: read, write, edit, delete, bash, grep, glob, ls, git, web, fetch, gh, notebook_edit, bg_status, bg_list, verify, skill, vault, jerry.`,
+                    result: unknownToolMessage(tool),
                     success: false,
                 };
             }
@@ -1333,9 +1340,12 @@ export function executeNativeToolCall(name, args, cwd, signal) {
             };
         }
         case "skill":
-            return { tool: "skill", result: runSkillCommand(args.command), success: true };
+            {
+                const result = runSkillCommand(args.command, cwd);
+                return { tool: "skill", result, success: !result.startsWith("Skill-Fehler:") };
+            }
         case "vault":
-            return { tool: "vault", result: runVaultCommand(args.command), success: true };
+            return runVaultCommandAsync(args.command, signal).then((result) => ({ tool: "vault", result, success: !result.startsWith("Vault-Fehler:") }));
         case "jerry":
             return askJerry(args.prompt)
                 .then((reply) => ({ tool: "jerry", result: reply || "(keine Antwort von Jerry)", success: true }))
@@ -1345,7 +1355,7 @@ export function executeNativeToolCall(name, args, cwd, signal) {
                 return callQualifiedMCPTool(name, args, signal)
                     .then((result) => ({ tool: name, result: result.result, success: result.success }));
             }
-            return { tool: name, result: `Unbekanntes Tool: ${name}`, success: false };
+            return { tool: name, result: unknownToolMessage(name), success: false };
     }
 }
 // ─── Parallel Native Tool Execution ──────────────────────────────────────────

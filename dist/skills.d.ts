@@ -12,6 +12,7 @@ export interface Skill {
     origin?: string;
     version?: string;
 }
+/** Metadata only; procedure text is loaded on explicit selection. */
 export declare function loadSkills(cwd: string): Skill[];
 export declare function getSkill(id: string, cwd: string): Skill | null;
 /**

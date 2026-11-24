@@ -19,6 +19,9 @@ export interface MorningstarSettings {
   permissions?: {
     allow?: string[];
     deny?: string[];
+    ask?: string[];
+    defaultMode?: string;
+    disableBypassPermissionsMode?: "disable";
     allowedCommands?: string[];
     deniedCommands?: string[];
   };
@@ -31,8 +34,17 @@ export interface MorningstarSettings {
   // Claude Code-compatible extensions:
   allowedTools?: string[];
   deniedTools?: string[];
-  hooks?: Record<string, Array<{ matcher?: string; command: string }>>;
-  mcpServers?: Record<string, { command: string; args?: string[] }>;
+  hooks?: import("./runtime-hooks.js").HookSettings;
+  mcpServers?: Record<string, import("./mcp-client.js").MCPServerConfig>;
+  allowManagedPermissionRulesOnly?: boolean;
+  allowManagedHooksOnly?: boolean;
+  disableAllHooks?: boolean;
+  sandbox?: { enabled?: boolean };
+  language?: string;
+  outputStyle?: string;
+  /** Commands from user/managed/explicit settings only, never repository files. */
+  trustedHooks?: import("./runtime-hooks.js").HookSettings;
+  managedPermissionMode?: string;
 }
 
 // ─── Paths ──────────────────────────────────────────────────
@@ -172,7 +184,7 @@ function mergeArrays(a?: string[], b?: string[]): string[] | undefined {
 
 export function mergeSettings(global: MorningstarSettings, local: MorningstarSettings): MorningstarSettings {
   // Merge hooks: combine arrays for same event
-  const mergedHooks: Record<string, Array<{ matcher?: string; command: string }>> = {};
+  const mergedHooks: import("./runtime-hooks.js").HookSettings = {};
   for (const [event, hooks] of Object.entries(global.hooks || {})) {
     mergedHooks[event] = [...hooks];
   }
@@ -184,6 +196,9 @@ export function mergeSettings(global: MorningstarSettings, local: MorningstarSet
     permissions: {
       allow: mergeArrays(global.permissions?.allow, local.permissions?.allow),
       deny: mergeArrays(global.permissions?.deny, local.permissions?.deny),
+      ask: mergeArrays(global.permissions?.ask, local.permissions?.ask),
+      defaultMode: global.permissions?.defaultMode,
+      disableBypassPermissionsMode: global.permissions?.disableBypassPermissionsMode,
       allowedCommands: mergeArrays(global.permissions?.allowedCommands, local.permissions?.allowedCommands),
       deniedCommands: mergeArrays(global.permissions?.deniedCommands, local.permissions?.deniedCommands),
     },
@@ -202,12 +217,17 @@ export function mergeSettings(global: MorningstarSettings, local: MorningstarSet
     // MCP commands spawn child processes. Project-local settings are untrusted,
     // so they must never add or shadow globally approved MCP server definitions.
     mcpServers: global.mcpServers ? { ...global.mcpServers } : undefined,
+    allowManagedPermissionRulesOnly: global.allowManagedPermissionRulesOnly,
+    allowManagedHooksOnly: global.allowManagedHooksOnly,
+    disableAllHooks: global.disableAllHooks,
+    sandbox: global.sandbox,
+    language: local.language ?? global.language,
+    outputStyle: local.outputStyle ?? global.outputStyle,
+    trustedHooks: global.trustedHooks ?? global.hooks,
   };
 }
 
-export function loadSettings(cwd: string): MorningstarSettings {
-  return mergeSettings(loadGlobalSettings(), loadProjectSettings(cwd));
-}
+export { loadSettings } from "./settings-sources.js";
 
 // ─── Init ───────────────────────────────────────────────────
 

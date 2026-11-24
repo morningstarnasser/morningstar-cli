@@ -8,7 +8,7 @@ function getSafeExistingMemoryPath(cwd, name) {
         if (!existsSync(lexicalPath))
             return null;
         const lexicalStat = lstatSync(lexicalPath);
-        if (!lexicalStat.isFile() || lexicalStat.isSymbolicLink())
+        if (!lexicalStat.isFile() || lexicalStat.isSymbolicLink() || lexicalStat.size > 131072)
             return null;
         const checked = resolveWithinWorkspace(lexicalPath, cwd);
         if (!checked.ok)
@@ -22,16 +22,27 @@ function getSafeExistingMemoryPath(cwd, name) {
         return null;
     }
 }
+/** Existing Morningstar memory plus project guidance; AGENTS takes precedence over CLAUDE. */
 export function loadProjectMemory(cwd) {
-    for (const name of MEMORY_FILES) {
+    const names = [...MEMORY_FILES];
+    const primary = getSafeExistingMemoryPath(cwd, "AGENTS.md") ? "AGENTS.md" : "CLAUDE.md";
+    names.push(primary, "MORNINGSTAR.local.md", "CLAUDE.local.md");
+    const chunks = [];
+    let size = 0;
+    for (const name of names) {
         const path = getSafeExistingMemoryPath(cwd, name);
+        if (!path)
+            continue;
         try {
-            if (path)
-                return readFileSync(path, "utf-8");
+            const content = readFileSync(path, "utf8");
+            size += Buffer.byteLength(content);
+            if (size > 262144)
+                break;
+            chunks.push(`<!-- Project guidance: ${name} -->\n${content}`);
         }
         catch { }
     }
-    return null;
+    return chunks.length ? chunks.join("\n\n") : null;
 }
 export function getProjectMemoryPath(cwd) {
     for (const name of MEMORY_FILES) {

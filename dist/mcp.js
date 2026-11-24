@@ -242,6 +242,32 @@ function scheduleMCPToolRefresh(name, client, connectionGeneration) {
 export function getMCPServers(settings) {
     return settings.mcpServers || {};
 }
+/** Only explicitly opted-in, trusted server configurations start automatically. */
+export async function connectConfiguredMCPServers(settings) {
+    const failures = [];
+    for (const [name, config] of Object.entries(getMCPServers(settings))) {
+        if (config.autoConnect !== true)
+            continue;
+        let timer;
+        try {
+            await Promise.race([
+                connectMCPServer(name, config),
+                new Promise((_, reject) => {
+                    timer = setTimeout(() => reject(new Error("Verbindung nach 8 Sekunden abgebrochen")), 8_000);
+                }),
+            ]);
+        }
+        catch (error) {
+            await disconnectMCPServer(name);
+            failures.push(`MCP ${name}: ${error.message}`);
+        }
+        finally {
+            if (timer)
+                clearTimeout(timer);
+        }
+    }
+    return failures;
+}
 /**
  * Add an MCP server to settings.
  */

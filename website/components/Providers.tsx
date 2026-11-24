@@ -2,17 +2,17 @@ import { Star } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 
 const providers = [
-  { name: "DeepSeek", models: "R1 Reasoner, Chat", color: "#4A90D9", cmd: "deepseek-reasoner", css: "provider-deepseek" },
-  { name: "OpenAI", models: "GPT-5.2, o4-mini, GPT-4.1, Codex", color: "#412991", cmd: "gpt-5.2", css: "provider-openai" },
-  { name: "Anthropic", models: "Claude Opus, Sonnet, Haiku 4–5", color: "#D4A373", cmd: "claude-opus-5", css: "provider-anthropic" },
-  { name: "Google", models: "Gemini 3.6 Flash, 3.5 Pro/Flash", color: "#4285F4", cmd: "gemini-3.6-flash", css: "provider-google" },
-  { name: "NVIDIA NIM", models: "Kimi K2.6, DeepSeek V4, Qwen, Nemotron", color: "#76B900", cmd: "nvidia/deepseek-ai/deepseek-v4-pro", css: "provider-nvidia" },
-  { name: "GitHub Models", models: "GPT-4.1, o3/o4-mini, DeepSeek, Grok", color: "#F0F0F0", cmd: "github/openai/gpt-4.1", css: "provider-github" },
-  { name: "Ollama", models: "Qwen, Hydra, GGUF — any local model", color: "#22C55E", cmd: "qwen3.5:27b-int4", css: "provider-ollama" },
-  { name: "Hydra Local", models: "Private local router on :8100", color: "#F59E0B", cmd: "hydra-ch-4b", css: "provider-hydra" },
+  { name: "DeepSeek", models: "Models available in your account", color: "#4A90D9", cmd: "deepseek-<model>", css: "provider-deepseek" },
+  { name: "OpenAI", models: "Models available in your account", color: "#412991", cmd: "gpt-<model>", css: "provider-openai" },
+  { name: "Anthropic", models: "Models available in your account", color: "#D4A373", cmd: "claude-<model>", css: "provider-anthropic" },
+  { name: "Google", models: "Models available in your account", color: "#4285F4", cmd: "gemini-<model>", css: "provider-google" },
+  { name: "NVIDIA NIM", models: "Your configured provider catalog", color: "#76B900", cmd: "nvidia/<model-id>", css: "provider-nvidia" },
+  { name: "GitHub Models", models: "Your configured provider catalog", color: "#F0F0F0", cmd: "github/<model-id>", css: "provider-github" },
+  { name: "Ollama", models: "Models from your configured local server", color: "#22C55E", cmd: "ollama/<model-id>", css: "provider-ollama" },
   { name: "Claude CLI", models: "Use your local Claude Code login", color: "#D4A373", cmd: "claude-cli", css: "provider-claude-cli" },
-  { name: "Groq", models: "LLaMA 3.3, Mixtral, Gemma 2", color: "#F55036", cmd: "groq/llama-3.3-70b-versatile", css: "provider-groq" },
-  { name: "OpenRouter", models: "Any model via API", color: "#6366F1", cmd: "openrouter/auto", css: "provider-openrouter" },
+  { name: "Codex CLI", models: "Use your local Codex CLI login", color: "#8ECDF8", cmd: "codex-cli", css: "provider-codex-cli" },
+  { name: "Groq", models: "Your configured provider catalog", color: "#F55036", cmd: "groq/<model-id>", css: "provider-groq" },
+  { name: "OpenRouter", models: "Your configured provider catalog", color: "#6366F1", cmd: "openrouter/<model-id>", css: "provider-openrouter" },
 ];
 
 export default function Providers() {
@@ -29,7 +29,7 @@ export default function Providers() {
               <div className="h-px w-16 bg-gradient-to-l from-transparent to-amber-500/50" />
             </div>
             <h2 className="text-3xl sm:text-4xl font-bold text-white">
-              11 Providers.{" "}
+              {providers.length} Providers.{" "}
               <span className="text-amber-400">Any Model.</span>
             </h2>
           </div>

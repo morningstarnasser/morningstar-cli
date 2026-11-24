@@ -130,7 +130,7 @@ async function runJobOnce(job: CronJob): Promise<void> {
       { role: "system", content: buildSystemPrompt(ctx) },
       { role: "user", content: job.prompt },
     ],
-    { apiKey: getStoredApiKey(provider), model, provider, baseUrl: getProviderBaseUrl(provider), maxTokens: 8192, temperature: 0.6 },
+    { apiKey: getStoredApiKey(provider), model, provider, baseUrl: getProviderBaseUrl(provider), maxTokens: 8192, temperature: 0.6, autoKnowledge: true },
     job.cwd,
   );
   console.log(result.finalText);

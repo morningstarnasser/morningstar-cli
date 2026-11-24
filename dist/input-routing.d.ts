@@ -1,4 +1,5 @@
 export interface InputRunContext {
+    images?: import("./types.js").ImageAttachment[];
     effectiveAgentId?: string;
     /**
      * Project/global custom-command content is a prompt template, never a second

@@ -74,22 +74,10 @@ test("on-disk Ollama manifests are discoverable without a running daemon", (t) =
   ]);
 });
 
-test("provider catalog exposes every currently installed Ollama model", () => {
-  const installed = listInstalledOllamaModels();
+test("catalog does not advertise disk manifests before checking the live server", () => {
   const ollama = listProviders().find(({ name }) => name === "ollama");
-  assert.ok(ollama);
-
-  if (installed.length === 0) {
-    assert.ok(ollama.models[0].startsWith("("));
-    return;
-  }
-
-  assert.deepEqual(ollama.models, installed);
-  for (const model of installed) {
-    assert.equal(detectProvider(model), "ollama");
-    assert.match(getModelDisplayName(model), /^Ollama — /);
-    assert.equal(ollama.modelMetadata?.[model]?.deployment, "local");
-  }
+  assert.deepEqual(ollama?.models, []);
+  assert.equal(listProviders().some(p => p.name === "hydra-local"), false);
 });
 
 test("explicit Groq model ids route before the generic provider/model fallback", () => {
@@ -117,7 +105,7 @@ test("GitHub catalog ids retain both routing and publisher namespaces", () => {
 });
 
 test("OLLAMA_HOST is normalized to the same OpenAI-compatible endpoint", () => {
-  assert.equal(getOllamaBaseUrl(undefined), "http://localhost:11434/v1");
+  assert.equal(getOllamaBaseUrl(""), "http://localhost:11434/v1");
   assert.equal(
     getOllamaBaseUrl("192.0.2.10:11434"),
     "http://192.0.2.10:11434/v1",
@@ -152,6 +140,8 @@ test("remote Ollama catalogs never mix in local-only manifest models", () => {
 });
 
 test("explicit provider/model input preserves ambiguous provider ownership", () => {
+  assert.equal(detectProvider("ollama/Custom_Model:latest"), "ollama");
+  assert.equal(resolveModelName("ollama/Custom_Model:latest", "ollama"), "Custom_Model:latest");
   assert.deepEqual(
     resolveModelSelectionArg("openrouter nvidia/meta/llama-4"),
     { provider: "openrouter", model: "nvidia/meta/llama-4" },

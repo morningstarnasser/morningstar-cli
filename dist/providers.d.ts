@@ -1,4 +1,5 @@
 import type { Message, CLIConfig } from "./types.js";
+import { type CodexCatalogModel } from "./providers/codex-cli.js";
 export interface ToolCallData {
     id: string;
     name: string;
@@ -12,7 +13,8 @@ export interface UsageData {
     cacheHitTokens?: number;
 }
 export interface StreamToken {
-    type: "reasoning" | "content" | "tool_call" | "usage";
+    type: "reasoning" | "content" | "tool_call" | "usage" | "backend_activity";
+    activity?: import("./providers/backend-events.js").BackendActivity;
     text: string;
     toolCall?: ToolCallData;
     usage?: UsageData;
@@ -32,7 +34,7 @@ export interface ProviderCatalogEntry {
     envKey: string;
     modelMetadata?: Record<string, ProviderModelMetadata>;
 }
-export declare const PROVIDER_NAMES: readonly ["deepseek", "openai", "anthropic", "google", "nvidia", "github-models", "hydra-local", "ollama", "claude-cli", "groq", "openrouter"];
+export declare const PROVIDER_NAMES: readonly ["deepseek", "openai", "anthropic", "google", "nvidia", "github-models", "hydra-local", "ollama", "claude-cli", "codex-cli", "groq", "openrouter"];
 export declare function resolveModelSelectionArg(input: string): {
     model: string;
     provider: string;
@@ -79,6 +81,19 @@ export declare function getProviderBaseUrl(provider: string): string;
 export declare function getProviderApiKeyEnv(provider: string): string;
 export declare function resolveApiKey(provider: string, configKey: string): string;
 export declare function resolveModelName(model: string, provider: string): string;
+/**
+ * Models offered for the Claude subscription: the CLI aliases first, then the
+ * full Anthropic catalog. `claude -p --model claude-fable-5` is accepted, so the
+ * subscription is not limited to the three aliases — listing only those made
+ * `/model` look like it had failed to load anything.
+ */
+export declare function buildClaudeCliModels(anthropicModels: readonly string[]): string[];
+/**
+ * Models offered for the ChatGPT subscription: the CLI default first, then the
+ * catalog Codex itself keeps on disk. Without that catalog only the default is
+ * listed — better one entry that works than invented ids that fail at runtime.
+ */
+export declare function buildCodexCliModels(catalog: readonly CodexCatalogModel[]): string[];
 export declare function listProviders(): ProviderCatalogEntry[];
 export declare function getModelDisplayName(model: string): string;
 export declare function getProvider(config: CLIConfig): LLMProvider;

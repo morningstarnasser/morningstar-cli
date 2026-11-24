@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
-import { CodeBlock } from "./CodeBlock.js";
+import { Markdown } from "./Markdown.js";
 import { PlanBox } from "./PlanBox.js";
 
 interface StreamingOutputProps {
@@ -11,64 +11,17 @@ interface StreamingOutputProps {
   startTime: number;
 }
 
-interface ParsedBlock {
-  type: "text" | "code";
-  content: string;
-  lang?: string;
-}
-
-function parseBlocks(text: string): ParsedBlock[] {
-  const blocks: ParsedBlock[] = [];
-
-  // First strip <tool:write> blocks — show compact summary instead of full code
-  let cleaned = text.replace(/<tool:write>([^\n]+)\n([\s\S]*?)<\/tool(?::write)?>/g, (_m, path, content) => {
-    const lineCount = content.split("\n").length;
-    return `\n✦ Writing ${(path as string).trim()} (${lineCount} lines)\n`;
-  });
-  // Also collapse unclosed <tool:write> blocks (still streaming)
-  cleaned = cleaned.replace(/<tool:write>([^\n]+)\n([\s\S]{200,})$/g, (_m, path, content) => {
-    const lineCount = content.split("\n").length;
-    return `\n✦ Writing ${(path as string).trim()} (${lineCount} lines so far...)\n`;
-  });
-  // Collapse <tool:edit> blocks too
-  cleaned = cleaned.replace(/<tool:edit>([\s\S]*?)<\/tool(?::edit)?>/g, (_m, content) => {
-    const pathMatch = (content as string).match(/^([^\n]+)/);
-    return `\n✦ Editing ${pathMatch?.[1]?.trim() || "file"}\n`;
-  });
-
-  const codeBlockRegex = /```(\w*)\n([\s\S]*?)```/g;
-  let lastIdx = 0;
-  let match;
-
-  while ((match = codeBlockRegex.exec(cleaned)) !== null) {
-    const before = cleaned.slice(lastIdx, match.index);
-    if (before.trim()) {
-      blocks.push({ type: "text", content: before });
-    }
-    const codeContent = match[2];
-    const codeLines = codeContent.split("\n");
-    // Collapse large code blocks (>15 lines) to compact summary
-    if (codeLines.length > 15) {
-      const lang = match[1] || "code";
-      blocks.push({ type: "text", content: `  ✦ ${lang} block (${codeLines.length} lines)` });
-    } else {
-      blocks.push({ type: "code", content: codeContent.replace(/\n$/, ""), lang: match[1] || undefined });
-    }
-    lastIdx = match.index + match[0].length;
-  }
-
-  const remaining = cleaned.slice(lastIdx);
-  if (remaining.trim()) {
-    blocks.push({ type: "text", content: remaining });
-  }
-
-  return blocks;
+function responseMarkdown(text: string): string {
+  return text.replace(/<tool:write>([^\n]+)\n([\s\S]*?)<\/tool(?::write)?>/g, (_m, path, content) => `\n✦ Writing ${String(path).trim()} (${content.split("\n").length} lines)\n`)
+    .replace(/<tool:edit>([\s\S]*?)<\/tool(?::edit)?>/g, (_m, content) => `\n✦ Editing ${String(content).split("\n")[0]}\n`);
 }
 
 // ── Live tokens-per-second estimator (4 chars ≈ 1 token) ──
 function useTokensPerSecond(text: string, isStreaming: boolean, startTime: number): number {
   const [tps, setTps] = useState(0);
   const lastCheck = useRef({ t: startTime, chars: 0 });
+  const latestLength = useRef(text.length);
+  latestLength.current = text.length;
 
   useEffect(() => {
     if (!isStreaming) {
@@ -76,19 +29,20 @@ function useTokensPerSecond(text: string, isStreaming: boolean, startTime: numbe
       lastCheck.current = { t: startTime, chars: 0 };
       return;
     }
+    lastCheck.current = { t: startTime, chars: 0 };
     const id = setInterval(() => {
       const now = Date.now();
       const dt = Math.max(1, now - lastCheck.current.t);
-      const dChars = text.length - lastCheck.current.chars;
+      const dChars = latestLength.current - lastCheck.current.chars;
       if (dChars > 0) {
         const instant = (dChars / 4) / (dt / 1000);
         // EMA smoothing
         setTps((prev) => (prev === 0 ? instant : prev * 0.6 + instant * 0.4));
-        lastCheck.current = { t: now, chars: text.length };
+        lastCheck.current = { t: now, chars: latestLength.current };
       }
     }, 400);
     return () => clearInterval(id);
-  }, [isStreaming, text, startTime]);
+  }, [isStreaming, startTime]);
 
   return tps;
 }
@@ -135,7 +89,7 @@ export function StreamingOutput({ text, reasoning, isStreaming, startTime }: Str
   const cursor = useCursor(isStreaming);
 
   // Parse text into blocks
-  const blocks = useMemo(() => parseBlocks(text), [text]);
+  const markdown = useMemo(() => responseMarkdown(text), [text]);
 
   // Check if text ends with an unclosed code block (still streaming)
   const hasUnclosedCode = useMemo(() => {
@@ -177,16 +131,7 @@ export function StreamingOutput({ text, reasoning, isStreaming, startTime }: Str
               </>
             )}
           </Box>
-          {blocks.map((block, i) => {
-            if (block.type === "code") {
-              return <CodeBlock key={i} code={block.content.replace(/\n$/, "")} lang={block.lang} />;
-            }
-            return (
-              <Box key={i} marginLeft={2}>
-                <Text wrap="wrap">{block.content}</Text>
-              </Box>
-            );
-          })}
+          <Box marginLeft={2} flexDirection="column"><Markdown text={markdown} /></Box>
           {/* Animated cursor while streaming */}
           {isStreaming && (
             <Box marginLeft={2}>

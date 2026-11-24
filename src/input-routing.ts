@@ -1,4 +1,5 @@
 export interface InputRunContext {
+  images?: import("./types.js").ImageAttachment[];
   effectiveAgentId?: string;
   /**
    * Project/global custom-command content is a prompt template, never a second
@@ -13,7 +14,7 @@ export function classifyLocalInput(
   input: string,
   runContext: InputRunContext = {},
 ): LocalInputRoute {
-  if (runContext.promptTemplate) return "prompt";
+  if (runContext.promptTemplate || runContext.images?.length) return "prompt";
   if (input.startsWith("/")) return "slash";
   if (input.startsWith("!") && input.length > 1) return "bang";
   const trimmed = input.trim();

@@ -8,6 +8,9 @@ const MAX_TOOL_LIST_PAGES = 32;
 const MAX_LISTED_TOOLS = 128;
 const INHERITED_ENV_KEYS = [
   "HOME",
+  "USERPROFILE",
+  "APPDATA",
+  "LOCALAPPDATA",
   "USER",
   "LOGNAME",
   "PATH",
@@ -43,6 +46,8 @@ export interface MCPServerConfig {
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  /** Explicit opt-in from trusted settings; project files cannot grant this. */
+  autoConnect?: boolean;
 }
 
 export interface MCPTool {
@@ -135,6 +140,13 @@ export class MCPClient {
     });
 
     child.on("error", (error) => {
+      this.closeCurrentConnection(child, generation, error);
+    });
+
+    // A server may close its pipe before its exit event arrives (notably on
+    // Windows). Handle stale pipe errors too, without closing a new connection.
+    child.stdin?.on("error", (error) => {
+      if (this.ownsConnection(child, generation)) child.kill();
       this.closeCurrentConnection(child, generation, error);
     });
 

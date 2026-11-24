@@ -128,13 +128,7 @@ export function ToolResult({ tool, result, success, diff, filePath, linesChanged
   const lines = result.split("\n");
 
   // For edit diffs, compute a better summary
-  const hasDiff = diff && tool === "edit" && diff.oldStr && diff.newStr;
-  let diffSummary = "";
-  if (hasDiff) {
-    const addedLines = diff.newStr.split("\n").length;
-    const removedLines = diff.oldStr.split("\n").length;
-    diffSummary = `Added ${addedLines} line${addedLines !== 1 ? "s" : ""}, removed ${removedLines} line${removedLines !== 1 ? "s" : ""}`;
-  }
+  const hasDiff = success && diff !== undefined;
 
   return (
     <Box flexDirection="column" marginLeft={2}>

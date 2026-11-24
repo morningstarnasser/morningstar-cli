@@ -1,5 +1,7 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { isImageAttachment } from "./runtime/images.js";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, lstatSync, renameSync, chmodSync, rmSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { join, dirname, basename } from "node:path";
 import { homedir } from "node:os";
 import type { Message } from "./types.js";
 
@@ -16,22 +18,95 @@ export interface SavedConversation {
   messageCount: number;
 }
 
-function ensureDir(): void {
-  if (!existsSync(HISTORY_DIR)) mkdirSync(HISTORY_DIR, { recursive: true });
+function privateDirectory(path: string): void {
+  try {
+    const stat = lstatSync(path);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("Session directory must not be a symlink");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    mkdirSync(path, { mode: 0o700 });
+  }
+  chmodSync(path, 0o700);
+}
+function ensureDir(): void { privateDirectory(CONFIG_DIR); privateDirectory(HISTORY_DIR); }
+function writeSession(path: string, data: SavedConversation): void {
+  const temporary = join(dirname(path), `.session-${randomBytes(12).toString("hex")}.tmp`);
+  try {
+    writeFileSync(temporary, JSON.stringify(data, null, 2), { flag: "wx", mode: 0o600 });
+    renameSync(temporary, path);
+  } finally { rmSync(temporary, { force: true }); }
+}
+function readSession(path: string): SavedConversation | null {
+  try {
+    const stat = lstatSync(path);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 32 * 1024 * 1024) return null;
+    const data = JSON.parse(readFileSync(path, "utf8"));
+    if ((!ID_PATTERN.test(data.id) && !/^autosave-[a-zA-Z0-9_-]+$/.test(data.id)) || (basename(path) !== `${data.id}.json` && basename(path) !== `${String(data.id).replace(/^autosave-/, "")}.json`) || typeof data.name !== "string" || typeof data.project !== "string" || typeof data.savedAt !== "string" || !Number.isFinite(Date.parse(data.savedAt)) || !Array.isArray(data.messages)) return null;
+    if (data.messages.some((m: Message) => !m || !["system", "user", "assistant", "tool"].includes(m.role) || typeof m.content !== "string" || (m.images !== undefined && (!Array.isArray(m.images) || !m.images.every(isImageAttachment))))) return null;
+    return { ...data, messageCount: data.messages.length };
+  } catch { return null; }
 }
 
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+/**
+ * Ids we generate ourselves: lowercase base36 only. Anything else must never
+ * reach the filesystem — a reference like `../../config` would otherwise read
+ * or delete files outside the history directory.
+ */
+const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** Path for an id, or null when the id could escape the history directory. */
+function conversationPath(id: string): string | null {
+  return ID_PATTERN.test(id) ? join(HISTORY_DIR, `${id}.json`) : null;
+}
+
+/**
+ * Resolve what the user typed to a stored id.
+ *
+ * Sessions are saved under a *name* but addressed by *id*, so `/history load
+ * allgemein` has to work as well as `/history load ms70ygx68aek`. Order, most
+ * precise first: exact id, exact name (case-insensitive), unique id prefix,
+ * unique partial name. Ambiguity resolves to nothing rather than a guess.
+ */
+export function resolveConversationId(reference: string): string | null {
+  const needle = reference.trim();
+  if (!needle) return null;
+  const all = listConversations();
+
+  const exactId = all.find((conv) => conv.id === needle);
+  if (exactId) return exactId.id;
+
+  const lowered = needle.toLowerCase();
+  const exactName = all.filter((conv) => conv.name.toLowerCase() === lowered);
+  // listConversations is newest-first, so the freshest match wins.
+  if (exactName.length > 0) return exactName[0].id;
+
+  const idPrefix = all.filter((conv) => conv.id.startsWith(needle));
+  if (idPrefix.length === 1) return idPrefix[0].id;
+
+  const partialName = all.filter((conv) => conv.name.toLowerCase().includes(lowered));
+  if (partialName.length === 1) return partialName[0].id;
+
+  return null;
+}
+
+/**
+ * Persist a conversation. Passing `existingId` overwrites that session instead
+ * of creating a copy, which is what renaming an open session must do.
+ */
 export function saveConversation(
   name: string,
   messages: Message[],
   model: string,
-  project: string
+  project: string,
+  existingId?: string,
 ): SavedConversation {
   ensureDir();
-  const id = generateId();
+  const reusable = existingId && conversationPath(existingId) ? existingId : undefined;
+  const id = reusable ?? generateId();
   const conv: SavedConversation = {
     id,
     name,
@@ -41,15 +116,22 @@ export function saveConversation(
     savedAt: new Date().toISOString(),
     messageCount: messages.length,
   };
-  writeFileSync(join(HISTORY_DIR, `${id}.json`), JSON.stringify(conv, null, 2), "utf-8");
+  const filePath = conversationPath(id);
+  if (filePath) {
+    writeSession(filePath, conv);
+  }
   return conv;
 }
 
-export function loadConversation(id: string): SavedConversation | null {
-  const filePath = join(HISTORY_DIR, `${id}.json`);
+/** Load by id or by name. Returns null when nothing matches unambiguously. */
+export function loadConversation(reference: string): SavedConversation | null {
+  const id = resolveConversationId(reference);
+  if (!id) return null;
+  const filePath = conversationPath(id);
+  if (!filePath) return null;
   try {
     if (existsSync(filePath)) {
-      return JSON.parse(readFileSync(filePath, "utf-8"));
+      return readSession(filePath);
     }
   } catch {}
   return null;
@@ -61,7 +143,8 @@ export function listConversations(): Array<{ id: string; name: string; savedAt: 
     const files = readdirSync(HISTORY_DIR).filter(f => f.endsWith(".json"));
     const convs = files.map(f => {
       try {
-        const data = JSON.parse(readFileSync(join(HISTORY_DIR, f), "utf-8")) as SavedConversation;
+        const data = readSession(join(HISTORY_DIR, f));
+        if (!data) return null;
         return { id: data.id, name: data.name, savedAt: data.savedAt, messageCount: data.messageCount, project: data.project };
       } catch {
         return null;
@@ -73,8 +156,12 @@ export function listConversations(): Array<{ id: string; name: string; savedAt: 
   }
 }
 
-export function deleteConversation(id: string): boolean {
-  const filePath = join(HISTORY_DIR, `${id}.json`);
+/** Delete by id or by name, with the same resolution rules as loading. */
+export function deleteConversation(reference: string): boolean {
+  const id = resolveConversationId(reference);
+  if (!id) return false;
+  const filePath = conversationPath(id);
+  if (!filePath) return false;
   try {
     if (existsSync(filePath)) {
       unlinkSync(filePath);
@@ -84,8 +171,8 @@ export function deleteConversation(id: string): boolean {
   return false;
 }
 
-export function getLastConversation(): SavedConversation | null {
-  const list = listConversations();
+export function getLastConversation(project?: string): SavedConversation | null {
+  const list = listConversations().filter((entry) => !project || entry.project === project);
   if (list.length === 0) return null;
   return loadConversation(list[0].id);
 }
@@ -94,7 +181,7 @@ export function getLastConversation(): SavedConversation | null {
 const AUTOSAVE_DIR = join(CONFIG_DIR, "autosave");
 
 function ensureAutoSaveDir(): void {
-  if (!existsSync(AUTOSAVE_DIR)) mkdirSync(AUTOSAVE_DIR, { recursive: true });
+  privateDirectory(CONFIG_DIR); privateDirectory(AUTOSAVE_DIR);
 }
 
 export function autoSave(messages: Message[], projectName: string, model: string): void {
@@ -111,7 +198,7 @@ export function autoSave(messages: Message[], projectName: string, model: string
       savedAt: new Date().toISOString(),
       messageCount: messages.length,
     };
-    writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+    writeSession(filePath, data);
   } catch {}
 }
 
@@ -120,7 +207,7 @@ export function getLastAutoSave(projectName: string): SavedConversation | null {
   const filePath = join(AUTOSAVE_DIR, `${safeName}.json`);
   try {
     if (existsSync(filePath)) {
-      return JSON.parse(readFileSync(filePath, "utf-8"));
+      return readSession(filePath);
     }
   } catch {}
   return null;

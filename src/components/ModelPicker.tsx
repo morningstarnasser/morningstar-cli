@@ -1,3 +1,4 @@
+import { terminalReport } from "../runtime/composer-layout.js";
 import React, { useMemo, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { ProviderCatalogEntry } from "../providers.js";
@@ -37,7 +38,7 @@ function modelLocation(
   if (deployment === "local" || provider === "ollama" || provider === "hydra-local") {
     return "local";
   }
-  if (provider === "claude-cli") return "subscription";
+  if (provider === "claude-cli" || provider === "codex-cli") return "subscription";
   return "hosted";
 }
 
@@ -98,6 +99,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   ollama: "Ollama · lokal",
   "hydra-local": "Hydra · lokal",
   "claude-cli": "Claude CLI · Abo",
+  "codex-cli": "Codex CLI · ChatGPT-Abo",
   anthropic: "Anthropic",
   deepseek: "DeepSeek",
   google: "Google",
@@ -238,6 +240,7 @@ export function ModelPicker({
   };
 
   useInput((input, key) => {
+    if (terminalReport(input)) return;
     if (key.escape) {
       if (selectedProvider) returnToProviders();
       else onCancel();
@@ -330,7 +333,7 @@ export function ModelPicker({
               : needsCredential
                 ? "Key fehlt"
                 : refreshStatus === "failed"
-                  ? "Fallback"
+                  ? "nicht erreichbar"
                   : refreshStatus === "updated" || refreshStatus === "cached"
                     ? "live"
                     : "bereit";

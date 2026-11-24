@@ -1,8 +1,38 @@
 // ─── Tool Definitions for Native Function Calling ─────────────────────────────
 // Three formats: OpenAI, Anthropic, Google Gemini
 import { getConnectedMCPTools } from "./mcp.js";
+import { canonicalToolName } from "./policy-engine.js";
 // ─── OpenAI Format (also used by Groq, OpenRouter) ──────────────────────────
 export const TOOL_DEFINITIONS = [
+    {
+        type: "function",
+        function: {
+            name: "swarm",
+            description: "Start a team yourself when independent subtasks benefit from parallel work. Each worker inherits your permissions and context. Supply distinct writePaths for parallel edits, exclusive:true for shell/build work, and dependsOn for ordered work/review. Returns real task statuses and reports; then continue and synthesize the answer. No nested swarms.",
+            parameters: {
+                type: "object",
+                properties: {
+                    title: { type: "string", description: "Short purpose of this team" },
+                    concurrency: { type: "integer", minimum: 1, maximum: 8 },
+                    tasks: {
+                        type: "array", minItems: 1, maxItems: 50,
+                        items: {
+                            type: "object",
+                            properties: {
+                                id: { type: "string" }, agentId: { type: "string", description: "Agent ID from your system instructions" },
+                                description: { type: "string", description: "Concrete self-contained task with acceptance criteria" },
+                                dependsOn: { type: "array", items: { type: "string" } },
+                                writePaths: { type: "array", items: { type: "string" }, description: "Literal workspace-relative paths; empty means read-only" },
+                                exclusive: { type: "boolean", description: "Run alone for shell, builds, tests or unrestricted workspace work" },
+                            },
+                            required: ["id", "agentId", "description"],
+                        },
+                    },
+                },
+                required: ["title", "tasks"],
+            },
+        },
+    },
     {
         type: "function",
         function: {
@@ -243,7 +273,7 @@ export const TOOL_DEFINITIONS = [
         type: "function",
         function: {
             name: "skill",
-            description: "Discover or load a local Morningstar skill. Commands: list, search <query>, or load <skill-name>. Loading is read-only and does not execute skill scripts.",
+            description: "Search all shared Morningstar, Agents, Claude, Codex and installed plugin skills. Before specialist tasks, search and load the matching procedure. Commands: list [page], search <query>, load <id> [character-offset], read <id> <relative-path> [character-offset], status. Read-only; scripts need normal tool authorization.",
             parameters: {
                 type: "object",
                 properties: {
@@ -313,7 +343,7 @@ function normalizeMCPInputSchema(schema) {
     };
 }
 /** Current core + connected MCP schemas for OpenAI-compatible providers. */
-export function getOpenAIToolDefinitions() {
+export function getOpenAIToolDefinitions(allowedTools, enableSwarm = true) {
     const mcpTools = getConnectedMCPTools().map((tool) => ({
         type: "function",
         function: {
@@ -322,20 +352,22 @@ export function getOpenAIToolDefinitions() {
             parameters: normalizeMCPInputSchema(tool.inputSchema),
         },
     }));
-    return [...TOOL_DEFINITIONS, ...mcpTools];
+    const allowed = allowedTools ? new Set(allowedTools.map(canonicalToolName)) : undefined;
+    return [...TOOL_DEFINITIONS, ...mcpTools].filter(t => (enableSwarm || t.function.name !== "swarm")
+        && (!allowed || allowed.has(t.function.name)));
 }
 /** Current core + connected MCP schemas for the Anthropic Messages API. */
-export function getAnthropicToolDefinitions() {
-    return getOpenAIToolDefinitions().map((tool) => ({
+export function getAnthropicToolDefinitions(allowedTools, enableSwarm = true) {
+    return getOpenAIToolDefinitions(allowedTools, enableSwarm).map((tool) => ({
         name: tool.function.name,
         description: tool.function.description,
         input_schema: tool.function.parameters,
     }));
 }
 /** Current core + connected MCP schemas for the Gemini API. */
-export function getGoogleToolDefinitions() {
+export function getGoogleToolDefinitions(allowedTools, enableSwarm = true) {
     return [{
-            functionDeclarations: getOpenAIToolDefinitions().map((tool) => ({
+            functionDeclarations: getOpenAIToolDefinitions(allowedTools, enableSwarm).map((tool) => ({
                 name: tool.function.name,
                 description: tool.function.description,
                 parameters: tool.function.parameters,

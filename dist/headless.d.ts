@@ -11,4 +11,5 @@ export { detectProvider, getModelDisplayName, getProviderApiKeyEnv, getProviderB
 export { createResilientStream, pickModelChain, } from "./model-fallback.js";
 export { decidePermission, type Decision, type PolicyVerdict, type Risk, } from "./policy-engine.js";
 export type { CLIConfig, Message, MessageToolCall, ToolResult, } from "./types.js";
+export { runSwarm, prepareSwarmPlan, validateSwarmPlan, type SwarmPlan, type SwarmTask, type SwarmOptions } from "./swarm.js";
 //# sourceMappingURL=headless.d.ts.map

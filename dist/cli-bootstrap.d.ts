@@ -1,5 +1,10 @@
 import type { CLIConfig } from "./types.js";
 import type { MorningstarSettings } from "./settings.js";
+/**
+ * Providers that never hold an API key: local runtimes and the vendor-CLI
+ * bridges, whose credentials live inside the vendor CLI's own OAuth session.
+ */
+export declare const KEYLESS_PROVIDERS: ReadonlySet<string>;
 export interface CLIOptionShape {
     apiKey?: string;
     model?: string;
@@ -7,6 +12,7 @@ export interface CLIOptionShape {
     chat?: boolean;
     skipPermissions?: boolean;
     dangerouslySkipPermissions?: boolean;
+    yolo?: boolean;
     print?: string | boolean;
     outputFormat?: "text" | "json" | "stream-json";
     verbose?: boolean;
@@ -15,6 +21,8 @@ export interface CLIOptionShape {
     allowedTools?: string;
     disallowedTools?: string;
     maxTurns?: number;
+    autoKnowledge?: boolean;
+    contextChars?: number;
     fallbackModel?: string;
     fast?: boolean;
     addDir?: string;
@@ -29,6 +37,12 @@ export interface CLIOptionShape {
     sandbox?: boolean;
     systemPrompt?: string;
     systemPromptFile?: string;
+    appendSystemPromptFile?: string;
+    settings?: string;
+    settingSources?: string;
+    inputFormat?: "text" | "stream-json";
+    noSessionPersistence?: boolean;
+    name?: string;
 }
 export declare function loadSavedConfig(): Record<string, unknown>;
 export declare function saveConfig(data: Record<string, unknown>): void;

@@ -1,3 +1,4 @@
+import { type SkillRoot } from "./skill-catalog.js";
 export interface SkillMeta {
     name: string;
     description: string;
@@ -21,6 +22,6 @@ export declare function loadSkill(name: string, dir?: string): string | null;
  * Handle a `<tool:skill>...</tool>` argument: "list", "search <q>", "load <name>".
  * Returns text for the agent. Delegating side effects stay with the agent.
  */
-export declare function runSkillCommand(arg: string): string;
+export declare function runSkillCommand(arg: string, cwd?: string, roots?: SkillRoot[]): string;
 export declare const SKILLS_PATH: string;
 //# sourceMappingURL=skills-runtime.d.ts.map

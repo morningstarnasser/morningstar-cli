@@ -294,6 +294,29 @@ export function getMCPServers(settings: MorningstarSettings): Record<string, MCP
   return (settings.mcpServers as Record<string, MCPServerConfig>) || {};
 }
 
+/** Only explicitly opted-in, trusted server configurations start automatically. */
+export async function connectConfiguredMCPServers(settings: MorningstarSettings): Promise<string[]> {
+  const failures: string[] = [];
+  for (const [name, config] of Object.entries(getMCPServers(settings))) {
+    if (config.autoConnect !== true) continue;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        connectMCPServer(name, config),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Verbindung nach 8 Sekunden abgebrochen")), 8_000);
+        }),
+      ]);
+    } catch (error) {
+      await disconnectMCPServer(name);
+      failures.push(`MCP ${name}: ${(error as Error).message}`);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  return failures;
+}
+
 /**
  * Add an MCP server to settings.
  */

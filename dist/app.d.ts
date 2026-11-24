@@ -10,7 +10,8 @@ interface AppProps {
     storeApiKey: (provider: string, key: string) => void;
     saveConfig: (data: Record<string, unknown>) => void;
     resumedMessages?: Message[];
+    initialPrompt?: string;
 }
-export declare function App({ config: initialConfig, ctx, chatOnly, skipPermissions, baseSystemPrompt, sessionStart, getStoredApiKey, storeApiKey, saveConfig, resumedMessages }: AppProps): import("react/jsx-runtime").JSX.Element;
+export declare function App(props: AppProps): import("react/jsx-runtime").JSX.Element;
 export {};
 //# sourceMappingURL=app.d.ts.map

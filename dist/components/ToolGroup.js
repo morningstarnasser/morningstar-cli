@@ -2,6 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
 import { ClaudeCodeDiff } from "./ClaudeCodeDiff.js";
+import { fileChange } from "../runtime/work-log.js";
 // Tool display names
 const TOOL_LABELS = {
     read: "Read", write: "Write", edit: "Update", delete: "Delete",
@@ -29,8 +30,7 @@ function getShortSummary(r) {
         case "write": return `${r.linesChanged || "?"} lines written`;
         case "edit": {
             if (r.diff) {
-                const added = r.diff.newStr.split("\n").length;
-                const removed = r.diff.oldStr.split("\n").length;
+                const { added, removed } = fileChange(r.diff.oldStr, r.diff.newStr);
                 return `${added} added, ${removed} removed`;
             }
             return `${r.linesChanged ? r.linesChanged + " lines changed" : "updated"}`;
@@ -65,7 +65,7 @@ function SingleToolView({ r }) {
     const toolLabel = TOOL_LABELS[r.tool] || r.tool;
     const toolColor = r.success ? (TOOL_COLORS[r.tool] || primary) : error;
     const arg = getToolArg(r.tool, r.filePath, r.command);
-    const hasDiff = r.tool === "edit" && r.diff && r.diff.oldStr && r.diff.newStr;
+    const hasDiff = r.success && r.diff !== undefined;
     const isFullOutput = FULL_OUTPUT_TOOLS.has(r.tool);
     const outputLines = r.result.split("\n").filter(l => l.trim());
     return (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsxs(Text, { children: [_jsx(Text, { color: toolColor, bold: true, children: "⏺ " }), _jsx(Text, { color: toolColor, bold: true, children: toolLabel }), arg && _jsxs(Text, { color: dim, children: ["(", arg, ")"] })] }), hasDiff ? (_jsx(ClaudeCodeDiff, { oldStr: r.diff.oldStr, newStr: r.diff.newStr, filePath: r.diff.filePath || r.filePath, startLineNumber: r.startLineNumber || 1, maxLines: 30 })) : r.success && isFullOutput && outputLines.length > 0 ? (
@@ -100,7 +100,7 @@ export function ToolGroup({ results, duration, tokenCount, expanded, label, tool
                 const toolColor = r.success ? (TOOL_COLORS[r.tool] || primary) : error;
                 const arg = getToolArg(r.tool, r.filePath, r.command);
                 const summary = getShortSummary(r);
-                const hasDiff = r.tool === "edit" && r.diff && r.diff.oldStr && r.diff.newStr;
+                const hasDiff = r.success && r.diff !== undefined;
                 const isFullOutput = FULL_OUTPUT_TOOLS.has(r.tool);
                 const outputLines = r.result.split("\n").filter(l => l.trim());
                 return (_jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { children: [_jsxs(Text, { color: dim, children: ["   ", prefix, " "] }), _jsx(Text, { color: toolColor, bold: true, children: toolLabel }), arg && _jsxs(Text, { color: dim, children: ["(", arg, ")"] }), _jsxs(Text, { color: dim, children: [" \\u00B7 ", summary] })] }), hasDiff ? (_jsxs(Box, { marginLeft: 3, flexDirection: "column", children: [_jsxs(Text, { color: dim, children: ["   ", continuePrefix] }), _jsx(Box, { marginLeft: 3, children: _jsx(ClaudeCodeDiff, { oldStr: r.diff.oldStr, newStr: r.diff.newStr, filePath: r.diff.filePath || r.filePath, startLineNumber: r.startLineNumber || 1, maxLines: 20 }) })] })) : r.success && isFullOutput && outputLines.length > 0 ? (

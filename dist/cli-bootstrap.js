@@ -7,6 +7,16 @@ import { detectProvider, getProviderApiKeyEnv, getProviderBaseUrl } from "./prov
 import { loadProjectEnvFiles } from "./env.js";
 const CONFIG_DIR = join(homedir(), ".morningstar");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+/**
+ * Providers that never hold an API key: local runtimes and the vendor-CLI
+ * bridges, whose credentials live inside the vendor CLI's own OAuth session.
+ */
+export const KEYLESS_PROVIDERS = new Set([
+    "ollama",
+    "hydra-local",
+    "claude-cli",
+    "codex-cli",
+]);
 const DEFAULT_CONFIG = {
     apiKey: "",
     model: "nvidia/moonshotai/kimi-k2.6",
@@ -78,9 +88,8 @@ export function createApiKeyHelpers(saved, persist = saveConfig) {
         return envVar && process.env[envVar] ? process.env[envVar] : "";
     }
     function storeApiKey(provider, key) {
-        if (provider === "ollama" || provider === "hydra-local" || provider === "claude-cli") {
+        if (KEYLESS_PROVIDERS.has(provider))
             return;
-        }
         if (!key || key === "ollama")
             delete savedApiKeys[provider];
         else
@@ -97,7 +106,26 @@ function parseCsvFlag(value) {
 export function buildCLIConfig(opts, saved, projectSettings, getStoredApiKey) {
     const cwd = resolve(opts.dir || process.cwd());
     const chatOnly = Boolean(opts.chat);
-    const skipPermissions = Boolean(opts.skipPermissions || opts.dangerouslySkipPermissions);
+    const skipPermissions = Boolean(opts.yolo || opts.skipPermissions || opts.dangerouslySkipPermissions);
+    const disableBypass = projectSettings.permissions?.disableBypassPermissionsMode === "disable" || Boolean(projectSettings.managedPermissionMode && projectSettings.managedPermissionMode !== "bypassPermissions");
+    if (disableBypass && (skipPermissions || opts.permissionMode === "bypassPermissions")) {
+        throw new Error("Bypass permissions is disabled by settings");
+    }
+    if (opts.sessionId && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(opts.sessionId))
+        throw new Error("Invalid session-id");
+    if (opts.maxTurns !== undefined && (!Number.isSafeInteger(opts.maxTurns) || opts.maxTurns < 0))
+        throw new Error("max-turns must be a non-negative integer (0 = unlimited)");
+    if (opts.contextChars !== undefined && (!Number.isSafeInteger(opts.contextChars) || opts.contextChars < 4000))
+        throw new Error("context-chars must be an integer >= 4000");
+    if (opts.maxBudgetUsd !== undefined && (!Number.isFinite(opts.maxBudgetUsd) || opts.maxBudgetUsd <= 0))
+        throw new Error("max-budget-usd must be positive");
+    if (opts.permissionMode && !["default", "auto", "ask", "strict", "bypassPermissions", "acceptEdits", "plan", "dontAsk", "delegate"].includes(opts.permissionMode))
+        throw new Error("Invalid permission mode");
+    const managedOnly = projectSettings.allowManagedPermissionRulesOnly === true;
+    const rules = (values) => {
+        const merged = [...new Set(values.flatMap((v) => v ?? []))];
+        return merged.length ? merged : undefined;
+    };
     const selectedModel = opts.model || projectSettings.model || saved.model || DEFAULT_CONFIG.model;
     const savedModel = typeof saved.model === "string" ? saved.model : undefined;
     const savedProvider = typeof saved.provider === "string" ? saved.provider : undefined;
@@ -138,22 +166,32 @@ export function buildCLIConfig(opts, saved, projectSettings, getStoredApiKey) {
         outputFormat: opts.outputFormat || "text",
         verbose: Boolean(opts.verbose),
         quiet: Boolean(opts.quiet),
-        allowedTools: parseCsvFlag(opts.tools || opts.allowedTools),
-        disallowedTools: parseCsvFlag(opts.disallowedTools),
+        allowedTools: rules([managedOnly ? undefined : parseCsvFlag(opts.allowedTools), projectSettings.allowedTools, projectSettings.permissions?.allow, projectSettings.permissions?.allowedCommands?.map((x) => `Bash(${x})`)]),
+        disallowedTools: rules([parseCsvFlag(opts.disallowedTools), projectSettings.deniedTools, projectSettings.permissions?.deny, projectSettings.permissions?.deniedCommands?.map((x) => `Bash(${x})`)]),
+        askTools: projectSettings.permissions?.ask,
+        toolAllowlist: chatOnly ? [] : opts.tools !== undefined ? parseCsvFlag(opts.tools) ?? [] : undefined,
+        disableBypassPermissions: disableBypass,
+        runtimeSettings: projectSettings,
         maxTurns: opts.maxTurns ?? undefined,
+        autoKnowledge: opts.autoKnowledge !== false,
+        contextChars: opts.contextChars,
         fallbackModel: opts.fallbackModel || undefined,
         fast: Boolean(opts.fast),
         additionalDirs: opts.addDir ? [resolve(opts.addDir)] : undefined,
-        dangerouslySkipPermissions: Boolean(opts.dangerouslySkipPermissions),
-        permissionMode: opts.permissionMode || undefined,
-        appendSystemPrompt: opts.appendSystemPrompt || undefined,
+        dangerouslySkipPermissions: skipPermissions,
+        yolo: Boolean(opts.yolo),
+        permissionMode: (projectSettings.managedPermissionMode || opts.permissionMode || projectSettings.permissions?.defaultMode)?.replace(/^default$/, "ask"),
+        appendSystemPrompt: [opts.appendSystemPrompt, opts.appendSystemPromptFile ? readFileSync(opts.appendSystemPromptFile, "utf8") : undefined].filter(Boolean).join("\n\n") || undefined,
         preSelectedAgents: parseCsvFlag(opts.agents),
         jsonSchema: opts.jsonSchema || undefined,
         debug: Boolean(opts.debug),
         maxBudgetUsd: opts.maxBudgetUsd ?? undefined,
         forkSession: opts.forkSession || undefined,
         sessionId: opts.sessionId || undefined,
-        sandbox: Boolean(opts.sandbox),
+        sandbox: Boolean(opts.sandbox || projectSettings.sandbox?.enabled),
+        inputFormat: opts.inputFormat ?? "text",
+        noSessionPersistence: Boolean(opts.noSessionPersistence),
+        sessionName: opts.name,
     };
     return { cwd, chatOnly, skipPermissions, config };
 }
@@ -226,7 +264,9 @@ export async function ensureApiKey(config, opts, getStoredApiKey, storeApiKey) {
     // buildCLIConfig has already validated model/provider routing. Preserve its
     // explicit OpenRouter tuple for catalog IDs that resemble another provider.
     const providerName = config.provider || (config.model ? detectProvider(config.model) : "deepseek");
-    if (providerName === "hydra-local" || providerName === "ollama") {
+    // Local runtimes and vendor-CLI bridges authenticate elsewhere — prompting
+    // for an API key here would be a dead end the user cannot satisfy.
+    if (KEYLESS_PROVIDERS.has(providerName)) {
         config.provider = providerName;
         config.apiKey = providerName === "ollama" ? "ollama" : "local";
         return;

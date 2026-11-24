@@ -1,31 +1,31 @@
-import { Cpu, ExternalLink, Terminal, Zap } from "lucide-react";
+import { Cpu, Terminal, Zap } from "lucide-react";
 import ScrollReveal from "./ScrollReveal";
 
 const models = [
   {
-    name: "Qwen 3.5 27B",
-    id: "qwen3.5:27b-int4",
-    size: "16 GB",
-    role: "General-purpose local workhorse",
-    description: "Fast, capable coding and reasoning on your own machine.",
+    name: "Your Ollama models",
+    id: "ollama/<model-id>",
+    size: "Your hardware",
+    role: "Local inference",
+    description: "Choose from the models available on your configured Ollama server.",
     color: "text-emerald-400",
     glow: "from-emerald-500/20 to-teal-500/5",
   },
   {
-    name: "CreativeSync Hydra",
-    id: "creativesync/hydra-ai:latest",
-    size: "16 GB",
-    role: "Morningstar identity layer",
-    description: "A local Ollama model wrapper for the CreativeSync control plane.",
+    name: "Your provider catalog",
+    id: "<provider-model-id>",
+    size: "Your account",
+    role: "Hosted inference",
+    description: "Use the models available through your own configured provider credentials.",
     color: "text-amber-400",
     glow: "from-amber-500/20 to-orange-500/5",
   },
   {
-    name: "Qwythos Claude Mythos",
-    id: "hf.co/huihui-ai/Huihui-Qwythos-9B-Claude-Mythos-5-1M-abliterated-GGUF:BF16",
-    size: "19 GB",
-    role: "Long-context research model",
-    description: "A locally installed research model, selectable through Ollama.",
+    name: "Your connected CLI",
+    id: "codex-cli",
+    size: "Your login",
+    role: "Vendor CLI integration",
+    description: "Connect an installed vendor client. Its account access and model availability still apply.",
     color: "text-cyan-400",
     glow: "from-cyan-500/20 to-blue-500/5",
   },
@@ -39,15 +39,15 @@ export default function Models() {
           <div className="text-center mb-14">
             <div className="flex items-center justify-center gap-4 mb-4">
               <div className="h-px w-16 bg-gradient-to-r from-transparent to-amber-500/50" />
-              <span className="text-amber-400 text-sm tracking-[0.3em] uppercase">Local inventory snapshot</span>
+              <span className="text-amber-400 text-sm tracking-[0.3em] uppercase">Model discovery</span>
               <div className="h-px w-16 bg-gradient-to-l from-transparent to-amber-500/50" />
             </div>
             <h2 className="text-3xl sm:text-4xl font-bold text-white">
               Your models. <span className="text-amber-400">Your machine.</span>
             </h2>
             <p className="text-gray-400 mt-4 max-w-2xl mx-auto text-sm leading-relaxed">
-              Morningstar discovers Ollama models dynamically. This is a snapshot of the
-              development machine — weights are not bundled with the CLI or stored in Git.
+              Morningstar discovers models from your configured environment. The examples below
+              describe connection types; no model weights, accounts or machine inventory are bundled.
             </p>
           </div>
         </ScrollReveal>
@@ -61,7 +61,7 @@ export default function Models() {
                     <Cpu size={24} strokeWidth={1.5} />
                   </div>
                   <span className="inline-flex items-center gap-1.5 text-[10px] tracking-widest text-emerald-300 border border-emerald-500/25 bg-emerald-500/10 rounded-full px-2.5 py-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> INSTALLED SNAPSHOT
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> USER CONFIGURED
                   </span>
                 </div>
                 <h3 className={`text-xl font-bold ${model.color}`}>{model.name}</h3>
@@ -90,11 +90,7 @@ export default function Models() {
           </div>
         </ScrollReveal>
 
-        <div className="mt-10 text-center text-xs text-white/30">
-          <a href="https://github.com/morningstarnasser/MORNINGSTAR-AI-MODEL" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 hover:text-amber-400 transition-colors">
-            Model repository &amp; evaluation tools <ExternalLink size={13} />
-          </a>
-        </div>
+
       </div>
     </section>
   );

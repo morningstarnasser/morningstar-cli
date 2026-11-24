@@ -25,6 +25,7 @@ export type SubAgentApprovalCallback = NonNullable<AgentRunOptions["onApproval"]
  * and stream overrides keep the orchestration layer deterministic in tests.
  */
 export interface SubAgentExecutionOptions {
+    onEvent?: AgentRunOptions["onEvent"];
     onApproval?: SubAgentApprovalCallback;
     streamFn?: StreamFn;
     textToolExecFn?: TextToolExecFn;
@@ -49,7 +50,7 @@ export declare function createSubAgentToolExecutors(allowedTools: readonly strin
  * - Its own agent system prompt
  * - The task description as user message
  * - Access to all tools
- * - A limited number of turns (maxTurns)
+ * - Unlimited turns by default; an explicit maxTurns is respected
  *
  * Returns the completed task with results.
  */

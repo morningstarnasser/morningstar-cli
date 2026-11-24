@@ -2,6 +2,9 @@
 // Pure, shared allow / ask / deny decisions for every runner. Explicit deny
 // rules are always authoritative; modes then provide conservative defaults.
 import { classifyCommand } from "./safety.js";
+import { homedir } from "node:os";
+import { resolve, relative, isAbsolute } from "node:path";
+import { realpathSync } from "node:fs";
 const READ_TOOLS = new Set([
     "read",
     "grep",
@@ -24,6 +27,10 @@ const VALID_MODES = new Set([
     "dontAsk",
     "delegate",
 ]);
+export function canonicalToolName(name) {
+    const aliases = { webfetch: "fetch", websearch: "web" };
+    return aliases[name.trim().toLowerCase()] ?? name.trim().toLowerCase();
+}
 function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -58,16 +65,50 @@ function matchTargetPattern(pattern, target, forAllowRule) {
  * - `bash(git:*)` matches git commands executed through bash
  * - `bash(*)` matches every bash command
  */
-function matchesToolPattern(pattern, tool, target, forAllowRule) {
+function matchesToolPattern(pattern, tool, target, forAllowRule, cwd) {
     const rule = pattern.trim();
     if (!rule)
         return false;
     if (rule === "*")
         return true;
     const scoped = /^([^()]+)\((.*)\)$/.exec(rule);
+    const canonical = canonicalToolName;
     if (!scoped)
-        return rule.toLowerCase() === tool;
+        return new RegExp(`^${canonical(rule).split("*").map(escapeRegExp).join(".*")}$`).test(tool);
     const [, ruleTool, ruleTarget] = scoped;
+    if (canonical(ruleTool) !== tool)
+        return false;
+    if (tool === "fetch" && ruleTarget.startsWith("domain:")) {
+        try {
+            return matchTargetPattern(ruleTarget.slice(7), new URL(target).hostname, forAllowRule);
+        }
+        catch {
+            return false;
+        }
+    }
+    if (cwd && ["read", "write", "edit", "delete"].includes(tool)) {
+        const expand = (path) => path.startsWith("~/") ? resolve(homedir(), path.slice(2)) : path;
+        const pattern = expand(ruleTarget);
+        const absoluteTarget = resolve(cwd, expand(target));
+        let canonicalTarget = absoluteTarget;
+        let canonicalCwd = cwd;
+        try {
+            canonicalCwd = realpathSync(cwd);
+        }
+        catch { }
+        try {
+            canonicalTarget = realpathSync(absoluteTarget);
+        }
+        catch { }
+        const match = (path, base = cwd) => {
+            const candidate = isAbsolute(pattern) ? path : relative(base, path);
+            const normalized = pattern.replace(/^\.\//, "");
+            const expression = normalized.split("**").map((part) => part.split("*").map(escapeRegExp).join("[^/]*")).join(".*");
+            return new RegExp(`^${expression}$`).test(candidate);
+        };
+        // Grants must cover both the named path and symlink destination; denials cover either.
+        return forAllowRule ? match(absoluteTarget) && match(canonicalTarget, canonicalCwd) : match(absoluteTarget) || match(canonicalTarget, canonicalCwd);
+    }
     // A scoped Bash allow rule authorizes one command shape, never a second
     // command smuggled through chaining, redirection, or substitution. Apply
     // this to every scoped wildcard form, not only the `prefix:*` shorthand.
@@ -76,11 +117,11 @@ function matchesToolPattern(pattern, tool, target, forAllowRule) {
         && /[\r\n;&|><]|`|\$\(/.test(target)) {
         return false;
     }
-    return ruleTool.trim().toLowerCase() === tool
+    return canonical(ruleTool) === tool
         && matchTargetPattern(ruleTarget, target, forAllowRule);
 }
-function firstMatchingPattern(patterns, tool, target, forAllowRule) {
-    return patterns?.find((pattern) => matchesToolPattern(pattern, tool, target, forAllowRule));
+function firstMatchingPattern(patterns, tool, target, forAllowRule, cwd) {
+    return patterns?.find((pattern) => matchesToolPattern(pattern, tool, target, forAllowRule, cwd));
 }
 function classifyGitAction(target) {
     const args = target.trim();
@@ -102,6 +143,9 @@ function classifyGitAction(target) {
     return { kind: "shell", risk: "medium", reason: "mutating git operation", requiresApproval: true };
 }
 function classifyAction(tool, target) {
+    if (tool === "swarm") {
+        return { kind: "orchestrate", risk: "low", reason: "local orchestration; each child tool inherits and enforces parent permissions", requiresApproval: false };
+    }
     if (READ_TOOLS.has(tool)) {
         return { kind: "read", risk: "none", reason: "read-only tool", requiresApproval: false };
     }
@@ -158,16 +202,16 @@ function classifyAction(tool, target) {
  *
  * Precedence:
  * 1. A matching disallowed pattern always denies.
- * 2. Plan mode denies every action that is not provably read-only.
+ * 2. Plan mode allows reads and orchestration; child tools retain plan mode.
  * 3. Strict mode asks for every action.
  * 4. A matching allowed pattern allows the action.
  * 5. The selected mode supplies the fail-closed default.
  */
-export function decidePermission(toolName, argumentOrTarget, mode, allowedPatterns = [], disallowedPatterns = []) {
+export function decidePermission(toolName, argumentOrTarget, mode, allowedPatterns = [], disallowedPatterns = [], askPatterns = [], disableBypass = false, cwd) {
     const tool = toolName.trim().toLowerCase();
     const target = argumentOrTarget ?? "";
     const profile = classifyAction(tool, target);
-    const deniedBy = firstMatchingPattern(disallowedPatterns, tool, target, false);
+    const deniedBy = firstMatchingPattern(disallowedPatterns, tool, target, false, cwd);
     if (deniedBy !== undefined) {
         return {
             decision: "deny",
@@ -182,12 +226,19 @@ export function decidePermission(toolName, argumentOrTarget, mode, allowedPatter
             reason: `unsupported permission mode: ${String(mode)}`,
         };
     }
-    if (mode === "plan" && profile.kind !== "read") {
+    if (mode === "plan" && profile.kind !== "read" && profile.kind !== "orchestrate") {
         return {
             decision: "deny",
             risk: profile.risk,
             reason: `plan mode denies non-read-only actions: ${profile.reason}`,
         };
+    }
+    if (disableBypass && mode === "bypassPermissions") {
+        return { decision: "deny", risk: "high", reason: "bypass permissions is disabled by settings" };
+    }
+    const askBy = firstMatchingPattern(askPatterns, tool, target, false, cwd);
+    if (askBy !== undefined) {
+        return { decision: mode === "dontAsk" ? "deny" : "ask", risk: profile.risk, reason: `explicit approval required by pattern "${askBy}"` };
     }
     if (mode === "strict") {
         return {
@@ -196,7 +247,7 @@ export function decidePermission(toolName, argumentOrTarget, mode, allowedPatter
             reason: `strict mode requires approval: ${profile.reason}`,
         };
     }
-    const allowedBy = firstMatchingPattern(allowedPatterns, tool, target, true);
+    const allowedBy = firstMatchingPattern(allowedPatterns, tool, target, true, cwd);
     if (allowedBy !== undefined) {
         return {
             decision: "allow",
@@ -222,7 +273,7 @@ export function decidePermission(toolName, argumentOrTarget, mode, allowedPatter
                     reason: `acceptEdits requires approval for bash/delete: ${profile.reason}`,
                 };
             }
-            if (profile.kind === "read") {
+            if (profile.kind === "read" || profile.kind === "orchestrate") {
                 return { decision: "allow", risk: profile.risk, reason: profile.reason };
             }
             return {

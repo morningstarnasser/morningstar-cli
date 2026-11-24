@@ -100,15 +100,19 @@ test("Gemini streaming blocks redirects without forwarding its API key", async (
 test("Gemini image API key transport", async (t) => {
   const originalFetch = globalThis.fetch;
   const originalHome = process.env.HOME;
+  const originalProfile = process.env.USERPROFILE;
   const originalGoogleKey = process.env.GOOGLE_API_KEY;
   const originalGeminiKey = process.env.GEMINI_API_KEY;
   const temporaryHome = mkdtempSync(join(tmpdir(), "morningstar-google-key-"));
 
   process.env.HOME = temporaryHome;
+  process.env.USERPROFILE = temporaryHome;
   process.env.GOOGLE_API_KEY = "google-image-secret";
   delete process.env.GEMINI_API_KEY;
   t.after(() => {
     globalThis.fetch = originalFetch;
+    if (originalProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = originalProfile;
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
     if (originalGoogleKey === undefined) delete process.env.GOOGLE_API_KEY;

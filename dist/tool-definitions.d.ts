@@ -37,11 +37,11 @@ export declare const GOOGLE_TOOL_DEFINITIONS: {
     functionDeclarations: GoogleFunctionDeclaration[];
 }[];
 /** Current core + connected MCP schemas for OpenAI-compatible providers. */
-export declare function getOpenAIToolDefinitions(): OpenAIToolDefinition[];
+export declare function getOpenAIToolDefinitions(allowedTools?: readonly string[], enableSwarm?: boolean): OpenAIToolDefinition[];
 /** Current core + connected MCP schemas for the Anthropic Messages API. */
-export declare function getAnthropicToolDefinitions(): AnthropicToolDefinition[];
+export declare function getAnthropicToolDefinitions(allowedTools?: readonly string[], enableSwarm?: boolean): AnthropicToolDefinition[];
 /** Current core + connected MCP schemas for the Gemini API. */
-export declare function getGoogleToolDefinitions(): {
+export declare function getGoogleToolDefinitions(allowedTools?: readonly string[], enableSwarm?: boolean): {
     functionDeclarations: GoogleFunctionDeclaration[];
 }[];
 //# sourceMappingURL=tool-definitions.d.ts.map

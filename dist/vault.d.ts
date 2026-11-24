@@ -1,9 +1,15 @@
 export type VaultExec = (args: string[]) => string;
-/** Build the qmd argv for a vault subcommand. Pure + testable. */
+export type AsyncVaultExec = (args: string[], signal?: AbortSignal) => Promise<string>;
+export declare const executeQmd: AsyncVaultExec;
+/** Exclude private records before their snippets reach a model or diagnostic. */
+export declare function publicVaultPath(input: string): string | null;
 export declare function buildVaultArgs(sub: string, arg: string): string[] | null;
-/**
- * Handle a `<tool:vault>...</tool>` argument: "search <q>", "vsearch <q>",
- * "get <path>". Returns vault text for the agent.
- */
-export declare function runVaultCommand(arg: string, exec?: VaultExec): string;
+export interface VaultHit {
+    file: string;
+    title: string;
+    snippet: string;
+}
+export declare function parseVaultHits(raw: string): VaultHit[];
+export declare function runVaultCommand(command: string, exec?: VaultExec): string;
+export declare function runVaultCommandAsync(command: string, signal?: AbortSignal, exec?: AsyncVaultExec): Promise<string>;
 //# sourceMappingURL=vault.d.ts.map

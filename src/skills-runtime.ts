@@ -1,14 +1,8 @@
-// ─── Local Skill Runtime (#4) ────────────────────────────────────────────────
-// Jerry's review: give Carry a lazy, capability-aware skill system — index /
-// search / load on demand, never dump 189 skills into the system prompt, and
-// never auto-execute a skill's scripts. A skill is a *procedure* (SKILL.md) the
-// agent reads and then carries out with its normal tools. Local skills live in
-// ~/.morningstar/skills/<...>/SKILL.md. For everything Carry doesn't have
-// locally, it delegates to Jerry (the bridge).
+// Shared lazy skill runtime. Reading a procedure never executes its scripts.
 
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { join } from "node:path";
+import { discoverSkills, readCatalogSkill, readSkillResource, type SkillRoot } from "./skill-catalog.js";
 
 const SKILLS_DIR = join(homedir(), ".morningstar", "skills");
 
@@ -46,35 +40,10 @@ export function checkReadiness(requires: string[], exists: (cmd: string) => bool
   return requires.every((cmd) => exists(cmd));
 }
 
-function findSkillFiles(dir: string): string[] {
-  const out: string[] = [];
-  const walk = (d: string, depth: number) => {
-    if (depth > 4 || !existsSync(d)) return;
-    for (const entry of readdirSync(d)) {
-      if (entry.startsWith(".") || entry === "node_modules") continue;
-      const p = join(d, entry);
-      try {
-        if (statSync(p).isDirectory()) walk(p, depth + 1);
-        else if (entry === "SKILL.md") out.push(p);
-      } catch {
-        /* skip */
-      }
-    }
-  };
-  walk(dir, 0);
-  return out;
-}
-
 /** List local skills (name = path relative to the skills dir). */
-export function listSkills(dir = SKILLS_DIR): SkillMeta[] {
-  return findSkillFiles(dir).map((file) => {
-    const name = relative(dir, file).replace(/\/SKILL\.md$/, "");
-    try {
-      return parseSkillMeta(readFileSync(file, "utf-8"), name);
-    } catch {
-      return { name, description: "(unlesbar)", requires: [] };
-    }
-  });
+export function listSkills(dir?: string): SkillMeta[] {
+  return discoverSkills(dir ?? process.cwd(), dir ? { roots: [{ path: dir, label: "local", trusted: false }] } : {}).skills
+    .map((skill) => ({ name: skill.id, description: skill.description, requires: skill.requires }));
 }
 
 /** Keyword search over name + description. Pure given the skill list. */
@@ -88,41 +57,63 @@ export function searchSkills(query: string, skills: SkillMeta[]): SkillMeta[] {
 }
 
 /** Load a skill's full procedure text, or null if not found. */
-export function loadSkill(name: string, dir = SKILLS_DIR): string | null {
-  const file = join(dir, name, "SKILL.md");
-  if (!existsSync(file)) return null;
-  try {
-    return readFileSync(file, "utf-8");
-  } catch {
-    return null;
-  }
+export function loadSkill(name: string, dir?: string): string | null {
+  const skill = discoverSkills(dir ?? process.cwd(), dir ? { roots: [{ path: dir, label: "local", trusted: false }] } : {}).skills.find((s) => s.id === name);
+  try { return skill ? readCatalogSkill(skill) : null; } catch { return null; }
 }
 
 /**
  * Handle a `<tool:skill>...</tool>` argument: "list", "search <q>", "load <name>".
  * Returns text for the agent. Delegating side effects stay with the agent.
  */
-export function runSkillCommand(arg: string): string {
+export function runSkillCommand(arg: string, cwd = process.cwd(), roots?: SkillRoot[]): string {
   const [sub, ...rest] = arg.trim().split(/\s+/);
   const tail = rest.join(" ").trim();
-
+  const catalog = discoverSkills(cwd, { roots });
+  const pageSize = 30;
+  const format = (items: typeof catalog.skills, page = 1) => {
+    const from = (page - 1) * pageSize;
+    return [`Skills: ${items.length} · Seite ${page}/${Math.max(1, Math.ceil(items.length / pageSize))}`,
+      ...items.slice(from, from + pageSize).map((s) => `${s.id} — ${s.description.slice(0, 220)}`),
+      `Laden: skill load <id> [offset] · Referenzen: skill read <id> <relativer-pfad> [offset]`,
+      ...catalog.warnings].join("\n").slice(0, 12000);
+  };
   switch ((sub || "list").toLowerCase()) {
     case "":
     case "list": {
-      const skills = listSkills();
-      if (skills.length === 0) return "Keine lokalen Skills in ~/.morningstar/skills/. Für externe Fähigkeiten <tool:jerry> nutzen.";
-      return skills.map((s) => `• ${s.name} — ${s.description}`).join("\n");
+      const page = tail ? Number(tail) : 1;
+      if (!Number.isSafeInteger(page) || page < 1) return "Skill-Fehler: Seite muss eine positive Ganzzahl sein.";
+      return format(catalog.skills, page);
     }
     case "search": {
-      const hits = searchSkills(tail, listSkills());
-      return hits.length ? hits.map((s) => `• ${s.name} — ${s.description}`).join("\n") : `Kein lokaler Skill für "${tail}". Evtl. <tool:jerry>.`;
+      const pageMatch = tail.match(/(?:^|\s)--page\s+(\d+)$/);
+      const page = pageMatch ? Number(pageMatch[1]) : 1;
+      if (!Number.isSafeInteger(page) || page < 1) return "Skill-Fehler: Seite muss positiv sein.";
+      const terms = (pageMatch ? tail.slice(0, pageMatch.index) : tail).toLowerCase().split(/\s+/).filter(Boolean);
+      const hits = catalog.skills.filter((s) => terms.every((term) => `${s.id} ${s.name} ${s.description}`.toLowerCase().includes(term)));
+      return hits.length ? format(hits, page) : `Kein passender Skill. Suche mit einem kürzeren Stichwort; skill list zeigt den Katalog.`;
     }
     case "load": {
-      const skill = loadSkill(tail);
-      return skill ?? `Kein Skill "${tail}". <tool:skill>list</tool> zeigt verfügbare.`;
+      const skill = catalog.skills.find((s) => s.id === rest[0]);
+      const offset = rest[1] === undefined ? 0 : Number(rest[1]);
+      if (!skill || !Number.isSafeInteger(offset) || offset < 0) return "Skill-Fehler: Skill oder Offset ungültig.";
+      try {
+        const raw = readCatalogSkill(skill);
+        return `Skill: ${skill.id}\nQuelle: ${skill.filePath}\nPaket: ${skill.baseDir}\nZeichen ${offset}–${Math.min(offset + 10000, raw.length)} von ${raw.length}.\n${raw.slice(offset, offset + 10000)}${offset + 10000 < raw.length ? `\nWeiter: skill load ${skill.id} ${offset + 10000}` : ""}`;
+      } catch { return "Skill-Fehler: Datei ist nicht mehr sicher lesbar."; }
     }
+    case "read": {
+      const skill = catalog.skills.find((s) => s.id === rest[0]);
+      const offset = rest[2] === undefined ? 0 : Number(rest[2]);
+      if (!skill || !rest[1] || !Number.isSafeInteger(offset) || offset < 0) return "Skill-Fehler: Ressource oder Offset ungültig.";
+      try {
+        const raw = readSkillResource(skill, rest[1]);
+        return `Ressource: ${rest[1]} · Zeichen ${offset}–${Math.min(offset + 10000, raw.length)} von ${raw.length}\n${raw.slice(offset, offset + 10000)}${offset + 10000 < raw.length ? `\nWeiter: skill read ${skill.id} ${rest[1]} ${offset + 10000}` : ""}`;
+      } catch { return "Skill-Fehler: Ressource fehlt oder liegt ausserhalb des Skill-Pakets."; }
+    }
+    case "status": return JSON.stringify({ skills: catalog.skills.length, roots: catalog.roots.map((r) => r.path), warnings: catalog.warnings }, null, 2);
     default:
-      return "Nutzung: <tool:skill>list</tool> · search <q> · load <name>";
+      return "Nutzung: list [seite] · search <q> [--page n] · load <id> [offset] · read <id> <pfad> [offset] · status";
   }
 }
 

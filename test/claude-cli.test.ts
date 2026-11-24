@@ -8,7 +8,13 @@ import {
   DISABLED_CLAUDE_CODE_TOOLS,
   type ClaudeRunner,
 } from "../src/providers/claude-cli.js";
-import { detectProvider, resolveModelName, getModelDisplayName } from "../src/providers.js";
+import {
+  buildClaudeCliModels,
+  detectProvider,
+  getModelDisplayName,
+  listProviders,
+  resolveModelName,
+} from "../src/providers.js";
 
 const m = (role: Message["role"], content: string): Message => ({ role, content });
 
@@ -51,8 +57,8 @@ test("buildClaudeArgs runs print mode, disables Claude Code tools, sets model+sy
   assert.deepEqual(args.slice(args.indexOf("--output-format"), args.indexOf("--output-format") + 2), ["--output-format", "text"]);
   assert.deepEqual(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2), ["--model", "opus"]);
   assert.deepEqual(args.slice(args.indexOf("--system-prompt"), args.indexOf("--system-prompt") + 2), ["--system-prompt", "SYS"]);
-  const disallow = args[args.indexOf("--disallowedTools") + 1];
-  for (const t of DISABLED_CLAUDE_CODE_TOOLS) assert.ok(disallow.includes(t), `${t} disabled`);
+  assert.equal(args[args.indexOf("--tools") + 1], "", "all built-in tools, including future ones, are disabled");
+  assert.equal(args[args.indexOf("--disallowedTools") + 1], "mcp__*", "external tools remain disabled too");
 });
 
 test("buildClaudeArgs omits --model when alias is empty (Claude default)", () => {
@@ -92,4 +98,34 @@ test("claudeCliStream stops emitting once the signal is aborted", async () => {
     tokens.push(t.text);
   }
   assert.deepEqual(tokens, ["first"]);
+});
+
+test("the subscription lists the full Anthropic catalog, not just the aliases", () => {
+  // Regression: /model showed only claude-cli + three aliases, which read as
+  // "the models did not load". `claude -p --model claude-fable-5` is valid.
+  const models = buildClaudeCliModels(["claude-fable-5", "claude-opus-5"]);
+  assert.ok(models.includes("claude-cli"), "the CLI default stays first");
+  assert.ok(models.includes("claude-cli/opus"), "short aliases remain");
+  assert.ok(models.includes("claude-cli/claude-fable-5"));
+  assert.ok(models.includes("claude-cli/claude-opus-5"));
+});
+
+test("subscription model lists contain no duplicates and no placeholders", () => {
+  const models = buildClaudeCliModels(["claude-fable-5", "(Modell-ID manuell eingeben)"]);
+  assert.equal(new Set(models).size, models.length);
+  assert.ok(!models.some((model) => model.includes("(")));
+});
+
+test("subscription models are routed and labelled through the hosted catalog", () => {
+  assert.equal(detectProvider("claude-cli/claude-fable-5"), "claude-cli");
+  assert.equal(resolveModelName("claude-cli/claude-fable-5", "claude-cli"), "claude-fable-5");
+  const label = getModelDisplayName("claude-cli/claude-fable-5");
+  assert.match(label, /Abo/);
+  assert.ok(!label.startsWith("claude-cli/"), "not the raw id");
+});
+
+test("the subscription catalog offers vendor aliases without guessed model IDs", () => {
+  const entry = listProviders().find((provider) => provider.name === "claude-cli");
+  assert.ok(entry);
+  assert.deepEqual(entry.models, ["claude-cli", "claude-cli/opus", "claude-cli/sonnet", "claude-cli/haiku"]);
 });

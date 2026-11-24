@@ -1,12 +1,12 @@
+import { discoverSkills, readCatalogSkill, type CatalogSkill } from "./skill-catalog.js";
 // ─── Skills System ───────────────────────────────────────
 // Markdown-based skills with YAML frontmatter
-// Loaded from ~/.morningstar/skills/*.md and .morningstar/skills/*.md
+// Shared catalog across local skill packages; content loaded on selection.
 
-import { existsSync, lstatSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
-import { join, basename } from "node:path";
+import { existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { parseFrontmatter, serializeFrontmatter } from "./frontmatter.js";
-import { resolveWithinWorkspace } from "./file-guards.js";
 
 export interface Skill {
   id: string;
@@ -36,101 +36,25 @@ interface SkillFrontmatter {
 
 const GLOBAL_SKILLS_DIR = join(homedir(), ".morningstar", "skills");
 
-function parseSkillFile(
-  filePath: string,
-  id: string,
-  source: "global" | "project",
-  boundaryRoot?: string,
-): Skill | null {
-  try {
-    const fileStat = lstatSync(filePath);
-    if (!fileStat.isFile() || fileStat.isSymbolicLink()) return null;
-    const checkedFile = boundaryRoot
-      ? resolveWithinWorkspace(filePath, boundaryRoot)
-      : { ok: true, resolved: filePath };
-    if (!checkedFile.ok) return null;
-
-    const raw = readFileSync(checkedFile.resolved, "utf-8");
-    const { frontmatter, content } = parseFrontmatter<SkillFrontmatter>(raw);
-
-    return {
-      id,
-      name: (frontmatter.name as string) || id,
-      description: (frontmatter.description as string) || "",
-      triggers: frontmatter.triggers as string[] | undefined,
-      tools: frontmatter.tools as string[] | undefined,
-      agent: frontmatter.agent as string | undefined,
-      tags: frontmatter.tags as string[] | undefined,
-      content,
-      source,
-      filePath: checkedFile.resolved,
-      origin: frontmatter.origin as string | undefined,
-      version: frontmatter.version as string | undefined,
-    };
-  } catch {
-    return null;
-  }
+function catalogSkill(entry: CatalogSkill, full = false): Skill {
+  const parsed = full ? parseFrontmatter<SkillFrontmatter>(readCatalogSkill(entry)) : undefined;
+  const fm = parsed?.frontmatter;
+  const array = (value: unknown) => Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : undefined;
+  return { tools: array(fm?.tools), tags: array(fm?.tags), agent: typeof fm?.agent === "string" ? fm.agent : undefined,
+    version: typeof fm?.version === "string" ? fm.version : undefined, id: entry.id, name: entry.name, description: entry.description, triggers: entry.triggers,
+    source: entry.source, filePath: entry.filePath, origin: entry.origin,
+    content: parsed?.content ?? "" };
 }
 
-function loadSkillsFromDir(
-  dir: string,
-  source: "global" | "project",
-  boundaryRoot?: string,
-): Skill[] {
-  const skills: Skill[] = [];
-  if (!existsSync(dir)) return skills;
-
-  try {
-    if (lstatSync(dir).isSymbolicLink()) return skills;
-    const checkedDir = boundaryRoot
-      ? resolveWithinWorkspace(dir, boundaryRoot)
-      : { ok: true, resolved: dir };
-    if (!checkedDir.ok || !lstatSync(checkedDir.resolved).isDirectory()) return skills;
-    const entries = readdirSync(checkedDir.resolved, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const entryPath = join(checkedDir.resolved, entry.name);
-
-      // Flat .md files (existing format)
-      if (entry.isFile() && !entry.isSymbolicLink() && entry.name.endsWith(".md")) {
-        const skill = parseSkillFile(entryPath, basename(entry.name, ".md"), source, boundaryRoot);
-        if (skill) skills.push(skill);
-        continue;
-      }
-
-      // Subdirectory with SKILL.md (ECC format: skills/[name]/SKILL.md)
-      try {
-        if (entry.isDirectory() && !entry.isSymbolicLink() && lstatSync(entryPath).isDirectory()) {
-          if (boundaryRoot && !resolveWithinWorkspace(entryPath, boundaryRoot).ok) continue;
-          const skillMd = join(entryPath, "SKILL.md");
-          if (existsSync(skillMd)) {
-            const skill = parseSkillFile(skillMd, entry.name, source, boundaryRoot);
-            if (skill) skills.push(skill);
-          }
-        }
-      } catch {}
-    }
-  } catch {}
-
-  return skills;
-}
-
+/** Metadata only; procedure text is loaded on explicit selection. */
 export function loadSkills(cwd: string): Skill[] {
-  const projectDir = join(cwd, ".morningstar", "skills");
-  const globalSkills = loadSkillsFromDir(GLOBAL_SKILLS_DIR, "global");
-  const projectSkills = loadSkillsFromDir(projectDir, "project", cwd);
-
-  // Project skills override global skills with same id
-  const merged = new Map<string, Skill>();
-  for (const s of globalSkills) merged.set(s.id, s);
-  for (const s of projectSkills) merged.set(s.id, s);
-
-  return Array.from(merged.values());
+  return discoverSkills(cwd).skills.map((entry) => catalogSkill(entry));
 }
 
 export function getSkill(id: string, cwd: string): Skill | null {
-  const skills = loadSkills(cwd);
-  return skills.find(s => s.id === id) || null;
+  const entry = discoverSkills(cwd).skills.find((skill) => skill.id === id);
+  if (!entry) return null;
+  try { return catalogSkill(entry, true); } catch { return null; }
 }
 
 /**
@@ -148,10 +72,10 @@ export function matchSkillByTrigger(input: string, cwd: string): Skill | null {
         if (trigger.startsWith("/") && trigger.endsWith("/")) {
           // Regex trigger
           const regex = new RegExp(trigger.slice(1, -1), "i");
-          if (regex.test(input)) return skill;
+          if (regex.test(input)) return getSkill(skill.id, cwd);
         } else {
           // String match trigger
-          if (lower.includes(trigger.toLowerCase())) return skill;
+          if (lower.includes(trigger.toLowerCase())) return getSkill(skill.id, cwd);
         }
       } catch {}
     }
@@ -171,6 +95,7 @@ export function createSkill(
   options?: { triggers?: string[]; tools?: string[]; agent?: string; tags?: string[]; global?: boolean },
   cwd?: string
 ): { success: boolean; filePath?: string; error?: string } {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$/.test(id)) return { success: false, error: "Ungültige Skill-ID" };
   const dir = options?.global
     ? GLOBAL_SKILLS_DIR
     : join(cwd || process.cwd(), ".morningstar", "skills");
@@ -214,9 +139,11 @@ export function formatSkillsList(skills: Skill[]): string {
 export function getSkillPromptAddition(skill: Skill | null | undefined): string {
   if (!skill) return "";
   let addition = `\n\n--- Active Skill: ${skill.name} ---\n`;
-  addition += skill.content;
+  addition += `Quelle: ${skill.filePath}\nRelative Referenzen und Skripte gehören zu diesem Skill-Verzeichnis.\n`;
+  addition += skill.content.slice(0, 12000);
+  if (skill.content.length > 12000) addition += `\nWeiterlesen mit skill load ${skill.id} 12000.`;
   if (skill.tools && skill.tools.length > 0) {
-    addition += `\n\nErlaubte Tools fuer diesen Skill: ${skill.tools.join(", ")}`;
+    addition += `\n\nIm Skill beschriebene Tools (Berechtigungsprüfung bleibt gültig): ${skill.tools.join(", ")}`;
   }
   addition += `\n--- Ende Skill ---`;
   return addition;

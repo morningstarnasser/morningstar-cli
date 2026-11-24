@@ -3,6 +3,9 @@
 // rules are always authoritative; modes then provide conservative defaults.
 
 import { classifyCommand } from "./safety.js";
+import { homedir } from "node:os";
+import { resolve, relative, isAbsolute } from "node:path";
+import { realpathSync } from "node:fs";
 import type { PermissionMode } from "./permissions.js";
 
 export type Decision = "allow" | "ask" | "deny";
@@ -14,7 +17,7 @@ export interface PolicyVerdict {
   reason: string;
 }
 
-type ActionKind = "read" | "edit" | "delete" | "shell" | "network" | "delegate" | "unknown";
+type ActionKind = "read" | "edit" | "delete" | "shell" | "network" | "delegate" | "orchestrate" | "unknown";
 
 interface ActionProfile {
   kind: ActionKind;
@@ -45,6 +48,11 @@ const VALID_MODES = new Set<PermissionMode>([
   "dontAsk",
   "delegate",
 ]);
+
+export function canonicalToolName(name: string): string {
+  const aliases: Record<string, string> = { webfetch: "fetch", websearch: "web" };
+  return aliases[name.trim().toLowerCase()] ?? name.trim().toLowerCase();
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -89,15 +97,39 @@ function matchesToolPattern(
   tool: string,
   target: string,
   forAllowRule: boolean,
+  cwd?: string,
 ): boolean {
   const rule = pattern.trim();
   if (!rule) return false;
   if (rule === "*") return true;
 
   const scoped = /^([^()]+)\((.*)\)$/.exec(rule);
-  if (!scoped) return rule.toLowerCase() === tool;
+  const canonical = canonicalToolName;
+  if (!scoped) return new RegExp(`^${canonical(rule).split("*").map(escapeRegExp).join(".*")}$`).test(tool);
 
   const [, ruleTool, ruleTarget] = scoped;
+  if (canonical(ruleTool) !== tool) return false;
+  if (tool === "fetch" && ruleTarget.startsWith("domain:")) {
+    try { return matchTargetPattern(ruleTarget.slice(7), new URL(target).hostname, forAllowRule); }
+    catch { return false; }
+  }
+  if (cwd && ["read", "write", "edit", "delete"].includes(tool)) {
+    const expand = (path: string) => path.startsWith("~/") ? resolve(homedir(), path.slice(2)) : path;
+    const pattern = expand(ruleTarget);
+    const absoluteTarget = resolve(cwd, expand(target));
+    let canonicalTarget = absoluteTarget;
+    let canonicalCwd = cwd;
+    try { canonicalCwd = realpathSync(cwd); } catch {}
+    try { canonicalTarget = realpathSync(absoluteTarget); } catch {}
+    const match = (path: string, base: string = cwd) => {
+      const candidate = isAbsolute(pattern) ? path : relative(base, path);
+      const normalized = pattern.replace(/^\.\//, "");
+      const expression = normalized.split("**").map((part) => part.split("*").map(escapeRegExp).join("[^/]*")).join(".*");
+      return new RegExp(`^${expression}$`).test(candidate);
+    };
+    // Grants must cover both the named path and symlink destination; denials cover either.
+    return forAllowRule ? match(absoluteTarget) && match(canonicalTarget, canonicalCwd) : match(absoluteTarget) || match(canonicalTarget, canonicalCwd);
+  }
   // A scoped Bash allow rule authorizes one command shape, never a second
   // command smuggled through chaining, redirection, or substitution. Apply
   // this to every scoped wildcard form, not only the `prefix:*` shorthand.
@@ -108,7 +140,7 @@ function matchesToolPattern(
   ) {
     return false;
   }
-  return ruleTool.trim().toLowerCase() === tool
+  return canonical(ruleTool) === tool
     && matchTargetPattern(ruleTarget, target, forAllowRule);
 }
 
@@ -117,8 +149,9 @@ function firstMatchingPattern(
   tool: string,
   target: string,
   forAllowRule: boolean,
+  cwd?: string,
 ): string | undefined {
-  return patterns?.find((pattern) => matchesToolPattern(pattern, tool, target, forAllowRule));
+  return patterns?.find((pattern) => matchesToolPattern(pattern, tool, target, forAllowRule, cwd));
 }
 
 function classifyGitAction(target: string): ActionProfile {
@@ -145,6 +178,9 @@ function classifyGitAction(target: string): ActionProfile {
 }
 
 function classifyAction(tool: string, target: string): ActionProfile {
+  if (tool === "swarm") {
+    return { kind: "orchestrate", risk: "low", reason: "local orchestration; each child tool inherits and enforces parent permissions", requiresApproval: false };
+  }
   if (READ_TOOLS.has(tool)) {
     return { kind: "read", risk: "none", reason: "read-only tool", requiresApproval: false };
   }
@@ -208,7 +244,7 @@ function classifyAction(tool: string, target: string): ActionProfile {
  *
  * Precedence:
  * 1. A matching disallowed pattern always denies.
- * 2. Plan mode denies every action that is not provably read-only.
+ * 2. Plan mode allows reads and orchestration; child tools retain plan mode.
  * 3. Strict mode asks for every action.
  * 4. A matching allowed pattern allows the action.
  * 5. The selected mode supplies the fail-closed default.
@@ -219,11 +255,14 @@ export function decidePermission(
   mode: PermissionMode,
   allowedPatterns: readonly string[] = [],
   disallowedPatterns: readonly string[] = [],
+  askPatterns: readonly string[] = [],
+  disableBypass = false,
+  cwd?: string,
 ): PolicyVerdict {
   const tool = toolName.trim().toLowerCase();
   const target = argumentOrTarget ?? "";
   const profile = classifyAction(tool, target);
-  const deniedBy = firstMatchingPattern(disallowedPatterns, tool, target, false);
+  const deniedBy = firstMatchingPattern(disallowedPatterns, tool, target, false, cwd);
 
   if (deniedBy !== undefined) {
     return {
@@ -241,12 +280,20 @@ export function decidePermission(
     };
   }
 
-  if (mode === "plan" && profile.kind !== "read") {
+  if (mode === "plan" && profile.kind !== "read" && profile.kind !== "orchestrate") {
     return {
       decision: "deny",
       risk: profile.risk,
       reason: `plan mode denies non-read-only actions: ${profile.reason}`,
     };
+  }
+
+  if (disableBypass && mode === "bypassPermissions") {
+    return { decision: "deny", risk: "high", reason: "bypass permissions is disabled by settings" };
+  }
+  const askBy = firstMatchingPattern(askPatterns, tool, target, false, cwd);
+  if (askBy !== undefined) {
+    return { decision: mode === "dontAsk" ? "deny" : "ask", risk: profile.risk, reason: `explicit approval required by pattern "${askBy}"` };
   }
 
   if (mode === "strict") {
@@ -257,7 +304,7 @@ export function decidePermission(
     };
   }
 
-  const allowedBy = firstMatchingPattern(allowedPatterns, tool, target, true);
+  const allowedBy = firstMatchingPattern(allowedPatterns, tool, target, true, cwd);
   if (allowedBy !== undefined) {
     return {
       decision: "allow",
@@ -285,7 +332,7 @@ export function decidePermission(
           reason: `acceptEdits requires approval for bash/delete: ${profile.reason}`,
         };
       }
-      if (profile.kind === "read") {
+      if (profile.kind === "read" || profile.kind === "orchestrate") {
         return { decision: "allow", risk: profile.risk, reason: profile.reason };
       }
       return {

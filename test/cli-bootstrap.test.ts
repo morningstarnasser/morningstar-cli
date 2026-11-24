@@ -1,3 +1,4 @@
+import { getOllamaBaseUrl } from "../src/providers.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -19,7 +20,7 @@ test("selected model repairs a stale saved provider and base URL", () => {
   );
 
   assert.equal(result.config.provider, "ollama");
-  assert.equal(result.config.baseUrl, "http://localhost:11434/v1");
+  assert.equal(result.config.baseUrl, getOllamaBaseUrl());
   assert.equal(result.config.apiKey, "");
 });
 

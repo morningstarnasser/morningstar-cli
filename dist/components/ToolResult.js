@@ -111,13 +111,7 @@ export function ToolResult({ tool, result, success, diff, filePath, linesChanged
     const showFullOutput = FULL_OUTPUT_TOOLS.has(tool);
     const lines = result.split("\n");
     // For edit diffs, compute a better summary
-    const hasDiff = diff && tool === "edit" && diff.oldStr && diff.newStr;
-    let diffSummary = "";
-    if (hasDiff) {
-        const addedLines = diff.newStr.split("\n").length;
-        const removedLines = diff.oldStr.split("\n").length;
-        diffSummary = `Added ${addedLines} line${addedLines !== 1 ? "s" : ""}, removed ${removedLines} line${removedLines !== 1 ? "s" : ""}`;
-    }
+    const hasDiff = success && diff !== undefined;
     return (_jsxs(Box, { flexDirection: "column", marginLeft: 2, children: [_jsxs(Text, { children: [_jsx(Text, { color: toolColor, bold: true, children: "⏺ " }), _jsx(Text, { color: toolColor, bold: true, children: label }), arg && _jsxs(Text, { color: dim, children: ["(", arg, ")"] })] }), success && showFullOutput && lines.length > 0 ? (_jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { children: [_jsx(Text, { color: dim, children: "  ⎿  " }), _jsx(Text, { children: lines[0] })] }), lines.slice(1, MAX_OUTPUT_LINES).map((line, i) => (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { children: line || " " })] }, i))), lines.length > MAX_OUTPUT_LINES && (_jsxs(Text, { children: [_jsx(Text, { children: "     " }), _jsx(Text, { color: dim, children: `… (+${lines.length - MAX_OUTPUT_LINES} lines)` })] }))] })) : success && hasDiff ? (
             /* Claude Code-style inline diff for edit tool */
             _jsx(ClaudeCodeDiff, { oldStr: diff.oldStr, newStr: diff.newStr, filePath: diff.filePath || filePath, startLineNumber: startLineNumber || 1 })) : success && !showFullOutput ? (

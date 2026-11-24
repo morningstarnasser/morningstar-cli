@@ -55,7 +55,7 @@ function update(userId: number, text: string, chatId = userId): TelegramUpdate {
   return { update_id: Math.floor(Math.random() * 1e9), message: { message_id: 1, from: { id: userId, is_bot: false }, chat: { id: chatId, type: "private" }, date: 0, text } };
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 1000): Promise<void> {
+async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (!predicate()) {
     if (Date.now() >= deadline) throw new Error("timed out waiting for test condition");

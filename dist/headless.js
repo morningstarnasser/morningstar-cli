@@ -10,4 +10,5 @@ export { executeNativeToolCall, executeToolCall, fetchUrl, parseToolCalls, webSe
 export { detectProvider, getModelDisplayName, getProviderApiKeyEnv, getProviderBaseUrl, listInstalledOllamaModels, listProviders, refreshInstalledOllamaModels, } from "./providers.js";
 export { createResilientStream, pickModelChain, } from "./model-fallback.js";
 export { decidePermission, } from "./policy-engine.js";
+export { runSwarm, prepareSwarmPlan, validateSwarmPlan } from "./swarm.js";
 //# sourceMappingURL=headless.js.map

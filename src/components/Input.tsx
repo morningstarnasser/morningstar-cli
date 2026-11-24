@@ -1,15 +1,31 @@
+import { interactionModeLabel } from "../runtime/interaction-mode.js";
+import { ImageText, IMAGE_FOREGROUND, IMAGE_BACKGROUND } from "./ImageText.js";
+import { ImageDrafts } from "../runtime/images.js";
+import type { ImageAttachment } from "../types.js";
+import type { InputRunContext } from "../input-routing.js";
+import { composerLayout, composerOffset, terminalReport } from "../runtime/composer-layout.js";
+import { useTerminalHit } from "../hooks/useTerminalPointer.js";
+import type { DOMElement } from "ink";
 import React, { useState, useRef, useEffect } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput, useStdin } from "ink";
 import { readdirSync, statSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import { useTheme } from "../hooks/useTheme.js";
 import { useCommandHistory } from "../hooks/useHistory.js";
 import { useTerminalColumns } from "../hooks/useTerminalColumns.js";
 import { getAllAgents } from "../custom-agents.js";
+import { bounds, selectedText, moveCursor, stepCursor, replaceSelection, erase, deletionKey, type ComposerState } from "../runtime/composer.js";
+import { copyText } from "../runtime/clipboard.js";
 import { composerRule, suggestionLimit } from "../tui-layout.js";
 
 interface InputProps {
-  onSubmit: (value: string) => void;
+  permissionMode?: import("../permissions.js").PermissionMode;
+  modeLocked?: boolean;
+  onCycleMode?: (reverse: boolean) => void;
+  onSubmit: (value: string, context?: InputRunContext) => void;
+  seedImages?: ImageAttachment[];
+  onSendNow?: () => void;
+  initialValue?: string;
   activeAgent: string | null;
   planMode: boolean;
   thinkMode: boolean;
@@ -18,6 +34,8 @@ interface InputProps {
   vimMode?: boolean;
   cwd?: string;
   isActive?: boolean;
+  onSelectionChange?: (text: string) => void;
+  onCancel?: () => void;
 }
 
 // Get file/directory completions for a partial path
@@ -47,38 +65,71 @@ function getFileCompletions(partial: string, cwd: string, maxResults = 8): strin
   }
 }
 
-export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing, suggestions, vimMode, cwd, isActive = true }: InputProps) {
+export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask", modeLocked, onCycleMode, thinkMode, isProcessing, suggestions, vimMode, cwd, isActive = true, onSelectionChange, onCancel, onSendNow, initialValue = "", seedImages = [] }: InputProps) {
   const { prompt, accent, warning, dim, primary } = useTheme();
   const columns = useTerminalColumns();
   const rule = composerRule(columns);
-  const [value, setValue] = useState("");
-  const [cursorPos, setCursorPos] = useState(0);
+  const [value, setValue] = useState(initialValue);
+  const [cursorPos, setCursorPos] = useState(initialValue.length);
+  const [anchor, setAnchor] = useState<number | null>(null);
+  const [copyError, setCopyError] = useState("");
+  const images = useRef<ImageDrafts>();
+  images.current ??= new ImageDrafts(seedImages);
+  images.current.seed(seedImages);
+  function submit(text: string): boolean {
+    try { const attached = images.current!.forText(text); onSubmit(text, attached.length ? { images: attached } : undefined); return true; }
+    catch (error) { setCopyError((error as Error).message); return false; }
+  }
+  const editor: ComposerState = { value, cursor: cursorPos, anchor };
+  const selection = selectedText(editor);
+  const editorRef = useRef(editor);
+  editorRef.current = editor;
+  const rawInput = useRef("");
+  const { internal_eventEmitter } = useStdin();
+  useEffect(() => {
+    const capture = (data: string | Buffer) => { rawInput.current = String(data); };
+    // Read the exact event before Ink's useInput maps both deletion keys alike.
+    internal_eventEmitter.prependListener("input", capture);
+    return () => { internal_eventEmitter.removeListener("input", capture); };
+  }, [internal_eventEmitter]);
+  useEffect(() => { onSelectionChange?.(isActive ? selection : ""); }, [selection, isActive, onSelectionChange]);
+  function applyEditor(next: ComposerState): void {
+    editorRef.current = next;
+    setValue(next.value); setCursorPos(next.cursor); setAnchor(next.anchor);
+    onSelectionChange?.(selectedText(next));
+    setShowSuggestions(!isProcessing && next.value.startsWith("/") && next.anchor === null);
+    setSelectedSuggIdx(0); setCopyError("");
+  }
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggIdx, setSelectedSuggIdx] = useState(0);
   const { addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
 
   // Helper: update value AND put cursor at the end (used for history nav, completions, clear)
   function setValueEnd(next: string): void {
+    editorRef.current = { value: next, cursor: next.length, anchor: null };
     setValue(next);
     setCursorPos(next.length);
+    setAnchor(null);
+    onSelectionChange?.("");
   }
 
   // Queued message — typed while AI is processing
-  const [queued, setQueued] = useState<string | null>(null);
-  const queuedRef = useRef<string | null>(null);
+  const [queued, setQueued] = useState<string[]>([]);
+  const queuedRef = useRef<string[]>([]);
+  const sendPrefix = useRef(0);
+  function enqueue(text: string) { queuedRef.current = [...queuedRef.current, text]; setQueued([...queuedRef.current]); }
+  function clearQueue() { queuedRef.current = []; setQueued([]); }
 
   // Vim mode state
   const [vimModeState, setVimModeState] = useState<"normal" | "insert">("normal");
 
   // When processing finishes and there's a queued message, auto-submit it
   useEffect(() => {
-    if (!isProcessing && queuedRef.current) {
-      const msg = queuedRef.current;
-      queuedRef.current = null;
-      setQueued(null);
-      setValue("");
-      // Small delay to let UI settle
-      setTimeout(() => onSubmit(msg), 50);
+    if (!isProcessing && queuedRef.current.length) {
+      const msg = queuedRef.current.shift()!;
+      setQueued([...queuedRef.current]);
+      // The queued draft was cleared when enqueued. Preserve newer typing.
+      if (!submit(msg)) setValueEnd(msg);
     }
   }, [isProcessing, onSubmit]);
 
@@ -134,49 +185,77 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
     }
   }, [value, cwd, isProcessing]);
 
+  const inputNode = useRef<DOMElement>(null);
+  const rows = composerLayout(value, promptText, Math.max(16, columns - 3));
+  const imageRanges = [...value.matchAll(/\[Image #\d+\]/g)].map(m => [m.index!, m.index! + m[0].length]);
+  const dragAnchor = useRef<number | null>(null);
+  useTerminalHit(inputNode, e => {
+    if (!isActive) return;
+    const current = editorRef.current, offset = composerOffset(rows, Math.max(0, e.x), Math.max(0, e.y));
+    if (e.kind === "down") { dragAnchor.current = e.shift ? current.anchor ?? current.cursor : offset; applyEditor({ ...current, cursor: offset, anchor: e.shift ? dragAnchor.current : null }); }
+    else if (dragAnchor.current !== null) { applyEditor({ ...current, cursor: offset, anchor: offset === dragAnchor.current ? null : dragAnchor.current }); if (e.kind === "up") dragAnchor.current = null; }
+  });
   useInput((input, key) => {
-    // ── While processing: allow typing + queue on Enter ──
+    if (terminalReport(rawInput.current) || terminalReport(input)) return;
+    const editor = editorRef.current;
+    const { value, cursor: cursorPos, anchor } = editor;
+    const selection = selectedText(editor);
+    // Editing is identical while idle and while a message is queued.
+    const editing = isProcessing || !vimMode || vimModeState === "insert";
+    if (key.ctrl && input === "c") {
+      if (!selection) { clearQueue(); }
+      return; // App owns copy / cancel / exit.
+    }
+    if (editing && isProcessing) {
+      if (key.ctrl && input === "s" && Date.now() - sendPrefix.current < 1000) {
+        sendPrefix.current = 0;
+        if (value.trim()) { enqueue(value.trim()); addToHistory(value.trim()); setValueEnd(""); }
+        if (queuedRef.current.length) onSendNow?.();
+        return;
+      }
+      if (key.ctrl && input === "x" && !selection && (queuedRef.current.length || value.trim())) { sendPrefix.current = Date.now(); return; }
+      sendPrefix.current = 0;
+      if (key.upArrow && !value && queuedRef.current.length) { const draft = queuedRef.current.pop()!; setQueued([...queuedRef.current]); setValueEnd(draft); return; }
+    }
+    if (editing) {
+      if (key.ctrl && input === "s") { applyEditor({ ...editor, cursor: value.length, anchor: 0 }); return; }
+      if (key.ctrl && input === "x" && selection) {
+        const snapshot = editor;
+        void copyText(selection).then(() => {
+          const current = editorRef.current;
+          if (current.value === snapshot.value && current.cursor === snapshot.cursor && current.anchor === snapshot.anchor) applyEditor(erase(snapshot));
+        }).catch(error => setCopyError(error.message));
+        return;
+      }
+      if (key.escape && selection) { setAnchor(null); return; }
+      if (key.leftArrow || key.rightArrow) { applyEditor(moveCursor(editor, key.leftArrow ? -1 : 1, key.shift, key.ctrl || key.meta)); setShowSuggestions(false); return; }
+      if (key.ctrl && (input === "a" || input === "e")) { applyEditor({ ...editor, cursor: input === "a" ? 0 : value.length, anchor: key.shift ? anchor ?? cursorPos : null }); return; }
+      if (key.shift && (key.upArrow || key.downArrow)) { applyEditor({ ...editor, cursor: key.upArrow ? 0 : value.length, anchor: anchor ?? cursorPos }); return; }
+      if (key.ctrl && input === "u") { setValueEnd(""); setShowSuggestions(false); return; }
+      if (key.ctrl && input === "k") { applyEditor(replaceSelection({ ...editor, anchor: value.length }, "")); return; }
+      if (key.ctrl && input === "w") { applyEditor(selection ? erase(editor) : replaceSelection(moveCursor(editor, -1, true, true), "")); return; }
+      const deletion = deletionKey(rawInput.current, key, input);
+      if (deletion) {
+        let next = editor;
+        for (let i = 0; i < deletion.count; i++) next = deletion.word && !selectedText(next)
+          ? replaceSelection(moveCursor(next, deletion.forward ? 1 : -1, true, true), "") : erase(next, deletion.forward);
+        applyEditor(next); resetNavigation(); return;
+      }
+      if (key.return && (key.shift || key.meta)) { applyEditor(replaceSelection(editor, "\n")); return; }
+      if (input && !key.ctrl && !key.meta && !key.return && !key.tab) {
+        try { applyEditor(replaceSelection(editor, images.current!.paste(input, cwd ?? process.cwd()))); resetNavigation(); }
+        catch (error) { setCopyError((error as Error).message); }
+        return;
+      }
+    }
+    if (key.tab && !key.ctrl && !key.meta && (key.shift || isProcessing || !((showFileSuggestions && fileCompletions.length > 0) || (showSuggestions && filteredSuggestions.length > 0)))) {
+      onCycleMode?.(Boolean(key.shift));
+      return;
+    }
     if (isProcessing) {
-      // Readline-style editing shortcuts still available in processing mode
-      if (key.ctrl && input === "a") { setCursorPos(0); return; }
-      if (key.ctrl && input === "e") { setCursorPos(value.length); return; }
-      if (key.ctrl) return;
-
-      if (key.return) {
-        const trimmed = value.trim();
-        if (trimmed) {
-          addToHistory(trimmed);
-          queuedRef.current = trimmed;
-          setQueued(trimmed);
-          setValueEnd("");
-        }
-        return;
-      }
-
-      if (key.escape) {
-        if (queuedRef.current) {
-          queuedRef.current = null;
-          setQueued(null);
-        }
-        setValueEnd("");
-        return;
-      }
-
-      if (key.leftArrow) { setCursorPos((p) => Math.max(0, p - 1)); return; }
-      if (key.rightArrow) { setCursorPos((p) => Math.min(value.length, p + 1)); return; }
-
-      if (key.backspace || key.delete) {
-        if (cursorPos > 0) {
-          setValue(value.slice(0, cursorPos - 1) + value.slice(cursorPos));
-          setCursorPos(cursorPos - 1);
-        }
-        return;
-      }
-
-      if (input && !key.ctrl && !key.meta) {
-        setValue(value.slice(0, cursorPos) + input + value.slice(cursorPos));
-        setCursorPos(cursorPos + input.length);
-      }
+      if (key.return && /^(\/activity|\/rc|\/remote-control)(?:\s|$)/.test(value.trim())) { if (!submit(value.trim())) return; setValueEnd(""); return; }
+      if (key.return && value.trim()) { addToHistory(value.trim()); enqueue(value.trim()); setValueEnd(""); }
+      if (key.escape) { clearQueue(); setValueEnd(""); onCancel?.(); }
       return;
     }
 
@@ -185,18 +264,18 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
     // Vim mode key handling
     if (vimMode && vimModeState === "normal") {
       if (input === "i") { setVimModeState("insert"); return; }
-      if (input === "a") { setCursorPos(Math.min(value.length, cursorPos + 1)); setVimModeState("insert"); return; }
+      if (input === "a") { setCursorPos(stepCursor(value, cursorPos, 1)); setVimModeState("insert"); return; }
       if (input === "A") { setCursorPos(value.length); setVimModeState("insert"); return; }
       if (input === "I") { setCursorPos(0); setVimModeState("insert"); return; }
-      if (input === "h" || key.leftArrow) { setCursorPos((p) => Math.max(0, p - 1)); return; }
-      if (input === "l" || key.rightArrow) { setCursorPos((p) => Math.min(value.length, p + 1)); return; }
+      if (input === "h" || key.leftArrow) { setCursorPos((p) => stepCursor(value, p, -1)); return; }
+      if (input === "l" || key.rightArrow) { setCursorPos((p) => stepCursor(value, p, 1)); return; }
       if (input === "0") { setCursorPos(0); return; }
       if (input === "$") { setCursorPos(value.length); return; }
       if (input === "d") { setValueEnd(""); return; }
       if (input === "c") { setValueEnd(""); setVimModeState("insert"); return; }
       if (key.return && value.trim()) {
         addToHistory(value.trim());
-        onSubmit(value.trim());
+        if (!submit(value.trim())) return;
         setValueEnd("");
         setShowSuggestions(false);
         setSelectedSuggIdx(0);
@@ -220,7 +299,7 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
       const trimmed = value.trim();
       if (trimmed) {
         addToHistory(trimmed);
-        onSubmit(trimmed);
+        if (!submit(trimmed)) return;
       }
       setValueEnd("");
       setShowSuggestions(false);
@@ -232,51 +311,6 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
     if (key.escape) {
       setShowSuggestions(false);
       setSelectedSuggIdx(0);
-      return;
-    }
-
-    // ── Cursor navigation ──
-    if (key.leftArrow) {
-      if (showSuggestions && filteredSuggestions.length > 0) {
-        // Left on suggestion list: dismiss
-        setShowSuggestions(false);
-        setSelectedSuggIdx(0);
-        return;
-      }
-      setCursorPos((p) => Math.max(0, p - 1));
-      return;
-    }
-
-    if (key.rightArrow) {
-      if (showSuggestions && filteredSuggestions.length > 0) {
-        setValueEnd(filteredSuggestions[selectedSuggIdx].cmd);
-        setShowSuggestions(false);
-        setSelectedSuggIdx(0);
-        return;
-      }
-      // If cursor at end, completion hint accept (future); else move right
-      setCursorPos((p) => Math.min(value.length, p + 1));
-      return;
-    }
-
-    // ── Readline-style shortcuts: Ctrl+A (home), Ctrl+E (end), Ctrl+U (clear), Ctrl+W (delete word) ──
-    if (key.ctrl && input === "a") { setCursorPos(0); return; }
-    if (key.ctrl && input === "e") { setCursorPos(value.length); return; }
-    if (key.ctrl && input === "u") { setValueEnd(""); setShowSuggestions(false); return; }
-    if (key.ctrl && input === "k") {
-      setValue(value.slice(0, cursorPos));
-      return;
-    }
-    if (key.ctrl && input === "w") {
-      if (cursorPos === 0) return;
-      // Delete previous word: skip trailing spaces, then the word itself
-      const left = value.slice(0, cursorPos);
-      const right = value.slice(cursorPos);
-      const trimmedLeft = left.replace(/\s+$/, "");
-      const wordStart = trimmedLeft.search(/\S+$/);
-      const cutAt = wordStart >= 0 ? wordStart : 0;
-      setValue(left.slice(0, cutAt) + right);
-      setCursorPos(cutAt);
       return;
     }
 
@@ -316,69 +350,29 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
       return;
     }
 
-    if (key.backspace || key.delete) {
-      // Backspace = delete char LEFT of cursor; Delete (fn+del) = delete char UNDER cursor
-      if (key.delete && !key.backspace && cursorPos < value.length) {
-        const newVal = value.slice(0, cursorPos) + value.slice(cursorPos + 1);
-        setValue(newVal);
-        setShowSuggestions(newVal.startsWith("/") && newVal.length > 0);
-        setSelectedSuggIdx(0);
-        return;
-      }
-      if (cursorPos > 0) {
-        const newVal = value.slice(0, cursorPos - 1) + value.slice(cursorPos);
-        setValue(newVal);
-        setCursorPos(cursorPos - 1);
-        setShowSuggestions(newVal.startsWith("/") && newVal.length > 0);
-        setSelectedSuggIdx(0);
-      }
-      return;
-    }
-
-    if (input && !key.ctrl && !key.meta) {
-      const newVal = value.slice(0, cursorPos) + input + value.slice(cursorPos);
-      setValue(newVal);
-      setCursorPos(cursorPos + input.length);
-      setShowSuggestions(newVal.startsWith("/"));
-      setSelectedSuggIdx(0);
-      resetNavigation();
-    }
   }, { isActive });
 
   return (
     <Box flexDirection="column">
       {/* Queued message indicator */}
-      {queued && isProcessing && (
-        <Box marginLeft={1}>
-          <Text color={warning}>queued  </Text>
-          <Text color={primary}>{queued.length > 60 ? queued.slice(0, 57) + "..." : queued}</Text>
-          <Text color={dim}>  ·  Esc verwirft</Text>
+      {queued.length > 0 && (
+        <Box marginLeft={1} flexDirection="column">
+          {queued.slice(0, 3).map((text, i) => <Text key={i} backgroundColor="#303632" color={primary}>› <ImageText text={text.slice(0, Math.max(10, columns - 6))} /></Text>)}
+          {queued.length > 3 ? <Text color={dim}>+{queued.length - 3} weitere Nachrichten</Text> : null}
+          <Text color={dim}>Ctrl+X Ctrl+S sofort übernehmen · ↑ bearbeiten · Esc verwirft</Text>
         </Box>
       )}
 
       <Text color={dim}>{rule}</Text>
 
-      {/* Composer — always visible. Cursor rendered at cursorPos. */}
-      <Box marginLeft={1}>
-        <Text color={isProcessing ? dim : promptColor} bold>{promptText}</Text>
-        {(() => {
-          const before = value.slice(0, cursorPos);
-          const atCursor = cursorPos < value.length ? value[cursorPos] : "";
-          const after = cursorPos < value.length ? value.slice(cursorPos + 1) : "";
-          const textColor = isProcessing ? dim : undefined;
-          return (
-            <>
-              <Text color={textColor}>{before}</Text>
-              {atCursor ? (
-                <Text inverse>{atCursor}</Text>
-              ) : (
-                <Text color={dim}>█</Text>
-              )}
-              <Text color={textColor}>{after}</Text>
-            </>
-          );
-        })()}
+      <Box ref={inputNode} marginLeft={1} width={Math.max(16, columns - 3)} flexDirection="column">
+        {rows.map((row, i) => <Text key={i} wrap="truncate">{row.map((cell, j) => {
+          const marked = !cell.prefix && selection && cell.index >= bounds(editor)[0] && cell.index < bounds(editor)[1];
+          const image = !cell.prefix && imageRanges.some(([start, end]) => cell.index >= start && cell.index < end);
+          return <Text key={j} color={cell.prefix ? promptColor : marked ? "#101718" : image ? IMAGE_FOREGROUND : undefined} bold={cell.prefix || image} backgroundColor={marked ? accent : image ? IMAGE_BACKGROUND : undefined} inverse={!cell.prefix && !selection && cell.index === cursorPos}>{cell.text}</Text>;
+        })}</Text>)}
       </Box>
+      {copyError ? <Text color={warning}> {copyError}</Text> : null}
 
       {/* Autocomplete suggestions */}
       {showSuggestions && filteredSuggestions.length > 0 && (
@@ -419,6 +413,8 @@ export function Input({ onSubmit, activeAgent, planMode, thinkMode, isProcessing
         </Box>
       )}
       <Text color={dim}>{rule}</Text>
+      <Text color={dim}> <Text bold color={permissionMode === "bypassPermissions" ? warning : permissionMode === "plan" ? accent : primary}>{interactionModeLabel(permissionMode)}</Text>{modeLocked ? " · verwaltet" : " · Tab Modus wechseln · Shift+Tab zurück"}{isProcessing ? " · nächster Auftrag" : ""}</Text>
+      <Text color={dim}> {selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "Ctrl+F suchen · Mausrad scrollen · Esc live" : "Ctrl+F suchen · Ziehen markiert/kopiert · Mausrad scrollt · Esc zurück / stoppen"}</Text>
     </Box>
   );
 }

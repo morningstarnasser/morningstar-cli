@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "defaultMode": "plan",
+    "disableBypassPermissionsMode": "disable",
+    "deny": ["Bash", "Write", "Edit", "Delete", "WebFetch", "mcp__*"]
+  },
+  "disableAllHooks": true
+}

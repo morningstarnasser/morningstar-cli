@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import { useTheme } from "../hooks/useTheme.js";
+import { useTerminalColumns, useTerminalRows } from "../hooks/useTerminalColumns.js";
+import { fitText } from "../tui-layout.js";
+import { motionEnabled } from "../runtime/motion.js";
 
 export type AgentStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 export interface AgentBranch {
+  taskId?: string;
   agentId: string;
   status: AgentStatus;
   detail: string;
@@ -16,6 +20,7 @@ interface AgentTreeProps {
   branches: AgentBranch[];
   startTime: number;
   done?: boolean;
+  elapsedMs?: number;
 }
 
 const STATUS_ICON: Record<AgentStatus, string> = {
@@ -37,20 +42,26 @@ function formatElapsed(ms: number): string {
   return `${m}m ${rem}s`;
 }
 
-export function AgentTree({ title, branches, startTime, done }: AgentTreeProps) {
+export function AgentTree({ title, branches, startTime, done, elapsedMs }: AgentTreeProps) {
   const { primary, dim, success, error, info, warning, accent } = useTheme();
   const [frame, setFrame] = useState(0);
+  const columns = useTerminalColumns();
+  const rows = useTerminalRows();
+  const width = Math.max(16, columns - 8);
+  const limit = Math.min(8, Math.max(2, Math.floor((rows - 17) / 2)));
+  // Running tasks remain visible even when the plan has many queued dependents.
+  const visible = [...branches.filter(b => b.status === "running"), ...branches.filter(b => b.status !== "running")].slice(0, limit);
 
   useEffect(() => {
-    if (done) return;
-    const id = setInterval(() => setFrame((f) => (f + 1) % SPINNER.length), 120);
+    if (done || !motionEnabled()) return;
+    const id = setInterval(() => setFrame((f) => (f + 1) % SPINNER.length), 150);
     return () => clearInterval(id);
   }, [done]);
 
   const running = branches.filter((b) => b.status === "running").length;
   const completed = branches.filter((b) => b.status === "completed").length;
   const failed = branches.filter((b) => b.status === "failed").length;
-  const totalElapsed = Date.now() - startTime;
+  const totalElapsed = done ? elapsedMs ?? Math.max(0, ...branches.map(b => b.elapsedMs)) : Date.now() - startTime;
 
   function statusColor(s: AgentStatus): string {
     switch (s) {
@@ -69,60 +80,35 @@ export function AgentTree({ title, branches, startTime, done }: AgentTreeProps) 
 
   return (
     <Box flexDirection="column" marginLeft={2} marginY={1}>
-      <Box>
-        <Text color={accent} bold>
-          {done ? "✦ " : `${SPINNER[frame]} `}
-        </Text>
-        <Text color={primary} bold>
-          {title}
-        </Text>
-        <Text color={dim}>  ·  </Text>
-        <Text color={info}>{branches.length}</Text>
-        <Text color={dim}> agents</Text>
-        {running > 0 && (
-          <>
-            <Text color={dim}>  ·  </Text>
-            <Text color={info}>{running} running</Text>
-          </>
-        )}
-        {completed > 0 && (
-          <>
-            <Text color={dim}>  ·  </Text>
-            <Text color={success}>{completed} done</Text>
-          </>
-        )}
-        {failed > 0 && (
-          <>
-            <Text color={dim}>  ·  </Text>
-            <Text color={error}>{failed} failed</Text>
-          </>
-        )}
-        <Text color={dim}>  ·  </Text>
-        <Text color={dim}>{formatElapsed(totalElapsed)}</Text>
-      </Box>
+      <Text color={primary} bold><Text color={accent}>{done ? "✦ " : `${SPINNER[frame]} `}</Text>{fitText(title, width)}</Text>
+      <Text color={dim}>{branches.length} tasks · <Text color={info}>{running} aktiv</Text> · <Text color={success}>{completed} fertig</Text>{failed ? <Text color={error}> · {failed} fehlgeschlagen</Text> : null} · {formatElapsed(totalElapsed)}</Text>
+      <Text color={dim}>{"━".repeat(Math.round(Math.min(width, 36) * completed / Math.max(1, branches.length)))}{"─".repeat(Math.min(width, 36) - Math.round(Math.min(width, 36) * completed / Math.max(1, branches.length)))}</Text>
 
-      {branches.map((b, i) => {
-        const isLast = i === branches.length - 1;
+      {visible.map((b, i) => {
+        const isLast = i === visible.length - 1;
         const connector = isLast ? "└─" : "├─";
         const color = statusColor(b.status);
         return (
-          <Box key={`${b.agentId}-${i}`}>
+          <Box key={`${b.taskId || b.agentId}-${i}`} flexDirection="column">
+            <Text>
             <Text color={dim}>  {connector} </Text>
             <Text color={color}>{STATUS_ICON[b.status]} </Text>
             <Text color={primary} bold>
-              {b.agentId}
+              {fitText(b.taskId ? `${b.taskId} · ${b.agentId}` : b.agentId, Math.max(10, width - 18))}
             </Text>
             <Text color={dim}>  </Text>
-            <Text color={b.status === "failed" ? error : dim}>{b.detail}</Text>
             {b.elapsedMs > 0 && (
               <>
                 <Text color={dim}>  ·  </Text>
                 <Text color={dim}>{formatElapsed(b.elapsedMs)}</Text>
               </>
             )}
+            </Text>
+            <Text color={b.status === "failed" ? error : dim}>     {fitText(b.detail.replace(/[\r\n\t]/g, " "), width - 5)}</Text>
           </Box>
         );
       })}
+      {branches.length > visible.length ? <Text color={dim}>  + {branches.length - visible.length} weitere Tasks</Text> : null}
     </Box>
   );
 }
