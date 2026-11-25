@@ -94,6 +94,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
   }, [internal_eventEmitter]);
   useEffect(() => { onSelectionChange?.(isActive ? selection : ""); }, [selection, isActive, onSelectionChange]);
   function applyEditor(next: ComposerState): void {
+    if (next.value !== editorRef.current.value) resetNavigation();
     editorRef.current = next;
     setValue(next.value); setCursorPos(next.cursor); setAnchor(next.anchor);
     onSelectionChange?.(selectedText(next));
@@ -102,7 +103,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
   }
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggIdx, setSelectedSuggIdx] = useState(0);
-  const { addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
+  const { isNavigating, addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
 
   // Helper: update value AND put cursor at the end (used for history nav, completions, clear)
   function setValueEnd(next: string): void {
@@ -168,7 +169,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
 
   // Update file completions when value contains @
   useEffect(() => {
-    if (!cwd || isProcessing) { setFileCompletions([]); return; }
+    if (!cwd || isProcessing || isNavigating) { setFileCompletions([]); return; }
     const atIdx = value.lastIndexOf("@");
     if (atIdx >= 0 && atIdx < value.length) {
       const partial = value.slice(atIdx + 1);
@@ -183,7 +184,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
     } else {
       setFileCompletions([]);
     }
-  }, [value, cwd, isProcessing]);
+  }, [value, cwd, isProcessing, isNavigating]);
 
   const inputNode = useRef<DOMElement>(null);
   const rows = composerLayout(value, promptText, Math.max(16, columns - 3));
@@ -215,7 +216,9 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
       }
       if (key.ctrl && input === "x" && !selection && (queuedRef.current.length || value.trim())) { sendPrefix.current = Date.now(); return; }
       sendPrefix.current = 0;
-      if (key.upArrow && !value && queuedRef.current.length) { const draft = queuedRef.current.pop()!; setQueued([...queuedRef.current]); setValueEnd(draft); return; }
+      if (key.upArrow && key.meta && !key.shift && !key.ctrl && !value && queuedRef.current.length) {
+        const draft = queuedRef.current.pop()!; setQueued([...queuedRef.current]); resetNavigation(); setValueEnd(draft); return;
+      }
     }
     if (editing) {
       if (key.ctrl && input === "s") { applyEditor({ ...editor, cursor: value.length, anchor: 0 }); return; }
@@ -231,7 +234,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
       if (key.leftArrow || key.rightArrow) { applyEditor(moveCursor(editor, key.leftArrow ? -1 : 1, key.shift, key.ctrl || key.meta)); setShowSuggestions(false); return; }
       if (key.ctrl && (input === "a" || input === "e")) { applyEditor({ ...editor, cursor: input === "a" ? 0 : value.length, anchor: key.shift ? anchor ?? cursorPos : null }); return; }
       if (key.shift && (key.upArrow || key.downArrow)) { applyEditor({ ...editor, cursor: key.upArrow ? 0 : value.length, anchor: anchor ?? cursorPos }); return; }
-      if (key.ctrl && input === "u") { setValueEnd(""); setShowSuggestions(false); return; }
+      if (key.ctrl && input === "u") { resetNavigation(); setValueEnd(""); setShowSuggestions(false); return; }
       if (key.ctrl && input === "k") { applyEditor(replaceSelection({ ...editor, anchor: value.length }, "")); return; }
       if (key.ctrl && input === "w") { applyEditor(selection ? erase(editor) : replaceSelection(moveCursor(editor, -1, true, true), "")); return; }
       const deletion = deletionKey(rawInput.current, key, input);
@@ -239,14 +242,28 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
         let next = editor;
         for (let i = 0; i < deletion.count; i++) next = deletion.word && !selectedText(next)
           ? replaceSelection(moveCursor(next, deletion.forward ? 1 : -1, true, true), "") : erase(next, deletion.forward);
-        applyEditor(next); resetNavigation(); return;
+        applyEditor(next); return;
       }
       if (key.return && (key.shift || key.meta)) { applyEditor(replaceSelection(editor, "\n")); return; }
       if (input && !key.ctrl && !key.meta && !key.return && !key.tab) {
-        try { applyEditor(replaceSelection(editor, images.current!.paste(input, cwd ?? process.cwd()))); resetNavigation(); }
+        try { applyEditor(replaceSelection(editor, images.current!.paste(input, cwd ?? process.cwd()))); }
         catch (error) { setCopyError((error as Error).message); }
         return;
       }
+    }
+    // History remains available while the agent works. Only an open suggestion
+    // menu owns plain arrows; recalling an entry must not reopen that menu.
+    if ((key.upArrow || key.downArrow) && !key.shift && !key.ctrl && !key.meta) {
+      const direction = key.upArrow ? -1 : 1;
+      if (showSuggestions && filteredSuggestions.length > 0) {
+        setSelectedSuggIdx(index => Math.max(0, Math.min(filteredSuggestions.length - 1, index + direction)));
+      } else if (showFileSuggestions) {
+        setSelectedFileIdx(index => Math.max(0, Math.min(fileCompletions.length - 1, index + direction)));
+      } else {
+        const recalled = key.upArrow ? navigateUp(value) : navigateDown();
+        if (recalled !== null) { setValueEnd(recalled); setShowSuggestions(false); setFileCompletions([]); }
+      }
+      return;
     }
     if (key.tab && !key.ctrl && !key.meta && (key.shift || isProcessing || !((showFileSuggestions && fileCompletions.length > 0) || (showSuggestions && filteredSuggestions.length > 0)))) {
       onCycleMode?.(Boolean(key.shift));
@@ -271,8 +288,8 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
       if (input === "l" || key.rightArrow) { setCursorPos((p) => stepCursor(value, p, 1)); return; }
       if (input === "0") { setCursorPos(0); return; }
       if (input === "$") { setCursorPos(value.length); return; }
-      if (input === "d") { setValueEnd(""); return; }
-      if (input === "c") { setValueEnd(""); setVimModeState("insert"); return; }
+      if (input === "d") { resetNavigation(); setValueEnd(""); return; }
+      if (input === "c") { resetNavigation(); setValueEnd(""); setVimModeState("insert"); return; }
       if (key.return && value.trim()) {
         addToHistory(value.trim());
         if (!submit(value.trim())) return;
@@ -314,26 +331,6 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
       return;
     }
 
-    if (key.upArrow) {
-      if (showSuggestions && filteredSuggestions.length > 0) {
-        setSelectedSuggIdx(Math.max(0, selectedSuggIdx - 1));
-      } else {
-        const prev = navigateUp(value);
-        if (prev !== null) setValueEnd(prev);
-      }
-      return;
-    }
-
-    if (key.downArrow) {
-      if (showSuggestions && filteredSuggestions.length > 0) {
-        setSelectedSuggIdx(Math.min(filteredSuggestions.length - 1, selectedSuggIdx + 1));
-      } else {
-        const next = navigateDown();
-        if (next !== null) setValueEnd(next);
-      }
-      return;
-    }
-
     if (key.tab && showFileSuggestions && fileCompletions.length > 0) {
       const atIdx = value.lastIndexOf("@");
       const before = value.slice(0, atIdx + 1);
@@ -359,7 +356,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
         <Box marginLeft={1} flexDirection="column">
           {queued.slice(0, 3).map((text, i) => <Text key={i} backgroundColor="#303632" color={primary}>› <ImageText text={text.slice(0, Math.max(10, columns - 6))} /></Text>)}
           {queued.length > 3 ? <Text color={dim}>+{queued.length - 3} weitere Nachrichten</Text> : null}
-          <Text color={dim}>Ctrl+X Ctrl+S sofort übernehmen · ↑ bearbeiten · Esc verwirft</Text>
+          <Text color={dim}>Ctrl+X Ctrl+S sofort übernehmen · Alt+↑ Queue bearbeiten · Esc verwirft</Text>
         </Box>
       )}
 
@@ -414,7 +411,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
       )}
       <Text color={dim}>{rule}</Text>
       <Text color={dim}> <Text bold color={permissionMode === "bypassPermissions" ? warning : permissionMode === "plan" ? accent : primary}>{interactionModeLabel(permissionMode)}</Text>{modeLocked ? " · verwaltet" : " · Tab Modus wechseln · Shift+Tab zurück"}{isProcessing ? " · nächster Auftrag" : ""}</Text>
-      <Text color={dim}> {selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "Ctrl+F suchen · Mausrad scrollen · Esc live" : "Ctrl+F suchen · Ziehen markiert/kopiert · Mausrad scrollt · Esc zurück / stoppen"}</Text>
+      <Text color={dim}> {selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "↑↓ Verlauf · Ctrl+F suchen · Esc live" : "↑↓ Eingabeverlauf · Ctrl+F suchen · Ziehen kopiert · Mausrad scrollt · Esc zurück"}</Text>
     </Box>
   );
 }

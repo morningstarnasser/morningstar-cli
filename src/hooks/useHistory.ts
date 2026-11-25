@@ -57,5 +57,5 @@ export function useCommandHistory() {
     setSavedInput("");
   }, []);
 
-  return { history, addToHistory, navigateUp, navigateDown, resetNavigation };
+  return { history, isNavigating: historyIdx >= 0, addToHistory, navigateUp, navigateDown, resetNavigation };
 }

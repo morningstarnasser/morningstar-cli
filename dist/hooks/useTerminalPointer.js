@@ -169,8 +169,6 @@ export function TerminalPointer({ children }) {
                     enqueue(() => viewport.leave());
                 else if (["\x1b[H", "\x1b[1~", "\x1bOH"].includes(rest))
                     enqueue(() => viewport.home());
-                else if (rest === "\x1b[A" || rest === "\x1b[B")
-                    enqueue(() => viewport.scroll(rest === "\x1b[A" ? -1 : 1));
                 else
                     enqueue(async () => { await viewport.leave(); originalEmit.call(internal_eventEmitter, "input", rest); });
                 return true;

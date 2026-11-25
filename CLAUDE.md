@@ -81,3 +81,10 @@ See [README.md](README.md), [PARITY.md](PARITY.md),
 - Keep the dynamic region below terminal height: Ink 5's overflow branch otherwise loses its prior erase-line count and can erase a newly completed Static answer.
 - Bracketed paste is consumed before Ink input parsing. Do not leak delimiters into the draft or interpret pasted text as navigation keys.
 - Verify short/long answer transitions, multiline paste, resize, search return and mouse selection using actual terminal output, not only component snapshots.
+
+## Input history (1.1.2)
+
+- Plain Up/Down recall persisted inputs both idle and while processing; Down past the newest restores the unsent draft. Recall never submits or dequeues.
+- Open slash/file menus and transcript search own their arrows. History recall suppresses completions; editing resets navigation.
+- Scrollback returns to the live composer on an arrow; wheel and Page Up/Down still scroll output.
+- Alt+Up, only with an empty processing composer, edits the latest queued message.

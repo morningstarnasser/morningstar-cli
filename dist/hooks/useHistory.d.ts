@@ -1,5 +1,6 @@
 export declare function useCommandHistory(): {
     history: string[];
+    isNavigating: boolean;
     addToHistory: (cmd: string) => void;
     navigateUp: (currentInput: string) => string | null;
     navigateDown: () => string | null;

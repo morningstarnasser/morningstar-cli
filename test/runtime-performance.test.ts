@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -71,6 +71,7 @@ test("cached project skill metadata stays within the requesting workspace", (t) 
 });
 
 test("help and version complete without reading credentials or loading the terminal", (t) => {
+  const version = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
   const root = mkdtempSync(join(tmpdir(), "morningstar-startup-")); t.after(() => rmSync(root, { recursive: true, force: true }));
   const guard = join(root, "guard.mjs");
   writeFileSync(guard, `import fs from 'node:fs'; import {syncBuiltinESMExports,register} from 'node:module';
@@ -78,6 +79,7 @@ const read=fs.readFileSync;fs.readFileSync=function(path,...args){if(String(path
 register('data:text/javascript,'+encodeURIComponent(\`export async function resolve(specifier,context,next){if(['react','ink','shiki'].includes(specifier)||specifier.endsWith('/app.js'))throw new Error('Terminal eagerly loaded');return next(specifier,context)}\`));`);
   for (const flag of ["--version", "--help"]) {
     const output = execFileSync(process.execPath, ["--import", "tsx", "--import", pathToFileURL(guard).href, resolve("src/index.ts"), flag], { encoding: "utf8", timeout: 10000 });
-    assert(output.includes(flag === "--version" ? "1.1.1" : "Usage:"));
+    if (flag === "--version") assert.equal(output.trim(), version);
+    else assert(output.includes("Usage:"));
   }
 });

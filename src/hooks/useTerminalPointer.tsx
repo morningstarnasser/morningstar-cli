@@ -108,7 +108,6 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
         if (rest === "\x03" || rest === "\x19") enqueue(() => viewport.selectedText() ? viewport.copy() : viewport.leave());
         else if (["\x1b", "\x1b[F", "\x1b[4~", "\x1bOF"].includes(rest)) enqueue(() => viewport.leave());
         else if (["\x1b[H", "\x1b[1~", "\x1bOH"].includes(rest)) enqueue(() => viewport.home());
-        else if (rest === "\x1b[A" || rest === "\x1b[B") enqueue(() => viewport.scroll(rest === "\x1b[A" ? -1 : 1));
         else enqueue(async () => { await viewport.leave(); originalEmit.call(internal_eventEmitter, "input", rest); });
         return true;
       }

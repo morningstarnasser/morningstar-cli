@@ -83,6 +83,8 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
     }, [internal_eventEmitter]);
     useEffect(() => { onSelectionChange?.(isActive ? selection : ""); }, [selection, isActive, onSelectionChange]);
     function applyEditor(next) {
+        if (next.value !== editorRef.current.value)
+            resetNavigation();
         editorRef.current = next;
         setValue(next.value);
         setCursorPos(next.cursor);
@@ -94,7 +96,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
     }
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [selectedSuggIdx, setSelectedSuggIdx] = useState(0);
-    const { addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
+    const { isNavigating, addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
     // Helper: update value AND put cursor at the end (used for history nav, completions, clear)
     function setValueEnd(next) {
         editorRef.current = { value: next, cursor: next.length, anchor: null };
@@ -156,7 +158,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
     const showFileSuggestions = fileCompletions.length > 0 && !showSuggestions;
     // Update file completions when value contains @
     useEffect(() => {
-        if (!cwd || isProcessing) {
+        if (!cwd || isProcessing || isNavigating) {
             setFileCompletions([]);
             return;
         }
@@ -176,7 +178,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
         else {
             setFileCompletions([]);
         }
-    }, [value, cwd, isProcessing]);
+    }, [value, cwd, isProcessing, isNavigating]);
     const inputNode = useRef(null);
     const rows = composerLayout(value, promptText, Math.max(16, columns - 3));
     const imageRanges = [...value.matchAll(/\[Image #\d+\]/g)].map(m => [m.index, m.index + m[0].length]);
@@ -226,9 +228,10 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
                 return;
             }
             sendPrefix.current = 0;
-            if (key.upArrow && !value && queuedRef.current.length) {
+            if (key.upArrow && key.meta && !key.shift && !key.ctrl && !value && queuedRef.current.length) {
                 const draft = queuedRef.current.pop();
                 setQueued([...queuedRef.current]);
+                resetNavigation();
                 setValueEnd(draft);
                 return;
             }
@@ -265,6 +268,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
                 return;
             }
             if (key.ctrl && input === "u") {
+                resetNavigation();
                 setValueEnd("");
                 setShowSuggestions(false);
                 return;
@@ -284,7 +288,6 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
                     next = deletion.word && !selectedText(next)
                         ? replaceSelection(moveCursor(next, deletion.forward ? 1 : -1, true, true), "") : erase(next, deletion.forward);
                 applyEditor(next);
-                resetNavigation();
                 return;
             }
             if (key.return && (key.shift || key.meta)) {
@@ -294,13 +297,32 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
             if (input && !key.ctrl && !key.meta && !key.return && !key.tab) {
                 try {
                     applyEditor(replaceSelection(editor, images.current.paste(input, cwd ?? process.cwd())));
-                    resetNavigation();
                 }
                 catch (error) {
                     setCopyError(error.message);
                 }
                 return;
             }
+        }
+        // History remains available while the agent works. Only an open suggestion
+        // menu owns plain arrows; recalling an entry must not reopen that menu.
+        if ((key.upArrow || key.downArrow) && !key.shift && !key.ctrl && !key.meta) {
+            const direction = key.upArrow ? -1 : 1;
+            if (showSuggestions && filteredSuggestions.length > 0) {
+                setSelectedSuggIdx(index => Math.max(0, Math.min(filteredSuggestions.length - 1, index + direction)));
+            }
+            else if (showFileSuggestions) {
+                setSelectedFileIdx(index => Math.max(0, Math.min(fileCompletions.length - 1, index + direction)));
+            }
+            else {
+                const recalled = key.upArrow ? navigateUp(value) : navigateDown();
+                if (recalled !== null) {
+                    setValueEnd(recalled);
+                    setShowSuggestions(false);
+                    setFileCompletions([]);
+                }
+            }
+            return;
         }
         if (key.tab && !key.ctrl && !key.meta && (key.shift || isProcessing || !((showFileSuggestions && fileCompletions.length > 0) || (showSuggestions && filteredSuggestions.length > 0)))) {
             onCycleMode?.(Boolean(key.shift));
@@ -364,10 +386,12 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
                 return;
             }
             if (input === "d") {
+                resetNavigation();
                 setValueEnd("");
                 return;
             }
             if (input === "c") {
+                resetNavigation();
                 setValueEnd("");
                 setVimModeState("insert");
                 return;
@@ -413,28 +437,6 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
             setSelectedSuggIdx(0);
             return;
         }
-        if (key.upArrow) {
-            if (showSuggestions && filteredSuggestions.length > 0) {
-                setSelectedSuggIdx(Math.max(0, selectedSuggIdx - 1));
-            }
-            else {
-                const prev = navigateUp(value);
-                if (prev !== null)
-                    setValueEnd(prev);
-            }
-            return;
-        }
-        if (key.downArrow) {
-            if (showSuggestions && filteredSuggestions.length > 0) {
-                setSelectedSuggIdx(Math.min(filteredSuggestions.length - 1, selectedSuggIdx + 1));
-            }
-            else {
-                const next = navigateDown();
-                if (next !== null)
-                    setValueEnd(next);
-            }
-            return;
-        }
         if (key.tab && showFileSuggestions && fileCompletions.length > 0) {
             const atIdx = value.lastIndexOf("@");
             const before = value.slice(0, atIdx + 1);
@@ -450,10 +452,10 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
             return;
         }
     }, { isActive });
-    return (_jsxs(Box, { flexDirection: "column", children: [queued.length > 0 && (_jsxs(Box, { marginLeft: 1, flexDirection: "column", children: [queued.slice(0, 3).map((text, i) => _jsxs(Text, { backgroundColor: "#303632", color: primary, children: ["\u203A ", _jsx(ImageText, { text: text.slice(0, Math.max(10, columns - 6)) })] }, i)), queued.length > 3 ? _jsxs(Text, { color: dim, children: ["+", queued.length - 3, " weitere Nachrichten"] }) : null, _jsx(Text, { color: dim, children: "Ctrl+X Ctrl+S sofort \u00FCbernehmen \u00B7 \u2191 bearbeiten \u00B7 Esc verwirft" })] })), _jsx(Text, { color: dim, children: rule }), _jsx(Box, { ref: inputNode, marginLeft: 1, width: Math.max(16, columns - 3), flexDirection: "column", children: rows.map((row, i) => _jsx(Text, { wrap: "truncate", children: row.map((cell, j) => {
+    return (_jsxs(Box, { flexDirection: "column", children: [queued.length > 0 && (_jsxs(Box, { marginLeft: 1, flexDirection: "column", children: [queued.slice(0, 3).map((text, i) => _jsxs(Text, { backgroundColor: "#303632", color: primary, children: ["\u203A ", _jsx(ImageText, { text: text.slice(0, Math.max(10, columns - 6)) })] }, i)), queued.length > 3 ? _jsxs(Text, { color: dim, children: ["+", queued.length - 3, " weitere Nachrichten"] }) : null, _jsx(Text, { color: dim, children: "Ctrl+X Ctrl+S sofort \u00FCbernehmen \u00B7 Alt+\u2191 Queue bearbeiten \u00B7 Esc verwirft" })] })), _jsx(Text, { color: dim, children: rule }), _jsx(Box, { ref: inputNode, marginLeft: 1, width: Math.max(16, columns - 3), flexDirection: "column", children: rows.map((row, i) => _jsx(Text, { wrap: "truncate", children: row.map((cell, j) => {
                         const marked = !cell.prefix && selection && cell.index >= bounds(editor)[0] && cell.index < bounds(editor)[1];
                         const image = !cell.prefix && imageRanges.some(([start, end]) => cell.index >= start && cell.index < end);
                         return _jsx(Text, { color: cell.prefix ? promptColor : marked ? "#101718" : image ? IMAGE_FOREGROUND : undefined, bold: cell.prefix || image, backgroundColor: marked ? accent : image ? IMAGE_BACKGROUND : undefined, inverse: !cell.prefix && !selection && cell.index === cursorPos, children: cell.text }, j);
-                    }) }, i)) }), copyError ? _jsxs(Text, { color: warning, children: [" ", copyError] }) : null, showSuggestions && filteredSuggestions.length > 0 && (_jsx(Box, { flexDirection: "column", marginLeft: 1, children: filteredSuggestions.map((s, i) => (_jsx(Box, { children: i === selectedSuggIdx ? (_jsxs(Text, { inverse: true, children: [_jsxs(Text, { bold: true, children: [" ", s.cmd] }), _jsxs(Text, { children: ["  ", s.desc, " "] })] })) : (_jsxs(Text, { children: [_jsxs(Text, { color: primary, children: [" ", s.cmd] }), _jsxs(Text, { color: dim, children: ["  ", s.desc] })] })) }, s.cmd))) })), showFileSuggestions && (_jsxs(Box, { flexDirection: "column", marginLeft: 1, children: [_jsx(Text, { color: dim, children: " Dateien \u00B7 Tab vervollst\u00E4ndigt" }), fileCompletions.map((f, i) => (_jsx(Box, { children: i === selectedFileIdx ? (_jsx(Text, { inverse: true, children: _jsxs(Text, { bold: true, children: [" ", f, " "] }) })) : (_jsxs(Text, { color: dim, children: [" ", f] })) }, f)))] })), _jsx(Text, { color: dim, children: rule }), _jsxs(Text, { color: dim, children: [" ", _jsx(Text, { bold: true, color: permissionMode === "bypassPermissions" ? warning : permissionMode === "plan" ? accent : primary, children: interactionModeLabel(permissionMode) }), modeLocked ? " · verwaltet" : " · Tab Modus wechseln · Shift+Tab zurück", isProcessing ? " · nächster Auftrag" : ""] }), _jsxs(Text, { color: dim, children: [" ", selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "Ctrl+F suchen · Mausrad scrollen · Esc live" : "Ctrl+F suchen · Ziehen markiert/kopiert · Mausrad scrollt · Esc zurück / stoppen"] })] }));
+                    }) }, i)) }), copyError ? _jsxs(Text, { color: warning, children: [" ", copyError] }) : null, showSuggestions && filteredSuggestions.length > 0 && (_jsx(Box, { flexDirection: "column", marginLeft: 1, children: filteredSuggestions.map((s, i) => (_jsx(Box, { children: i === selectedSuggIdx ? (_jsxs(Text, { inverse: true, children: [_jsxs(Text, { bold: true, children: [" ", s.cmd] }), _jsxs(Text, { children: ["  ", s.desc, " "] })] })) : (_jsxs(Text, { children: [_jsxs(Text, { color: primary, children: [" ", s.cmd] }), _jsxs(Text, { color: dim, children: ["  ", s.desc] })] })) }, s.cmd))) })), showFileSuggestions && (_jsxs(Box, { flexDirection: "column", marginLeft: 1, children: [_jsx(Text, { color: dim, children: " Dateien \u00B7 Tab vervollst\u00E4ndigt" }), fileCompletions.map((f, i) => (_jsx(Box, { children: i === selectedFileIdx ? (_jsx(Text, { inverse: true, children: _jsxs(Text, { bold: true, children: [" ", f, " "] }) })) : (_jsxs(Text, { color: dim, children: [" ", f] })) }, f)))] })), _jsx(Text, { color: dim, children: rule }), _jsxs(Text, { color: dim, children: [" ", _jsx(Text, { bold: true, color: permissionMode === "bypassPermissions" ? warning : permissionMode === "plan" ? accent : primary, children: interactionModeLabel(permissionMode) }), modeLocked ? " · verwaltet" : " · Tab Modus wechseln · Shift+Tab zurück", isProcessing ? " · nächster Auftrag" : ""] }), _jsxs(Text, { color: dim, children: [" ", selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "↑↓ Verlauf · Ctrl+F suchen · Esc live" : "↑↓ Eingabeverlauf · Ctrl+F suchen · Ziehen kopiert · Mausrad scrollt · Esc zurück"] })] }));
 }
 //# sourceMappingURL=Input.js.map

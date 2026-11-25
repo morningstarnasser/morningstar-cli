@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.1.1** (2026-11-24).
+Current release: **1.1.2** (2026-11-25).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -104,6 +104,13 @@ In the composer, **Tab** cycles **Normal → Plan → YOLO → Normal**; **Shift
 backwards. Open command/file suggestions take precedence over plain Tab. The colored label
 shows the selected mode. This switch applies to the next request and is not saved as a new
 default; managed permission restrictions still apply. `/permissions` remains available.
+
+**↑ / ↓** recall older/newer submitted inputs, including while the agent is working.
+Down past the newest entry restores your unsent draft. Recalling never submits a message
+or removes it from the queue. Open command/file suggestions and transcript search use
+arrows for their own selection. From scrollback, an arrow returns to the composer and
+recalls history; use the mouse wheel or Page Up/Down to scroll output. **Alt+↑** with an
+empty composer edits the latest queued message. History persists across restarts.
 
 Click **▸ Details** above a code block or tool result to inspect its captured contents,
 including the complete retained diff or output, while the agent keeps working. Scroll and
@@ -279,7 +286,8 @@ The `website/` package has its own lockfile and build. Follow [AGENTS.md](AGENTS
 [CLAUDE.md](CLAUDE.md) before contributing.
 
 The release checks include the complete test suite on Mac and Windows, typecheck, build,
-OSV scanning and terminal keyboard/mouse read-back. See [1.1.1 release verification](docs/release-1.1.1-2026-11-24.md);
+OSV scanning and terminal keyboard/mouse read-back. See [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
+[1.1.1 release verification](docs/release-1.1.1-2026-11-24.md);
 a package version or screenshot alone is not an inference, security or cross-platform guarantee.
 
 

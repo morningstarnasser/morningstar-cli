@@ -59,6 +59,6 @@ export function useCommandHistory() {
         setHistoryIdx(-1);
         setSavedInput("");
     }, []);
-    return { history, addToHistory, navigateUp, navigateDown, resetNavigation };
+    return { history, isNavigating: historyIdx >= 0, addToHistory, navigateUp, navigateDown, resetNavigation };
 }
 //# sourceMappingURL=useHistory.js.map
