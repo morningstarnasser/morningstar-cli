@@ -11,6 +11,11 @@ up to eight matching MCP tools keep their complete parameter schemas. `tool_sear
 finds connected tools for the next turn without changing execution permissions.
 Small catalogs and other providers keep their existing schema behavior.
 
+Malformed legacy assistant calls are labelled as invalid evidence in provider
+requests, so resumed conversations do not repeat broken XML examples. Stored
+transcripts stay intact. The read-only status adapter supplies tested uptime
+formatting and memory percentages alongside unchanged raw measurements.
+
 The current native call/result batch also survives context compaction. Oversized
 result text is shortened with an explicit notice in the provider copy; exact
 call IDs and arguments remain intact and full results stay in session history.

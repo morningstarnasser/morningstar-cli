@@ -1,5 +1,20 @@
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+/** Derived display values use the endpoint's explicit units. Keep raw data intact
+ * so the model can cite measurements without mentally converting large numbers. */
+export function statusDisplay(data) {
+    const display = {};
+    const seconds = data.uptime_seconds;
+    if (typeof seconds === "number" && Number.isSafeInteger(seconds) && seconds >= 0) {
+        const days = Math.floor(seconds / 86400), hours = Math.floor(seconds % 86400 / 3600), minutes = Math.floor(seconds % 3600 / 60);
+        display.uptime = `${days} ${days === 1 ? "Tag" : "Tage"}, ${hours} ${hours === 1 ? "Stunde" : "Stunden"}, ${minutes} ${minutes === 1 ? "Minute" : "Minuten"}`;
+    }
+    const used = data.mem_used_gb, total = data.mem_total_gb;
+    if (typeof used === "number" && typeof total === "number" && Number.isFinite(used) && Number.isFinite(total) && used >= 0 && total > 0 && used <= total) {
+        display.memory_used_percent = Math.round(used / total * 1000) / 10;
+    }
+    return display;
+}
 /** URLs come only from an operator-owned file, never from tool arguments. */
 export function parseStatusTargets(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -50,7 +65,7 @@ export async function readEntityStatus(targets, args) {
     const data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     if (!data || typeof data !== "object" || Array.isArray(data))
         throw new Error("Status-Endpunkt lieferte kein JSON-Objekt.");
-    return { entity: args.entity, label: target.label, source: target.url, observed_at: new Date().toISOString(), data };
+    return { entity: args.entity, label: target.label, source: target.url, observed_at: new Date().toISOString(), data, display: statusDisplay(data) };
 }
 /** Small stdio MCP adapter for existing read-only JSON monitoring endpoints. */
 export async function serveStatusMCP(configPath) {
@@ -78,7 +93,7 @@ export async function serveStatusMCP(configPath) {
             result = { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "morningstar-status", version: "1.0.0" } };
         }
         else if (request.method === "tools/list") {
-            result = { tools: [{ name: "entity_status", description: `Live-Messwerte von ${Object.entries(targets).map(([key, target]) => `${key} (${target.label})`).join(", ")}. Nur lesend. Liefert echte Werte mit Zeitstempel; andere Hosts sind nicht angebunden.`, inputSchema: { type: "object", properties: { entity: { type: "string", enum: Object.keys(targets) } }, required: ["entity"], additionalProperties: false } }] };
+            result = { tools: [{ name: "entity_status", description: `Live-Messwerte von ${Object.entries(targets).map(([key, target]) => `${key} (${target.label})`).join(", ")}. Nur lesend. Liefert echte Werte mit Zeitstempel und berechnete Anzeigewerte unter display; diese unverändert übernehmen, insbesondere Laufzeit und RAM-Prozent. Keine vollständige Dienstebewertung; andere Hosts sind nicht angebunden.`, inputSchema: { type: "object", properties: { entity: { type: "string", enum: Object.keys(targets) } }, required: ["entity"], additionalProperties: false } }] };
         }
         else if (request.method === "tools/call") {
             try {
