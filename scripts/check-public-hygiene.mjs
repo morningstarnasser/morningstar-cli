@@ -13,7 +13,7 @@ for (const entry of entries) {
   const [, mode, oid, stage, path] = match;
   if (stage !== "0") findings.push([path, "unmerged index"]);
   if (mode === "120000" || mode === "160000") findings.push([path, "link or submodule requires review"]);
-  if (/(^|\/)(?:node_modules|\.next|\.vercel|\.morningstar|evidence|backups|sessions|credentials)(\/|$)|(?:^|\/)\.env(?:\.|$)(?!example$)|\.(?:pem|key|log|bundle|tgz|zip)$/i.test(path)) findings.push([path, "local state or private artifact"]);
+  if (/(^|\/)(?:private|node_modules|\.next|\.vercel|\.morningstar|evidence|backups|sessions|credentials)(\/|$)|(?:^|\/)\.env(?:\.|$)(?!example$)|\.(?:pem|key|log|bundle|tgz|zip)$/i.test(path)) findings.push([path, "local state or private artifact"]);
   const end = batch.indexOf(10, offset);
   const header = batch.subarray(offset, end).toString("utf8");
   const object = /^([0-9a-f]+) blob (\d+)$/.exec(header);
@@ -26,6 +26,7 @@ for (const entry of entries) {
     continue;
   }
   const text = data.toString("utf8");
+  if (/<!-- BEGIN (?:MORNINGSTAR_PRIVATE_OPERATOR|PRIVATE_REPOSITORY_BOUNDARY) -->/.test(text)) findings.push([path, "private operator profile"]);
   // Example usernames are test fixtures. Real home paths and mesh hosts are not.
   if (/\/(?:Users|home)\/(?!example(?:\/|\b)|dev(?:\/|\b)|user(?:\/|\b)|test(?:\/|\b)|e…)[\w.-]+\//.test(text) || /C:(?:\\{1,2})Users(?:\\{1,2})(?!example(?:\\|\b)|dev(?:\\|\b)|user(?:\\|\b)|test(?:\\|\b))[\w.-]+(?:\\{1,2})/.test(text)) findings.push([path, "personal absolute path"]);
   if (/\btail[0-9a-f]{4,}\.(?:ts\.net|com)\b|\b[a-z0-9-]+\.ts\.net\b/i.test(text)) findings.push([path, "private mesh hostname"]);
