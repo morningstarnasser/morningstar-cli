@@ -15,8 +15,8 @@ Malformed legacy assistant calls are labelled as invalid evidence in provider
 requests, so resumed conversations do not repeat broken XML examples. Stored
 transcripts stay intact. The read-only status adapter supplies tested uptime
 formatting and memory percentages alongside unchanged raw measurements.
-A narrow final-answer guard scopes the observed standalone German blanket-health
-phrases after metrics-only reads. Quoted examples and code stay intact. This is
+A narrow final-answer guard scopes the observed German blanket-health
+phrases, including a following measured explanation, after metrics-only reads. Quoted examples and code stay intact. This is
 not a general fact checker; raw streaming deltas are unchanged.
 
 The current native call/result batch also survives context compaction. Oversized

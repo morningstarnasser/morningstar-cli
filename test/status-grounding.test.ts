@@ -36,3 +36,16 @@ test("grounding preserves quoted examples, code, scoped conclusions and other ev
   assert.equal((await answer(broad, [{ ...measured, result: "not JSON" }])).result.finalText, broad);
   assert.equal((await answer(broad, [measured, { tool: "read", success: true, result: "Complete service audit" }])).result.finalText, broad);
 });
+
+test("a blanket prefix with a measured explanation is scoped without deleting its values", async () => {
+  for (const text of [
+    "Alles im grünen Bereich — niedrige Last, ausreichend RAM und Speicher.",
+    "**Alles gesund**: RAM 17.5 / 31.35 GB (55.8%).",
+  ]) {
+    const { result } = await answer(text, [measured]);
+    assert.doesNotMatch(result.finalText, /Alles im grünen Bereich|Alles gesund/);
+    assert.match(result.finalText, /keine vollständige Dienstprüfung/);
+    const explanation = text.slice(text.includes("—") ? text.indexOf("—") : text.indexOf(":"));
+    assert.ok(result.finalText.includes(explanation));
+  }
+});

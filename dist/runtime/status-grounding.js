@@ -12,7 +12,7 @@ function isMetricsRead(result) {
         return false;
     }
 }
-/** Narrow guard for the observed standalone German overclaim after metrics-only
+/** Narrow guard for the observed German blanket-health conclusion after metrics-only
  * reads. It is not a general fact checker; raw model deltas remain unchanged. */
 export function scopeStatusConclusion(text, results) {
     const evidence = results.filter(result => result.success && result.tool !== "tool_search");
@@ -30,9 +30,11 @@ export function scopeStatusConclusion(text, results) {
         }
         if (fence)
             return line;
-        return /^\s*(?:\*\*)?(?:Alles im grünen Bereich|Alles gesund|Alle Dienste laufen)[.!]?(?:\*\*)?\.?\s*$/iu.test(line)
-            ? "Der Abruf liefert die genannten Statusmesswerte. Es liegt keine vollständige Dienstprüfung vor."
-            : line;
+        const claim = line.match(/^\s*(?:\*\*)?(?:Alles im grünen Bereich|Alles gesund|Alle Dienste laufen)(?:\*\*)?[.!]?(?:\*\*)?(?=\s*(?:$|[—–:;,\-]))/iu);
+        if (!claim)
+            return line;
+        const explanation = line.slice(claim[0].length).trimEnd();
+        return `Die Einschätzung betrifft nur die gemessenen Werte${explanation.trim() ? explanation : "."}\n\nEs liegt keine vollständige Dienstprüfung vor.`;
     }).join("\n");
 }
 //# sourceMappingURL=status-grounding.js.map
