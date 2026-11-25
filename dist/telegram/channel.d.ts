@@ -2,7 +2,7 @@ import type { ImageAttachment } from "../types.js";
 import type { RemoteSnapshot, RemoteAction } from "../remote-control.js";
 import { TelegramClient, type TelegramUpdate } from "./api.js";
 import { TelegramAccess } from "./channel-access.js";
-type Client = Pick<TelegramClient, "getMe" | "getUpdates" | "sendMessage" | "sendKeyboard" | "editMessageText" | "answerCallbackQuery" | "sendChatAction" | "getFile" | "downloadFile"> & Partial<Pick<TelegramClient, "sendFile" | "react" | "editOwnMessage">>;
+type Client = Pick<TelegramClient, "getMe" | "getWebhookInfo" | "getUpdates" | "sendMessage" | "sendKeyboard" | "editMessageText" | "answerCallbackQuery" | "sendChatAction" | "getFile" | "downloadFile"> & Partial<Pick<TelegramClient, "sendFile" | "react" | "editOwnMessage">>;
 export interface TelegramChannelOptions {
     token: string;
     allowedUsers?: number[];

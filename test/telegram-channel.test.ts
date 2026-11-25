@@ -14,20 +14,21 @@ function fixture(t: TestContext, users = [42]) {
   const state: RemoteSnapshot = { id: "session-a", name: "Fixture", model: "fixture", project: root, busy: false, stream: "", messages: [], agents: [], work: [], approval: null };
   let complete: (() => void) | undefined, downloads = 0;
   const client = {
-    getMe: async () => ({ id: 7, is_bot: true, username: "fixture_bot" }), getUpdates: async () => [],
+    getMe: async () => ({ id: 7, is_bot: true, username: "fixture_bot" }), getWebhookInfo: async () => ({ url: "", pending_update_count: 0 }), getUpdates: async () => [],
     sendMessage: async (chat: number, text: string) => { sent.push({ chat, text }); return sent.length; },
     sendKeyboard: async (chat: number, text: string, buttons: InlineButton[][]) => { sent.push({ chat, text, buttons }); return sent.length; },
     editMessageText: async (_chat: number, _id: number, text: string) => { sent.push({ chat: _chat, text }); },
     answerCallbackQuery: async () => {}, sendChatAction: async () => {},
     getFile: async () => { downloads++; return { file_path: "photos/test.jpg" }; }, downloadFile: async () => Buffer.from("invalid image"),
   };
+  const notices: { text: string; running: boolean }[] = [];
   const channel = new TelegramChannel({ token: "fixture-token", allowedUsers: users, root, client, snapshot: () => state,
-    action: action => { actions.push(action); }, notice: () => {},
+    action: action => { actions.push(action); }, notice: text => { notices.push({ text, running: channel.running }); },
     message: async text => { prompts.push(text); state.busy = true; state.messages.push({ role: "user", content: text }); await new Promise<void>(r => { complete = r; }); state.messages.push({ role: "assistant", content: "Shared-session result" }); state.busy = false; },
   });
   t.after(() => channel.stop());
   const update = (id: number, text: string, user = 42, type = "private"): TelegramUpdate => ({ update_id: id, message: { message_id: id, date: Math.floor(Date.now() / 1000), chat: { id: user, type }, from: { id: user, is_bot: false }, text } });
-  return { channel, state, sent, actions, prompts, update, root, client, downloads: () => downloads, finish: async () => { complete?.(); await new Promise(r => setTimeout(r, 0)); await channel.tick(); } };
+  return { channel, state, sent, actions, prompts, update, root, client, notices, downloads: () => downloads, finish: async () => { complete?.(); await new Promise(r => setTimeout(r, 0)); await channel.tick(); } };
 }
 
 test("Telegram routes allowed DMs into one existing session and returns its result without executing local commands", async t => {
@@ -134,4 +135,29 @@ test("paired channel tools send workspace files, react and edit only own message
   assert.equal(decidePermission("telegram_reply", "result.txt", "auto").decision, "ask");
   f.channel.stop(); assert.equal(getTelegramToolDefinitions().length, 0);
   assert.equal((await executeTelegramTool("telegram_reply", { text: "after disconnect" }, f.root)).success, false);
+});
+
+test("an existing webhook prevents activation before polling and releases the session lock", async t => {
+  const f = fixture(t); let polled = false;
+  f.client.getWebhookInfo = async () => ({ url: "https://legacy.example/secret-route", pending_update_count: 2 });
+  f.client.getUpdates = async () => { polled = true; return []; };
+  await assert.rejects(f.channel.start(), /webhook/);
+  assert.equal(f.channel.running, false); assert.equal(polled, false);
+  const release = new TelegramAccess("fixture-token", [42], f.root).acquire(); release();
+  const { telegramConnectionMessage } = await import("../src/telegram/connection-errors.js");
+  const notice = telegramConnectionMessage(new Error("409: webhook active https://legacy.example/secret-route"));
+  assert.match(notice, /Webhook aktiv/); assert.doesNotMatch(notice, /secret-route|legacy\.example/);
+});
+
+test("poll conflicts mark the channel offline before notifying the footer", async t => {
+  const f = fixture(t); f.client.getUpdates = async () => { throw new Error("409 Conflict: terminated by other getUpdates request"); };
+  await f.channel.start(); await new Promise(r => setTimeout(r, 0));
+  assert.equal(f.channel.running, false);
+  assert.equal(f.notices.length, 1); assert.equal(f.notices[0].running, false); assert.match(f.notices[0].text, /anderen Sitzung/);
+  const { getTelegramToolDefinitions } = await import("../src/telegram/channel-tools.js");
+  assert.equal(getTelegramToolDefinitions().length, 0);
+  const { telegramConnectionMessage } = await import("../src/telegram/connection-errors.js");
+  assert.match(telegramConnectionMessage(new Error("401 Unauthorized")), /Token ungültig/);
+  assert.match(telegramConnectionMessage(new Error("409 Conflict")), /anderen Sitzung/);
+  assert.doesNotMatch(telegramConnectionMessage(new Error("network failure https://api.telegram.org/botSECRET")), /SECRET/);
 });

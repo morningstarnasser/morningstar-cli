@@ -63,6 +63,10 @@ export declare class TelegramClient {
     constructor(token: string);
     private call;
     getMe(): Promise<TelegramUser>;
+    getWebhookInfo(): Promise<{
+        url: string;
+        pending_update_count: number;
+    }>;
     /** Long-poll for updates. `timeout` is the server-side hold time in seconds. */
     getUpdates(offset: number, timeout?: number, signal?: AbortSignal): Promise<TelegramUpdate[]>;
     /** Resolve a file_id to a downloadable file_path. */

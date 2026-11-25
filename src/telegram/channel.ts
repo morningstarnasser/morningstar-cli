@@ -1,3 +1,4 @@
+import { telegramConnectionMessage } from "./connection-errors.js";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync, unlinkSync, readFileSync, statSync } from "node:fs";
 import { join, basename, extname } from "node:path";
@@ -11,7 +12,7 @@ import { displayText } from "../runtime/work-log.js";
 import { TelegramClient, type TelegramUpdate, type TelegramMessage } from "./api.js";
 import { TelegramAccess } from "./channel-access.js";
 
-type Client = Pick<TelegramClient, "getMe" | "getUpdates" | "sendMessage" | "sendKeyboard" | "editMessageText" | "answerCallbackQuery" | "sendChatAction" | "getFile" | "downloadFile"> & Partial<Pick<TelegramClient, "sendFile" | "react" | "editOwnMessage">>;
+type Client = Pick<TelegramClient, "getMe" | "getWebhookInfo" | "getUpdates" | "sendMessage" | "sendKeyboard" | "editMessageText" | "answerCallbackQuery" | "sendChatAction" | "getFile" | "downloadFile"> & Partial<Pick<TelegramClient, "sendFile" | "react" | "editOwnMessage">>;
 export interface TelegramChannelOptions {
   token: string; allowedUsers?: number[]; root?: string; client?: Client;
   snapshot: () => RemoteSnapshot;
@@ -45,7 +46,13 @@ export class TelegramChannel {
   }
   async start(poll = true) {
     this.release = this.access.acquire();
-    try { const me = await this.client.getMe(); if (!me.is_bot || !me.username) throw new Error("Kein gültiger Telegram-Bot."); this.username = me.username; }
+    try {
+      const me = await this.client.getMe();
+      if (!me.is_bot || !me.username) throw new Error("Kein gültiger Telegram-Bot.");
+      const hook = await this.client.getWebhookInfo();
+      if (hook.url) throw new Error("Telegram webhook is active");
+      this.username = me.username;
+    }
     catch (error) { this.release(); this.release = undefined; throw error; }
     if (this.controller.signal.aborted) { this.release?.(); this.release = undefined; throw new Error("Telegram-Verbindung abgebrochen."); }
     try { this.unregister = registerTelegramTools((name, args, cwd) => this.tool(name, args, cwd)); }
@@ -108,7 +115,7 @@ export class TelegramChannel {
       } catch (error) {
         if (!this.running) break;
         if (/409|401|Unauthorized|Conflict/.test(String((error as Error).message))) {
-          this.options.notice("Telegram angehalten: Token ungültig oder derselbe Bot läuft in einer anderen Sitzung. Dort trennen, danach /telegram on."); this.stop(); break;
+          this.stop(); this.options.notice(telegramConnectionMessage(error)); break;
         }
         this.options.notice("Telegram vorübergehend nicht erreichbar. Erneuter Versuch in wenigen Sekunden.");
         await new Promise(resolve => setTimeout(resolve, 3000));

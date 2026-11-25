@@ -1,4 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import { telegramConnectionMessage } from "./telegram/connection-errors.js";
 import { getTelegramToolDefinitions } from "./telegram/channel-tools.js";
 import { cycleInteractionMode, configForInteractionMode } from "./runtime/interaction-mode.js";
 import { RemoteControlPanel, RemotePairing } from "./components/RemoteControlPanel.js";
@@ -927,7 +928,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
             case "/telegram":
             case "/telegram:configure":
             case "/telegram:access":
-                void telegramCommand(cmd === "/telegram:configure" ? `configure ${arg}` : arg || "status").catch(() => addOutput({ type: "error", content: "Telegram-Aktion fehlgeschlagen. Konfiguration, Pairing-Code oder bestehende Verbindung prüfen." }));
+                void telegramCommand(cmd === "/telegram:configure" ? `configure ${arg}` : arg || "status").catch(error => addOutput({ type: "error", content: telegramConnectionMessage(error) }));
                 return true;
             case "/help":
                 addOutput({ type: "help" });
@@ -3306,7 +3307,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
         if (!initialConfig.telegramChannel || telegramAutoStarted.current)
             return;
         telegramAutoStarted.current = true;
-        void telegramCommand("on").catch(() => addOutput({ type: "error", content: "Telegram-Verbindung fehlgeschlagen. /telegram status prüfen." }));
+        void telegramCommand("on").catch(error => addOutput({ type: "error", content: telegramConnectionMessage(error) }));
     }, []);
     const activeBranchIds = activeAgentBranches(footerBranches).map(b => b.taskId ?? b.agentId);
     useEffect(() => {

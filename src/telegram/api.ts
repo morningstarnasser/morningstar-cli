@@ -115,6 +115,10 @@ export class TelegramClient {
     return this.call<TelegramUser>("getMe", {}, 15000);
   }
 
+  async getWebhookInfo(): Promise<{ url: string; pending_update_count: number }> {
+    return this.call("getWebhookInfo", {}, 15000);
+  }
+
   /** Long-poll for updates. `timeout` is the server-side hold time in seconds. */
   async getUpdates(offset: number, timeout = 50, signal?: AbortSignal): Promise<TelegramUpdate[]> {
     return this.call<TelegramUpdate[]>(

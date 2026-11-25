@@ -67,6 +67,9 @@ export class TelegramClient {
     async getMe() {
         return this.call("getMe", {}, 15000);
     }
+    async getWebhookInfo() {
+        return this.call("getWebhookInfo", {}, 15000);
+    }
     /** Long-poll for updates. `timeout` is the server-side hold time in seconds. */
     async getUpdates(offset, timeout = 50, signal) {
         return this.call("getUpdates", { offset, timeout, allowed_updates: ["message", "callback_query"] }, (timeout + 15) * 1000, signal);

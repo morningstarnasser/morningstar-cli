@@ -1,3 +1,4 @@
+import { telegramConnectionMessage } from "./connection-errors.js";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync, unlinkSync, readFileSync, statSync } from "node:fs";
 import { join, basename, extname } from "node:path";
@@ -37,6 +38,9 @@ export class TelegramChannel {
             const me = await this.client.getMe();
             if (!me.is_bot || !me.username)
                 throw new Error("Kein gültiger Telegram-Bot.");
+            const hook = await this.client.getWebhookInfo();
+            if (hook.url)
+                throw new Error("Telegram webhook is active");
             this.username = me.username;
         }
         catch (error) {
@@ -142,8 +146,8 @@ export class TelegramChannel {
                 if (!this.running)
                     break;
                 if (/409|401|Unauthorized|Conflict/.test(String(error.message))) {
-                    this.options.notice("Telegram angehalten: Token ungültig oder derselbe Bot läuft in einer anderen Sitzung. Dort trennen, danach /telegram on.");
                     this.stop();
+                    this.options.notice(telegramConnectionMessage(error));
                     break;
                 }
                 this.options.notice("Telegram vorübergehend nicht erreichbar. Erneuter Versuch in wenigen Sekunden.");

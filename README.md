@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.3.0** (2026-11-25).
+Current release: **1.3.1** (2026-11-25).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -37,7 +37,9 @@ install Git for Windows. Morningstar resolves its Bash and grep directly; comman
 use Git Bash too. Windows file privacy follows the Windows user-profile ACLs rather than
 POSIX chmod bits.
 
-Clone the public source repository:
+Use the repository URL supplied for your checkout. This development line is maintained in
+`morningstarnasser/morningstar-cli-private-archive`; access requires an authorized GitHub account.
+The separate public `morningstar-cli` repository may be on a different release.
 
 ```sh
 git clone https://github.com/morningstarnasser/morningstar-cli.git morningstar-cli
@@ -296,7 +298,7 @@ Morningstar integrates the transport directly: no Bun or extra MCP plugin is nee
 Groups, message-history/search APIs and an offline relay are not supplied. The
 terminal must stay open. Use one running session per bot; disconnect on Mac before
 connecting the same bot on Windows. A detected Telegram polling conflict stops the
-channel instead of silently taking over. The separate `morningstar telegram` gateway
+channel instead of silently taking over. An existing webhook is detected before activation and shown explicitly. Disconnect its old service deliberately before connecting; Morningstar never deletes another integration automatically. The separate `morningstar telegram` gateway
 retains its own conversations; do not run it with the same bot at the same time.
 
 ## Settings and scripting
@@ -359,7 +361,7 @@ The `website/` package has its own lockfile and build. Follow [AGENTS.md](AGENTS
 [CLAUDE.md](CLAUDE.md) before contributing.
 
 The release checks include the complete test suite on Mac and Windows, typecheck, build,
-OSV scanning and terminal keyboard/mouse read-back. See [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
+OSV scanning and terminal keyboard/mouse read-back. See [1.3.1 Telegram connection checks](docs/release-1.3.1-2026-11-25.md), [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
 [1.1.1 release verification](docs/release-1.1.1-2026-11-24.md);
 a package version or screenshot alone is not an inference, security or cross-platform guarantee.
 
