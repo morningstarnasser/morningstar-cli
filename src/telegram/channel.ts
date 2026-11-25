@@ -195,9 +195,12 @@ export class TelegramChannel {
         if (!this.access.allowed(job.chat, job.chat, "private")) { this.active = undefined; return; }
         if (job.session !== snapshot.id) { await this.client.sendMessage(job.chat, "Die Terminal-Sitzung wurde gewechselt. Auftrag nicht in die neue Sitzung übertragen."); this.active = undefined; this.queue = []; return; }
         if (job.done && !snapshot.busy) {
-          const last = snapshot.messages.filter(m => m.role === "assistant").at(-1)?.content;
-          if (job.messageId) await this.client.editMessageText(job.chat, job.messageId, job.error ? "Auftrag nicht abgeschlossen." : "Auftrag beendet.");
+          const lastMessage = snapshot.messages.filter(m => m.role === "assistant").at(-1);
+          const last = lastMessage?.content;
           const fresh = snapshot.messages.at(-1)?.role === "assistant" && (last !== job.responseBefore || (snapshot.revision ?? snapshot.messages.length) !== job.revisionBefore);
+          const failed = Boolean(job.error || fresh && (lastMessage?.isError || last?.startsWith("[Der vorherige Lauf ist mit einem Fehler beendet worden:")));
+          const completed = !failed && !job.cancelled && Boolean(last && fresh);
+          if (job.messageId) await this.client.editMessageText(job.chat, job.messageId, failed ? "Auftrag fehlgeschlagen." : job.cancelled ? "Auftrag abgebrochen." : completed ? "Auftrag beendet." : "Auftrag nicht abgeschlossen.");
           await this.client.sendMessage(job.chat, job.error || (last && fresh ? last : "Keine neue Abschlussantwort vorhanden; Terminal-Verlauf prüfen."));
           this.active = undefined; this.callbacks.clear(); this.approvalSent = "";
         } else {

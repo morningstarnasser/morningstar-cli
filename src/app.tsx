@@ -98,7 +98,6 @@ import { loadFileAgents, createFileAgent, migrateAgentsJsonToMd, formatFileAgent
 import { loadRules, createRule, formatRulesList } from "./rules.js";
 import { executeHooks, formatHooksDisplay, type HookEvent } from "./hooks-system.js";
 import {
-  formatConnectedMCPToolsForPrompt,
   formatMCPDisplay,
   getMCPServers,
   addMCPServer,
@@ -700,8 +699,6 @@ Du kannst KEINE Bilder direkt erstellen. /imagine verwendet das konfigurierte Bi
 Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten übergeben. Analysiere diese direkt anhand der Nutzerfrage; /imagine ist nur für die Erstellung neuer Bilder.
 --- Ende ---`;
     if (getTelegramToolDefinitions().length) prompt += "\nTelegram ist mit dieser Sitzung verbunden. Abschlussantworten werden automatisch gesendet. Für angeforderte Dateien, Reaktionen oder Änderungen eigener Bot-Nachrichten sind telegram_reply, telegram_react und telegram_edit_message verfügbar; deren Parameter stehen in den Tool-Schemas. Zugriffsrechte bleiben ausschliesslich im Terminal verwaltet.";
-    const mcpPrompt = formatConnectedMCPToolsForPrompt();
-    if (mcpPrompt) prompt += `\n\n${mcpPrompt}`;
     return prompt;
   }
 
@@ -3269,6 +3266,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
           {
             role: "assistant" as const,
             content: `[Der vorherige Lauf ist mit einem Fehler beendet worden: ${errorMessage}]`,
+            isError: true,
           },
         ]);
       }
@@ -3323,7 +3321,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
     snapshot: () => ({
       revision: transcriptRevision.current.revision,
       id: session.id, name: session.name, model: config.model, project: cwd, busy: isProcessing || commandBusy.current, stream: displayText(streamText),
-      messages: messages.filter(m => ["user", "assistant"].includes(m.role) && !m.contextKind && m.content.trim()).slice(-100).map(m => ({ role: m.role, content: displayText(m.content).slice(0, 32000) })),
+      messages: messages.filter(m => ["user", "assistant"].includes(m.role) && !m.contextKind && m.content.trim()).slice(-100).map(m => ({ role: m.role, content: displayText(m.content).slice(0, 32000), ...(m.isError ? { isError: true } : {}) })),
       agents: allBranches.map(b => ({ ...b, taskId: b.taskId ?? b.agentId })),
       timeline: remoteTimeline(output),
       work: output.filter(o => o.type === "work-log").slice(-100).flatMap(o => (o.toolResults ?? []).map(r => ({ agent: o.toolLabel ?? "morningstar", heading: displayText(workHeading(r)), success: r.success, output: displayText(r.result).slice(0, 16000), change: r.diff ? fileChange(r.diff.oldStr, r.diff.newStr) : undefined }))),

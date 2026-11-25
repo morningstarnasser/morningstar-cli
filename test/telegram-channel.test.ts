@@ -13,6 +13,7 @@ function fixture(t: TestContext, users = [42]) {
   const sent: { chat: number; text: string; buttons?: InlineButton[][] }[] = [], actions: RemoteAction[] = [], prompts: string[] = [];
   const state: RemoteSnapshot = { id: "session-a", name: "Fixture", model: "fixture", project: root, busy: false, stream: "", messages: [], agents: [], work: [], approval: null };
   let complete: (() => void) | undefined, downloads = 0;
+  let outcome: RemoteSnapshot["messages"][number] = { role: "assistant", content: "Shared-session result" };
   const client = {
     getMe: async () => ({ id: 7, is_bot: true, username: "fixture_bot" }), getWebhookInfo: async () => ({ url: "", pending_update_count: 0 }), getUpdates: async () => [],
     sendMessage: async (chat: number, text: string) => { sent.push({ chat, text }); return sent.length; },
@@ -24,11 +25,11 @@ function fixture(t: TestContext, users = [42]) {
   const notices: { text: string; running: boolean }[] = [];
   const channel = new TelegramChannel({ token: "fixture-token", allowedUsers: users, root, client, snapshot: () => state,
     action: action => { actions.push(action); }, notice: text => { notices.push({ text, running: channel.running }); },
-    message: async text => { prompts.push(text); state.busy = true; state.messages.push({ role: "user", content: text }); await new Promise<void>(r => { complete = r; }); state.messages.push({ role: "assistant", content: "Shared-session result" }); state.busy = false; },
+    message: async text => { prompts.push(text); state.busy = true; state.messages.push({ role: "user", content: text }); await new Promise<void>(r => { complete = r; }); state.messages.push(outcome); state.busy = false; },
   });
   t.after(() => channel.stop());
   const update = (id: number, text: string, user = 42, type = "private"): TelegramUpdate => ({ update_id: id, message: { message_id: id, date: Math.floor(Date.now() / 1000), chat: { id: user, type }, from: { id: user, is_bot: false }, text } });
-  return { channel, state, sent, actions, prompts, update, root, client, notices, downloads: () => downloads, finish: async () => { complete?.(); await new Promise(r => setTimeout(r, 0)); await channel.tick(); } };
+  return { channel, state, sent, actions, prompts, update, root, client, notices, downloads: () => downloads, finish: async (result?: typeof outcome) => { if (result) outcome = result; complete?.(); await new Promise(r => setTimeout(r, 0)); await channel.tick(); } };
 }
 
 test("Telegram routes allowed DMs into one existing session and returns its result without executing local commands", async t => {
@@ -39,6 +40,16 @@ test("Telegram routes allowed DMs into one existing session and returns its resu
   await f.channel.handle(f.update(1, "replayed")); assert.equal(f.prompts.length, 1);
   await f.finish(); assert.ok(f.sent.some(s => s.text === "Shared-session result"));
   assert.equal(f.state.id, "session-a");
+});
+
+for (const legacy of [false, true]) test(`Telegram reports a failed model turn as failure, including legacy=${legacy}`, async t => {
+  const f = fixture(t); await f.channel.start(false); await f.channel.handle(f.update(1, "wie gehts"));
+  await new Promise(r => setTimeout(r, 0));
+  const content = legacy ? "[Der vorherige Lauf ist mit einem Fehler beendet worden: context budget]" : "Model request failed";
+  await f.finish({ role: "assistant", content, ...(!legacy ? { isError: true } : {}) });
+  assert.ok(f.sent.some(s => s.text === "Auftrag fehlgeschlagen."));
+  assert.ok(f.sent.some(s => s.text === content));
+  assert.ok(!f.sent.some(s => s.text === "Auftrag beendet."));
 });
 
 test("unknown users, groups, bots, old updates and unpaired attachments never reach tools or downloads", async t => {

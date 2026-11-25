@@ -16,6 +16,8 @@ import {
 } from "../src/mcp.js";
 import { buildMCPEnvironment, MCPClient } from "../src/mcp-client.js";
 import { getOpenAIToolDefinitions } from "../src/tool-definitions.js";
+import { runAgent } from "../src/agent-runner.js";
+import { compactRequest } from "../src/runtime/request-context.js";
 import { executeNativeToolCall, executeToolCall, parseToolCalls } from "../src/tools.js";
 
 const fixture = fileURLToPath(new URL("./fixtures/mcp-echo-server.mjs", import.meta.url));
@@ -228,6 +230,33 @@ test("text MCP prompt schemas remain valid bounded JSON without truncating nativ
   )?.function.parameters;
   assert.ok(nativeSchema);
   assert.ok(Object.hasOwn(nativeSchema.properties, "property_23"));
+});
+
+test("a full MCP catalog fits a normal chat, keeps every native schema and replaces a legacy catalog once", async t => {
+  t.after(() => disconnectAllMCPServers());
+  await connectMCPServer("full-catalog", { command: process.execPath, args: [fixture], env: { MCP_LIST_MODE: "large-catalog" } });
+  const connected = getConnectedMCPTools(); assert.equal(connected.length, 128);
+  const catalog = formatConnectedMCPToolsForPrompt(); assert.ok(catalog.length <= 16000);
+  for (const tool of connected) {
+    assert.ok(catalog.includes(tool.qualifiedName));
+    const native = getOpenAIToolDefinitions().find(t => t.function.name === tool.qualifiedName)!;
+    assert.ok(Object.hasOwn(native.function.parameters.properties, "property_23"));
+  }
+  const legacy = "=== VERBUNDENE MCP-TOOLS ===\n" + "old catalog ".repeat(12000) + "\nMCP-Tools koennen externe Systeme veraendern und laufen durch die normale Genehmigung.";
+  const messages = [{ role: "system" as const, content: `MANDATORY OPERATOR RULE\n${legacy}\nPRESERVE THIS RULE TOO` }, { role: "user" as const, content: "[Telegram] wie gehts" }];
+  assert.throws(() => compactRequest(messages), /exceed/);
+  const before = JSON.stringify(messages); let calls = 0;
+  const result = await runAgent(messages, { apiKey: "test", model: "fixture", baseUrl: "http://localhost", maxTokens: 64, temperature: 0 }, "/tmp", {
+    streamFn: async function* (request) {
+      calls++; const system = request[0].content;
+      assert.equal(system.split("=== VERBUNDENE MCP-TOOLS ===").length - 1, 1);
+      assert.ok(system.includes("MANDATORY OPERATOR RULE") && system.includes("PRESERVE THIS RULE TOO"));
+      assert.ok(!system.includes("old catalog"));
+      assert.ok(JSON.stringify(request).length < 60000);
+      yield { type: "content", text: "ready" };
+    },
+  });
+  assert.equal(calls, 1); assert.equal(result.finalText, "ready"); assert.equal(JSON.stringify(messages), before);
 });
 
 test("rich MCP results preserve resources, links, media metadata, and structured content", async (t) => {

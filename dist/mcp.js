@@ -22,6 +22,9 @@ const MAX_MCP_SCHEMA_BYTES = 100_000;
 const MAX_MCP_TOTAL_SCHEMA_BYTES = 1_000_000;
 const MAX_MCP_RESULT_BYTES = 512_000;
 const MAX_PROMPT_SCHEMA_BYTES = 800;
+const MAX_MCP_PROMPT_CHARS = 16000;
+const MCP_PROMPT_HEADER = "=== VERBUNDENE MCP-TOOLS ===";
+const MCP_PROMPT_FOOTER = "MCP-Tools koennen externe Systeme veraendern und laufen durch die normale Genehmigung.";
 const MAX_MEDIA_PREVIEW_CHARS = 96;
 const SERVER_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,31}$/;
 function notifyMCPChange() {
@@ -171,14 +174,29 @@ export function formatConnectedMCPToolsForPrompt() {
     const tools = getConnectedMCPTools();
     if (tools.length === 0)
         return "";
-    return [
-        "=== VERBUNDENE MCP-TOOLS ===",
+    const detailed = [
+        MCP_PROMPT_HEADER,
         ...tools.map((tool) => {
             const schema = stringifyBoundedPromptSchema(tool.inputSchema);
             return `<tool:${tool.qualifiedName}>${schema}</tool> - [${tool.serverName}] ${tool.description || tool.name}`;
         }),
-        "MCP-Tools koennen externe Systeme veraendern und laufen durch die normale Genehmigung.",
+        MCP_PROMPT_FOOTER,
     ].join("\n");
+    if (detailed.length <= MAX_MCP_PROMPT_CHARS)
+        return detailed;
+    // Large registries already supply full native schemas separately. Keep every
+    // exact name discoverable without duplicating those schemas in system text.
+    const header = `${MCP_PROMPT_HEADER}\n${tools.length} Tools. Vollständige Parameter stehen in den nativen Tool-Schemas; keine Parameter erfinden.`;
+    const names = tools.map(tool => `- ${tool.qualifiedName}: `);
+    const reserved = header.length + MCP_PROMPT_FOOTER.length + 2 + names.reduce((n, name) => n + name.length + 1, 0);
+    const descriptionChars = Math.max(0, Math.floor((MAX_MCP_PROMPT_CHARS - reserved) / tools.length));
+    return [header, ...tools.map((tool, i) => names[i] + (tool.description || tool.name).replace(/\s+/g, " ").slice(0, descriptionChars)), MCP_PROMPT_FOOTER].join("\n");
+}
+/** Old TUI transcripts embedded a catalog; replace only that generated section
+ * in provider requests. Stored history and surrounding operator rules survive. */
+export function stripGeneratedMCPPrompt(content) {
+    const pattern = /(?:^|\n)=== VERBUNDENE MCP-TOOLS ===\n[\s\S]*?\nMCP-Tools koennen externe Systeme veraendern und laufen durch die normale Genehmigung\.(?:\n|$)/g;
+    return content.replace(pattern, "\n");
 }
 function normalizeMCPTools(tools) {
     const normalized = new Map();

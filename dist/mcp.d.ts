@@ -12,6 +12,9 @@ export declare function isMCPToolName(name: string): boolean;
 /** Synchronous snapshot used when constructing provider-native tool schemas. */
 export declare function getConnectedMCPTools(): ConnectedMCPTool[];
 export declare function formatConnectedMCPToolsForPrompt(): string;
+/** Old TUI transcripts embedded a catalog; replace only that generated section
+ * in provider requests. Stored history and surrounding operator rules survive. */
+export declare function stripGeneratedMCPPrompt(content: string): string;
 /**
  * Get MCP server configurations from settings.
  */

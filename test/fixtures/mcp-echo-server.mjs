@@ -62,6 +62,9 @@ function listedTools(cursor) {
   if (listMode === "large-schema") {
     return { tools: [schemaTool(0)] };
   }
+  if (listMode === "large-catalog") {
+    return { tools: Array.from({ length: 128 }, (_, index) => ({ ...schemaTool(index), description: `Complete connected capability ${index}. `.repeat(40) })) };
+  }
   return {
     tools: [
       {

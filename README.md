@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.3.2** (2026-11-25).
+Current release: **1.3.3** (2026-11-25).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -361,7 +361,7 @@ The `website/` package has its own lockfile and build. Follow [AGENTS.md](AGENTS
 [CLAUDE.md](CLAUDE.md) before contributing.
 
 The release checks include the complete test suite on Mac and Windows, typecheck, build,
-OSV scanning and terminal keyboard/mouse read-back. See [1.3.2 configured local images](docs/release-1.3.2-2026-11-25.md), [1.3.1 Telegram connection checks](docs/release-1.3.1-2026-11-25.md), [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
+OSV scanning and terminal keyboard/mouse read-back. See [1.3.3 large MCP catalogs and Telegram errors](docs/release-1.3.3-2026-11-25.md), [1.3.2 configured local images](docs/release-1.3.2-2026-11-25.md), [1.3.1 Telegram connection checks](docs/release-1.3.1-2026-11-25.md), [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
 [1.1.1 release verification](docs/release-1.1.1-2026-11-24.md);
 a package version or screenshot alone is not an inference, security or cross-platform guarantee.
 

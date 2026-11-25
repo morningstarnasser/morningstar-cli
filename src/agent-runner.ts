@@ -7,7 +7,7 @@ import { runRuntimeHooks } from "./runtime-hooks.js";
 import { autonomousSwarmPrompt, executeAutonomousSwarm, type SwarmEvent } from "./swarm-tool.js";
 import { WORK_GUIDANCE } from "./runtime/work-guidance.js";
 import { isMalformedToolAttempt } from "./runtime/tool-protocol.js";
-import { formatConnectedMCPToolsForPrompt } from "./mcp.js";
+import { formatConnectedMCPToolsForPrompt, stripGeneratedMCPPrompt } from "./mcp.js";
 import { getOpenAIToolDefinitions } from "./tool-definitions.js";
 // ─── Shared Headless Agentic Engine ──────────────────────────────────────────
 // Canonical model -> authorization -> tool -> feedback loop used by every
@@ -423,7 +423,7 @@ export async function runAgent(
   const providerMessages = (): Message[] => {
     const mcp = options.enableTools === false ? "" : formatConnectedMCPToolsForPrompt();
     const addition = `\n\n<morningstar-work-style>\n${WORK_GUIDANCE}\n</morningstar-work-style>${swarmInstruction ? `\n\n<morningstar-swarm>\n${swarmInstruction}\n</morningstar-swarm>` : ""}\n\n${mcp || "Keine MCP-Tools verbunden. Skills und Vault-Notizen installieren keine Werkzeuge; erfinde keine MCP-Namen."}\nWenn native Tools angeboten werden, verwende diese; andernfalls vollständige <tool:NAME>...</tool>-Tags. Gib einen Tool-Aufruf niemals als bloßen Antworttext aus. Antworte in der Sprache des Nutzers. Nach einer Statusabfrage nenne die gemessenen Werte und ihren Zeitstempel.`;
-    if (conversation[0]?.role === "system") return [{ ...conversation[0], content: conversation[0].content + addition }, ...conversation.slice(1)];
+    if (conversation[0]?.role === "system") return [{ ...conversation[0], content: stripGeneratedMCPPrompt(conversation[0].content) + addition }, ...conversation.slice(1)];
     return [{ role: "system", content: addition.trim() }, ...conversation];
   };
   if (config.jsonSchema) {

@@ -18,6 +18,7 @@ export interface RemoteSnapshot {
     messages: {
         role: string;
         content: string;
+        isError?: boolean;
     }[];
     timeline?: RemoteTimelineEntry[];
     agents: {

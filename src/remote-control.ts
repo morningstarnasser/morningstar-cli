@@ -11,7 +11,7 @@ export interface RemoteAction { type: "message" | "stop" | "approve" | "new" | "
 export interface RemoteSnapshot {
   revision?: number;
   id: string; name: string; model: string; project: string; busy: boolean; stream: string;
-  messages: { role: string; content: string }[];
+  messages: { role: string; content: string; isError?: boolean }[];
   timeline?: RemoteTimelineEntry[];
   agents: { taskId: string; agentId: string; status: string; detail: string; elapsedMs: number }[];
   work: { agent: string; heading: string; success: boolean; output: string; change?: { added: number; removed: number; lines: { kind: string; text: string; line: number }[] } }[];
