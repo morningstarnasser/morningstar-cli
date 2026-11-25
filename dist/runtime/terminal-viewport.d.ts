@@ -17,6 +17,7 @@ export declare class TerminalViewport {
     private options;
     readonly terminal: xterm.Terminal;
     private snapshot;
+    private paintedRows;
     private top;
     private anchor;
     private end;

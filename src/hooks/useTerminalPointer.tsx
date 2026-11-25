@@ -1,4 +1,5 @@
 import { TerminalViewport } from "../runtime/terminal-viewport.js";
+import { joinTerminalInput } from "../runtime/terminal-input.js";
 import { isFindShortcut } from "../runtime/terminal-search.js";
 import { TerminalDetails, type TerminalDetail } from "./useTerminalDetails.js";
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
@@ -69,9 +70,19 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
     };
     const originalEmit = internal_eventEmitter.emit;
     let pasteBuffer: string | null = null;
+    let reportBuffer = "", reportTimer: ReturnType<typeof setTimeout> | undefined, flushingReport = false;
     internal_eventEmitter.emit = function(event: string | symbol, ...args: any[]): boolean {
       if (event !== "input") return originalEmit.call(this, event, ...args);
-      const raw = String(args[0]);
+      let raw = String(args[0]);
+      if (pasteBuffer === null && !flushingReport) {
+        if (reportTimer) clearTimeout(reportTimer);
+        const joined = joinTerminalInput(reportBuffer, raw); raw = joined.input; reportBuffer = joined.pending;
+        if (reportBuffer) reportTimer = setTimeout(() => {
+          const rest = reportBuffer; reportBuffer = ""; reportTimer = undefined; flushingReport = true;
+          try { internal_eventEmitter.emit("input", rest); } finally { flushingReport = false; }
+        }, reportBuffer === "\x1b" || reportBuffer === "[" ? 100 : 1000);
+        if (!raw) return true;
+      }
       if (pasteBuffer !== null || raw.startsWith("\x1b[200~")) {
         const value = pasteBuffer === null ? raw.slice(6) : pasteBuffer + raw;
         const end = value.indexOf("\x1b[201~");
@@ -84,7 +95,7 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
         if (rest) internal_eventEmitter.emit("input", rest);
         return true;
       }
-      const rest = raw.replace(/\x1b\[(?:(\d+);(\d+)R|<(\d+);(\d+);(\d+)([mM]))/g, (_all, row, _col, code, x, y, suffix) => {
+      const rest = raw.replace(/(?:\x1b)?\[(?:(\d+);(\d+)R|<(\d+);(\d+);(\d+)([mM]))/g, (_all, row, _col, code, x, y, suffix) => {
         if (row) {
           cursorRow = Number(row); queryPending = false; const queued = pending; pending = [];
           enqueue(async () => { for (const e of queued) await dispatch(e); });
@@ -131,7 +142,7 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
     };
     stdout.prependListener("resize", resize);
     rawWrite("\x1b[?1002h\x1b[?1006h");
-    const disable = () => { viewport.dispose(); rawWrite("\x1b[?1002l\x1b[?1006l"); };
+    const disable = () => { if (reportTimer) clearTimeout(reportTimer); viewport.dispose(); rawWrite("\x1b[?1002l\x1b[?1006l"); };
     process.once("exit", disable);
     // Install the mirror before Ink Static prints its first frame; those rows
     // otherwise vanish from selection and detail hit-testing after a refresh.

@@ -39,3 +39,22 @@ test("many formatted blocks share resize observation and react to width changes 
   stdout.columns = 90; stdout.emit("resize"); await new Promise(r => setTimeout(r, 40)); assert.match(result, /90/);
   app.unmount(); await new Promise(r => setTimeout(r, 40)); assert.equal(stdout.listenerCount("resize"), 0);
 });
+
+test("status tables have one header and compact aligned rows on wide terminals, readable records on narrow terminals", async () => {
+  const table = "| Kategorie | Wert |\n| --- | --- |\n| Hostname | Testhost |\n| Uptime | 9 Wochen |\n| Storage | 1.8 TB |\n| Unicode | Zürich 👩‍💻 |";
+  for (const columns of [44, 80, 160]) {
+    const stdout = new PassThrough() as any; stdout.columns = columns; stdout.isTTY = false;
+    const stdin = new PassThrough() as any; stdin.isTTY = false;
+    let frame = ""; stdout.on("data", (chunk: Buffer) => { const text = stripVTControlCharacters(chunk.toString()); if (text.trim()) frame = text; });
+    const app = render(React.createElement(Markdown, { text: table }), { stdout, stdin, stderr: stdout, debug: true, exitOnCtrlC: false });
+    try {
+      await new Promise(r => setTimeout(r, 50));
+      assert.match(frame, /Hostname\s*(?::\s*)?Testhost/);
+      assert.match(frame, /Storage\s*(?::\s*)?1\.8 TB/);
+      assert.match(frame, /Zürich 👩‍💻/);
+      assert.equal((frame.match(/Kategorie/g) ?? []).length, columns >= 60 ? 1 : 0);
+      assert.equal((frame.match(/Wert/g) ?? []).length, columns >= 60 ? 1 : 0);
+      assert.ok(frame.trim().split("\n").length <= 6, frame);
+    } finally { app.unmount(); }
+  }
+});

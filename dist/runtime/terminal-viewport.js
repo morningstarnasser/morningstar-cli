@@ -22,6 +22,7 @@ export class TerminalViewport {
     options;
     terminal;
     snapshot = [];
+    paintedRows = [];
     top = 0;
     anchor = null;
     end = null;
@@ -100,7 +101,7 @@ export class TerminalViewport {
         if (this.active || this.disposed)
             return;
         const live = this.liveFrame();
-        this.options.write(this.frame(live.lines, live.top, false) + `${CSI}${live.cursorY + 1};${Math.min(this.terminal.cols, live.cursorX + 1)}H${CSI}?25l`);
+        this.options.write(this.frame(live.lines, live.top, false) + `${CSI}0m${CSI}${live.cursorY + 1};${Math.min(this.terminal.cols, live.cursorX + 1)}H${CSI}?25l`);
     }
     /** Align the first short frame if Morningstar started below an existing shell prompt. */
     async alignCursor(row) {
@@ -125,6 +126,7 @@ export class TerminalViewport {
         this.active = true;
         this.notice = "";
         this.pendingUpdates = 0;
+        this.paintedRows = [];
         this.options.write(`${CSI}?1049h${CSI}?25l`);
     }
     async scroll(amount) {
@@ -215,6 +217,7 @@ export class TerminalViewport {
         this.searching = false;
         this.searchMatches = [];
         this.options.write(`${CSI}?1049l`);
+        this.paintedRows = [];
         await this.renderLive();
     }
     point(x, y) {
@@ -318,7 +321,8 @@ export class TerminalViewport {
     }
     frame(lines, top, overlay) {
         const range = overlay ? this.bounds() : null;
-        let result = `${CSI}?25l`;
+        let result = "";
+        const rows = [];
         const visible = this.terminal.rows - (overlay ? 1 + this.pinnedHeight : 0);
         const matchesByRow = new Map();
         if (overlay && this.searching)
@@ -330,7 +334,7 @@ export class TerminalViewport {
                 }
             }
         for (let y = 0; y < visible; y++) {
-            result += `${CSI}${y + 1};1H${CSI}0m${CSI}2K`;
+            result = `${CSI}${y + 1};1H${CSI}0m`;
             let previous = "";
             const cells = lines[top + y]?.cells ?? [];
             for (let x = 0; x < Math.min(cells.length, this.terminal.cols); x++) {
@@ -349,18 +353,27 @@ export class TerminalViewport {
                 }
                 result += cell.text;
             }
+            if (cells.length < this.terminal.cols)
+                result += `${CSI}0m${CSI}K`;
+            rows.push(result);
         }
         if (overlay) {
             const live = this.pinnedHeight ? this.liveFrame() : undefined;
             for (let y = visible; y < this.terminal.rows - 1; y++) {
-                result += `${CSI}${y + 1};1H${CSI}0m${CSI}2K`;
-                for (const cell of live?.lines[(live?.top ?? 0) + y]?.cells ?? [])
+                result = `${CSI}${y + 1};1H${CSI}0m`;
+                const cells = live?.lines[(live?.top ?? 0) + y]?.cells ?? [];
+                for (const cell of cells)
                     if (cell.width)
                         result += cell.style + cell.text;
+                if (cells.length < this.terminal.cols)
+                    result += `${CSI}0m${CSI}K`;
+                rows.push(result);
             }
-            result += this.footer();
+            rows.push(this.footer());
         }
-        return result + `${CSI}0m`;
+        const changes = rows.filter((row, index) => row !== this.paintedRows[index]).join("");
+        this.paintedRows = rows;
+        return changes ? `${CSI}?2026h${CSI}?25l${changes}${CSI}0m${CSI}?2026l` : "";
     }
     footer() {
         if (this.searching) {
@@ -381,6 +394,7 @@ export class TerminalViewport {
     resize(columns, rows) {
         if (this.disposed)
             return;
+        this.paintedRows = [];
         if (this.active)
             this.options.write(`${CSI}?1049l`);
         this.active = false;

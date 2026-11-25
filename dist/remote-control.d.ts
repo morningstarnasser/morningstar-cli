@@ -8,6 +8,7 @@ export interface RemoteAction {
     allow?: boolean;
 }
 export interface RemoteSnapshot {
+    revision?: number;
     id: string;
     name: string;
     model: string;

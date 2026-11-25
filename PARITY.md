@@ -1,6 +1,6 @@
 # Claude Code Parity — Morningstar CLI
 
-Last audited: 2026-11-25. See [1.2.0 changes and comparison](docs/release-1.2.0-2026-11-25.md) and the earlier [implementation report](docs/claude-parity-2026-11-23.md).
+Last audited: 2026-11-25. See [1.3.0 changes](docs/release-1.3.0-2026-11-25.md), [1.2.0 changes and comparison](docs/release-1.2.0-2026-11-25.md) and the earlier [implementation report](docs/claude-parity-2026-11-23.md).
 
 Morningstar targets clean-room behavioral parity with the publicly documented
 Claude Code terminal workflow. It does not copy Anthropic source, branding,
@@ -80,6 +80,7 @@ Legend:
 | GitHub Actions integration | ⬜ | No first-party Morningstar action |
 | Private Remote Control | ✅ | Single-use QR pairing, shared terminal session, mobile chat and active connection menu |
 | Anthropic account, billing or cloud sessions | N/A | Anthropic-owned services are not reproduced |
+| Same-session Telegram channel | ✅ | Private-DM pairing, shared conversation, approvals, progress, incoming photos/text, outgoing files, reactions and message edits; no groups or offline relay |
 | Telegram gateway | ➕ | Remote chat, approvals, sessions, models, voice, and scheduling |
 | HTTP API and web dashboard | ➕ | Local API surface and operational dashboard |
 

@@ -37,3 +37,29 @@ test("respects the default 4096 limit", () => {
   assert.equal(chunks.length, 3);
   for (const c of chunks) assert.ok(c.length <= 4096);
 });
+
+test("attachment downloads reject traversal, enforce streamed byte limits and cancel the reader", async t => {
+  const { TelegramClient } = await import("../src/telegram/api.js");
+  const client = new TelegramClient("fixture"); let calls = 0, cancelled = false;
+  t.mock.method(globalThis, "fetch", async (_url: unknown, options: RequestInit) => {
+    calls++; assert.equal(options.redirect, "error");
+    return new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(8)); }, cancel() { cancelled = true; } }));
+  });
+  for (const path of ["../secret", "/absolute", "https://example.test/a", "x/%2e%2e/a", "x/./a"]) await assert.rejects(client.downloadFile(path));
+  assert.equal(calls, 0); await assert.rejects(client.downloadFile("photos/a.jpg", 4), /Grössenlimit/);
+  assert.equal(cancelled, true);
+});
+
+test("Telegram long polling propagates cancellation and file replies use multipart and native threading", async t => {
+  const { TelegramClient } = await import("../src/telegram/api.js"); const client = new TelegramClient("fixture");
+  const abort = new AbortController(); abort.abort();
+  t.mock.method(globalThis, "fetch", async (_url: unknown, options: RequestInit) => {
+    if (options.signal?.aborted) throw options.signal.reason;
+    const form = options.body as FormData; assert.equal(form.get("chat_id"), "42");
+    assert.equal(JSON.parse(String(form.get("reply_parameters"))).message_id, 12);
+    assert.equal(await (form.get("document") as Blob).text(), "proof");
+    return Response.json({ ok: true, result: { message_id: 77 } });
+  });
+  await assert.rejects(client.getUpdates(0, 25, abort.signal));
+  assert.equal(await client.sendFile(42, "proof.txt", Buffer.from("proof"), false, 12), 77);
+});

@@ -1,3 +1,4 @@
+import { isTelegramTool, executeTelegramTool } from "./telegram/channel-tools.js";
 import { bashExecutable, gitExecutable } from "./runtime/platform-process.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { execSync, spawn, spawnSync } from "node:child_process";
@@ -1075,7 +1076,7 @@ export function parseToolCalls(response) {
                 call.args = {};
                 break;
             default:
-                if (isMCPToolName(tool)) {
+                if (isMCPToolName(tool) || isTelegramTool(tool)) {
                     const raw = value.trim();
                     if (!raw) {
                         call.args = {};
@@ -1263,6 +1264,8 @@ export async function executeToolCall(call, cwd, signal) {
                 return { ...result, tool: "auto-html" };
             }
             default: {
+                if (isTelegramTool(tool))
+                    return executeTelegramTool(tool, args, cwd);
                 if (isMCPToolName(tool)) {
                     const result = await callQualifiedMCPTool(tool, args, signal);
                     return { tool, result: result.result, success: result.success };
@@ -1351,6 +1354,8 @@ export function executeNativeToolCall(name, args, cwd, signal) {
                 .then((reply) => ({ tool: "jerry", result: reply || "(keine Antwort von Jerry)", success: true }))
                 .catch((error) => ({ tool: "jerry", result: `Jerry-Bridge Fehler: ${error.message}`, success: false }));
         default:
+            if (isTelegramTool(name))
+                return executeTelegramTool(name, args, cwd);
             if (isMCPToolName(name)) {
                 return callQualifiedMCPTool(name, args, signal)
                     .then((result) => ({ tool: name, result: result.result, success: result.success }));

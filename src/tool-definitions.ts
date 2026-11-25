@@ -1,6 +1,7 @@
 // ─── Tool Definitions for Native Function Calling ─────────────────────────────
 // Three formats: OpenAI, Anthropic, Google Gemini
 
+import { getTelegramToolDefinitions } from "./telegram/channel-tools.js";
 import { getConnectedMCPTools } from "./mcp.js";
 import { canonicalToolName } from "./policy-engine.js";
 
@@ -402,7 +403,7 @@ export function getOpenAIToolDefinitions(allowedTools?: readonly string[], enabl
     },
   }));
   const allowed = allowedTools ? new Set(allowedTools.map(canonicalToolName)) : undefined;
-  return [...TOOL_DEFINITIONS, ...mcpTools].filter(t => (enableSwarm || t.function.name !== "swarm")
+  return [...TOOL_DEFINITIONS, ...mcpTools, ...getTelegramToolDefinitions()].filter(t => (enableSwarm || t.function.name !== "swarm")
     && (!allowed || allowed.has(t.function.name)));
 }
 

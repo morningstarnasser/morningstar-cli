@@ -3,6 +3,7 @@ import { execSync } from "node:child_process";
 import { join, basename } from "node:path";
 import type { ProjectContext } from "./types.js";
 import { buildRulesPrompt } from "./rules.js";
+import { loadAgentInstructions } from "./persona.js";
 
 export function detectProject(cwd: string): ProjectContext {
   const projectName = basename(cwd);
@@ -172,7 +173,10 @@ export function buildSystemPrompt(ctx: ProjectContext): string {
     `- Schreibe sauberen, sicheren Code`,
     `- Antworte auf Deutsch wenn der User Deutsch spricht`,
     `- Sei direkt und effizient, kein unnuetzes Gerede`,
+    `- Statusberichte: kurzes Fazit pro Host, dann eine kompakte Tabelle mit einmaligen Spaltenüberschriften. Belegte Werte, Warnungen und offene Prüfungen trennen. Keine wiederholten Tabellenköpfe pro Zeile und keine erfundenen Fortschrittsprozente.`,
   ];
+
+  parts.push(loadAgentInstructions());
 
   // Append rules
   const rulesPrompt = buildRulesPrompt(ctx.cwd);

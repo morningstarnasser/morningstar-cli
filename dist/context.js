@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { join, basename } from "node:path";
 import { buildRulesPrompt } from "./rules.js";
+import { loadAgentInstructions } from "./persona.js";
 export function detectProject(cwd) {
     const projectName = basename(cwd);
     let language = null;
@@ -182,7 +183,9 @@ export function buildSystemPrompt(ctx) {
         `- Schreibe sauberen, sicheren Code`,
         `- Antworte auf Deutsch wenn der User Deutsch spricht`,
         `- Sei direkt und effizient, kein unnuetzes Gerede`,
+        `- Statusberichte: kurzes Fazit pro Host, dann eine kompakte Tabelle mit einmaligen Spaltenüberschriften. Belegte Werte, Warnungen und offene Prüfungen trennen. Keine wiederholten Tabellenköpfe pro Zeile und keine erfundenen Fortschrittsprozente.`,
     ];
+    parts.push(loadAgentInstructions());
     // Append rules
     const rulesPrompt = buildRulesPrompt(ctx.cwd);
     if (rulesPrompt)

@@ -154,6 +154,7 @@ export function buildCLIConfig(opts, saved, projectSettings, getStoredApiKey) {
         && savedProvider === selectedProvider
         && typeof saved.baseUrl === "string";
     const config = {
+        telegramChannel: opts.channels?.split(",").includes("telegram"),
         ...DEFAULT_CONFIG,
         model: selectedModel,
         provider: selectedProvider,

@@ -20,6 +20,19 @@ export interface TelegramMessage {
     };
     date: number;
     text?: string;
+    caption?: string;
+    photo?: {
+        file_id: string;
+        file_size?: number;
+        width: number;
+        height: number;
+    }[];
+    document?: {
+        file_id: string;
+        file_size?: number;
+        file_name?: string;
+        mime_type?: string;
+    };
     voice?: TelegramVoice;
     audio?: TelegramVoice;
 }
@@ -51,17 +64,20 @@ export declare class TelegramClient {
     private call;
     getMe(): Promise<TelegramUser>;
     /** Long-poll for updates. `timeout` is the server-side hold time in seconds. */
-    getUpdates(offset: number, timeout?: number): Promise<TelegramUpdate[]>;
+    getUpdates(offset: number, timeout?: number, signal?: AbortSignal): Promise<TelegramUpdate[]>;
     /** Resolve a file_id to a downloadable file_path. */
     getFile(fileId: string): Promise<{
         file_path?: string;
     }>;
     /** Download a file (by file_path from getFile) and return its bytes. */
-    downloadFile(filePath: string): Promise<Buffer>;
+    downloadFile(filePath: string, maxBytes?: number): Promise<Buffer>;
     sendChatAction(chatId: number, action?: string): Promise<void>;
     /** Send a (possibly long) message, auto-chunked. Returns the last message_id. */
-    sendMessage(chatId: number, text: string, parseMode?: "Markdown" | "HTML"): Promise<number | null>;
+    sendMessage(chatId: number, text: string, parseMode?: "Markdown" | "HTML", replyTo?: number): Promise<number | null>;
     private send;
+    sendFile(chatId: number, name: string, bytes: Buffer, photo: boolean, replyTo?: number): Promise<number>;
+    react(chatId: number, messageId: number, emoji: string): Promise<void>;
+    editOwnMessage(chatId: number, messageId: number, text: string): Promise<void>;
     /** Send a message with an inline keyboard (button grid). */
     sendKeyboard(chatId: number, text: string, inlineKeyboard: InlineButton[][], parseMode?: "Markdown" | "HTML"): Promise<number | null>;
     /** Acknowledge a tapped inline button (stops the loading spinner). */

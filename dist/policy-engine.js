@@ -174,7 +174,7 @@ function classifyAction(tool, target) {
             requiresApproval: true,
         };
     }
-    if (tool === "fetch") {
+    if (tool === "fetch" || ["telegram_reply", "telegram_react", "telegram_edit_message"].includes(tool)) {
         return {
             kind: "network",
             risk: "high",

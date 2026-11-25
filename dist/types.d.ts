@@ -51,6 +51,7 @@ export interface ProjectContext {
     hasGit: boolean;
 }
 export interface CLIConfig {
+    telegramChannel?: boolean;
     apiKey: string;
     model: string;
     baseUrl: string;

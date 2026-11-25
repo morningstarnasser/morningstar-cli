@@ -213,7 +213,7 @@ function classifyAction(tool: string, target: string): ActionProfile {
     };
   }
 
-  if (tool === "fetch") {
+  if (tool === "fetch" || ["telegram_reply", "telegram_react", "telegram_edit_message"].includes(tool)) {
     return {
       kind: "network",
       risk: "high",

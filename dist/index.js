@@ -69,7 +69,7 @@ if (subcommand === "cron") {
     process.exit(0);
 }
 // ─── Config ──────────────────────────────────────────────
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 const sessionStart = Date.now();
 // ─── CLI Setup ───────────────────────────────────────────
 program
@@ -82,6 +82,7 @@ program
     .option("-m, --model <model>", "Model ID (default: deepseek-reasoner)")
     .option("-d, --dir <path>", "Working directory")
     .option("--chat", "Chat-only mode (no tools)")
+    .option("--channels <channels>", "Connect a channel to this interactive session (telegram)")
     .option("--skip-permissions", "Bypass all permission prompts")
     .option("--yolo", "Automatically approve tools for this run, including swarm workers (alias for --dangerously-skip-permissions)")
     // Claude Code-compatible flags:
@@ -124,6 +125,10 @@ program
     .option("--sandbox", "Run in sandboxed mode (filesystem restrictions)")
     .parse();
 const opts = program.opts();
+if (opts.channels && opts.channels !== "telegram")
+    program.error("Supported channel: --channels telegram");
+if (opts.channels && (opts.print !== undefined || !process.stdin.isTTY))
+    program.error("Telegram channels require an interactive terminal session.");
 // Diagnostics/help finish before loading provider, runner or terminal modules.
 const [bootstrap, { loadSettings }, { applyProjectEnv, loadProjectEnvFiles }, { createWorktreeSession }, { enableSandbox }, { getLastConversation, loadConversation }, { detectProject, buildSystemPrompt }, { loadProjectMemory }, { runRuntimeHooks }] = await Promise.all([
     import("./cli-bootstrap.js"), import("./settings.js"), import("./env.js"),

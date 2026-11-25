@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.2.0** (2026-11-25).
+Current release: **1.3.0** (2026-11-25).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -13,7 +13,7 @@ Built with TypeScript, React/Ink and Shiki.
 | Models | Provider API catalogs, installed Ollama models, Claude CLI aliases and the local Codex model catalog |
 | Long tasks | Unlimited turns by default; optional turn/cost limits, cancellation and no-progress detection |
 | Tools | Files, edits, shell, search, Git and supported integrations through the shared permission/runtime layer |
-| Swarm | Model-selected or explicit parallel tasks, dependencies, file ownership and selectable agent views |
+| Swarm | Live workers in the pinned footer, dependencies, actual task states and result handoff to the main agent |
 | Work log | Executed commands, exit status, output and actual red/green file diffs with addition/deletion counts |
 | Input | Cursor placement, selection, multiline input, persistent ↑/↓ history, Ctrl+R search and queued messages |
 | Output | Markdown, syntax highlighting, scrollback with live composer/status, automatic bottom follow and selection/copy |
@@ -23,6 +23,7 @@ Built with TypeScript, React/Ink and Shiki.
 | Sessions | New, clear, resume, rename, conversation rewind and summarization checkpoints |
 | Superbrain | Bounded local QMD retrieval from the `obsidian` collection |
 | Skills | Shared user/project/plugin skill discovery; relevant procedures loaded on demand |
+| Telegram | Pair a private DM with the same terminal session; approvals, progress, photos, text files and outgoing project files |
 | Remote Control | Pair a browser by QR code; view and control the same running session over a private network |
 | Automation | Print/JSON/NDJSON, lifecycle command hooks, validated settings and optional whole-session worktrees |
 
@@ -96,7 +97,10 @@ The Codex adapter observes its public tool events and retains its read-only sand
 | `/rewind` or double Esc | Pick a message to restore or summarize from/up to; preserve the old conversation |
 | `/activity` | Inspect the latest public tool activity |
 | `/find [text]` | Search the retained terminal transcript; Ctrl+F opens the same view |
-| `/swarm` | Start an explicit team plan; the model can also choose swarm itself |
+| `/swarm` | Start a team; active workers appear below, then hand results to the main agent and close |
+| `/telegram on`, `/telegram off` | Connect/disconnect Telegram for this terminal conversation |
+| `/telegram:configure` | Enter the bot token in a masked field |
+| `/telegram:access pair <code>` | Pair a Telegram account locally |
 | `/btw <question>` | Ask an isolated side question without tools or mutation of the main conversation |
 | `/max-turns <n>` | Set an optional cap; `0` or `unlimited` removes it |
 | `/rc` | Start private Remote Control, or open its menu when already active |
@@ -256,6 +260,45 @@ and selected text survive polling. Restart Morningstar and pair again after inst
 
 See [sessions, input, rewind, images and Remote Control](docs/sessions-remote-rewind.md).
 
+## Telegram: continue the same session from your phone
+
+Create a bot with Telegram's **@BotFather**. In Morningstar, run
+`/telegram:configure` and paste its token into the masked input. Tokens are excluded
+from the conversation and prompt history. Existing private gateway credentials can
+also be reused. Start with `morningstar --channels telegram` on subsequent launches,
+or use `/telegram on` in a running session.
+
+1. DM your bot while the terminal session is connected.
+2. If the account is new, the bot returns a short-lived code.
+3. In the terminal, enter `/telegram:access pair <code>`.
+4. Continue by DM: messages and answers use this terminal's conversation, model,
+   project and permission mode. Pairing automatically switches to `allowlist`.
+
+The pinned footer shows the connected bot. Telegram displays work status, active
+agent counts, approval buttons and the final answer. `/status` and `/stop` work in
+the DM. New messages queue while work runs. Approvals are single-use and bound to
+the current account, session and request. `/telegram off` disconnects the channel
+without closing the terminal conversation. Access changes remain local:
+`/telegram:access policy pairing|allowlist|disabled` and
+`/telegram:access revoke <numeric-user-id>`.
+
+Photos/images up to 5 MB and UTF-8 text files up to 256 KB enter the same prompt.
+Image analysis still requires a vision-capable model. Incoming PDF and other binary
+files are not interpreted by this channel. The agent can send requested project
+files (up to 50 MB each), react, and edit its own channel messages using
+`telegram_reply`, `telegram_react`, and `telegram_edit_message`; the normal tool
+policy applies. Credential paths and files outside the workspace are refused.
+Plain final answers are relayed automatically, without an extra reply tool call.
+
+This follows the private-DM workflow in [Claude Code Channels](https://code.claude.com/docs/en/channels)
+and its [official Telegram plugin](https://github.com/anthropics/claude-plugins-official/tree/main/external_plugins/telegram).
+Morningstar integrates the transport directly: no Bun or extra MCP plugin is needed.
+Groups, message-history/search APIs and an offline relay are not supplied. The
+terminal must stay open. Use one running session per bot; disconnect on Mac before
+connecting the same bot on Windows. A detected Telegram polling conflict stops the
+channel instead of silently taking over. The separate `morningstar telegram` gateway
+retains its own conversations; do not run it with the same bot at the same time.
+
 ## Settings and scripting
 
 Settings precedence is managed > explicit > local > project > user. Project files can restrict
@@ -272,7 +315,12 @@ morningstar --continue
 
 User configuration, history and settings live under `~/.morningstar`. Project settings live in
 `.morningstar/`. Project instructions include Morningstar files, `AGENTS.md`, and `CLAUDE.md`
-as a fallback. Avoid copying credentials or host-specific configuration between computers.
+as a fallback. The interactive CLI also loads `~/.morningstar/AGENTS.md`, with
+built-in evidence rules when that file is missing. Reload the CLI after changing
+these global instructions. They require checking uncertain claims, reproducing bugs,
+verifying actual behavior and reporting untested limits. Instructions are not a
+guarantee that the model cannot make mistakes. Avoid copying unrelated credentials
+or host-specific configuration between computers.
 
 See [settings, hooks and parity details](docs/claude-parity-2026-11-23.md).
 
@@ -311,7 +359,7 @@ The `website/` package has its own lockfile and build. Follow [AGENTS.md](AGENTS
 [CLAUDE.md](CLAUDE.md) before contributing.
 
 The release checks include the complete test suite on Mac and Windows, typecheck, build,
-OSV scanning and terminal keyboard/mouse read-back. See [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
+OSV scanning and terminal keyboard/mouse read-back. See [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
 [1.1.1 release verification](docs/release-1.1.1-2026-11-24.md);
 a package version or screenshot alone is not an inference, security or cross-platform guarantee.
 

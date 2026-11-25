@@ -25,6 +25,9 @@ export interface TelegramMessage {
   chat: { id: number; type: string; title?: string; username?: string };
   date: number;
   text?: string;
+  caption?: string;
+  photo?: { file_id: string; file_size?: number; width: number; height: number }[];
+  document?: { file_id: string; file_size?: number; file_name?: string; mime_type?: string };
   voice?: TelegramVoice;
   audio?: TelegramVoice;
 }
@@ -88,7 +91,7 @@ export class TelegramClient {
     if (!token) throw new Error("TelegramClient: bot token is required");
   }
 
-  private async call<T>(method: string, body?: Record<string, unknown>, timeoutMs = 65000): Promise<T> {
+  private async call<T>(method: string, body?: Record<string, unknown>, timeoutMs = 65000, signal?: AbortSignal): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -96,7 +99,7 @@ export class TelegramClient {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body ?? {}),
-        signal: controller.signal,
+        signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
       });
       const data = (await res.json()) as TelegramResponse<T>;
       if (!data.ok) {
@@ -113,11 +116,12 @@ export class TelegramClient {
   }
 
   /** Long-poll for updates. `timeout` is the server-side hold time in seconds. */
-  async getUpdates(offset: number, timeout = 50): Promise<TelegramUpdate[]> {
+  async getUpdates(offset: number, timeout = 50, signal?: AbortSignal): Promise<TelegramUpdate[]> {
     return this.call<TelegramUpdate[]>(
       "getUpdates",
       { offset, timeout, allowed_updates: ["message", "callback_query"] },
       (timeout + 15) * 1000,
+      signal,
     );
   }
 
@@ -127,10 +131,17 @@ export class TelegramClient {
   }
 
   /** Download a file (by file_path from getFile) and return its bytes. */
-  async downloadFile(filePath: string): Promise<Buffer> {
-    const res = await fetch(`${TELEGRAM_API}/file/bot${this.token}/${filePath}`);
+  async downloadFile(filePath: string, maxBytes = 20 * 1024 * 1024): Promise<Buffer> {
+    if (!/^[a-zA-Z0-9_./-]+$/.test(filePath) || filePath.split("/").some(p => p === ".." || p === ".") || filePath.startsWith("/")) throw new Error("Ungültiger Telegram-Dateipfad.");
+    const res = await fetch(`${TELEGRAM_API}/file/bot${this.token}/${filePath}`, { redirect: "error", signal: AbortSignal.timeout(30000) });
     if (!res.ok) throw new Error(`Datei-Download fehlgeschlagen: ${res.status}`);
-    return Buffer.from(await res.arrayBuffer());
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("Telegram-Datei ist leer.");
+    const chunks: Uint8Array[] = []; let size = 0;
+    try {
+      for (;;) { const { done, value } = await reader.read(); if (done) break; size += value.length; if (size > maxBytes) throw new Error("Telegram-Datei überschreitet das Grössenlimit."); chunks.push(value); }
+      return Buffer.concat(chunks);
+    } finally { await reader.cancel().catch(() => {}); }
   }
 
   async sendChatAction(chatId: number, action = "typing"): Promise<void> {
@@ -142,24 +153,45 @@ export class TelegramClient {
   }
 
   /** Send a (possibly long) message, auto-chunked. Returns the last message_id. */
-  async sendMessage(chatId: number, text: string, parseMode?: "Markdown" | "HTML"): Promise<number | null> {
+  async sendMessage(chatId: number, text: string, parseMode?: "Markdown" | "HTML", replyTo?: number): Promise<number | null> {
     let lastId: number | null = null;
     for (const chunk of chunkMessage(text)) {
       try {
-        const msg = await this.send(chatId, chunk, parseMode);
+        const msg = await this.send(chatId, chunk, parseMode, replyTo);
         lastId = msg?.message_id ?? lastId;
       } catch {
-        const msg = await this.send(chatId, chunk, undefined);
+        if (!parseMode) throw new Error("Telegram-Nachricht konnte nicht bestätigt werden.");
+        const msg = await this.send(chatId, chunk, undefined, replyTo);
         lastId = msg?.message_id ?? lastId;
       }
     }
     return lastId;
   }
 
-  private send(chatId: number, text: string, parseMode?: "Markdown" | "HTML"): Promise<TelegramMessage> {
+  private send(chatId: number, text: string, parseMode?: "Markdown" | "HTML", replyTo?: number): Promise<TelegramMessage> {
     const body: Record<string, unknown> = { chat_id: chatId, text, disable_web_page_preview: true };
+    if (replyTo) body.reply_parameters = { message_id: replyTo, allow_sending_without_reply: true };
     if (parseMode) body.parse_mode = parseMode;
     return this.call<TelegramMessage>("sendMessage", body, 20000);
+  }
+
+  async sendFile(chatId: number, name: string, bytes: Buffer, photo: boolean, replyTo?: number): Promise<number> {
+    const form = new FormData(), field = photo ? "photo" : "document";
+    form.set("chat_id", String(chatId));
+    if (replyTo) form.set("reply_parameters", JSON.stringify({ message_id: replyTo, allow_sending_without_reply: true }));
+    form.set(field, new Blob([new Uint8Array(bytes)]), name);
+    const response = await fetch(`${TELEGRAM_API}/bot${this.token}/${photo ? "sendPhoto" : "sendDocument"}`, { method: "POST", body: form, redirect: "error", signal: AbortSignal.timeout(120000) });
+    const data = await response.json() as TelegramResponse<TelegramMessage>;
+    if (!data.ok || !data.result) throw new Error("Telegram-Dateiversand fehlgeschlagen.");
+    return data.result.message_id;
+  }
+
+  async react(chatId: number, messageId: number, emoji: string): Promise<void> {
+    await this.call("setMessageReaction", { chat_id: chatId, message_id: messageId, reaction: emoji ? [{ type: "emoji", emoji }] : [] }, 15000);
+  }
+
+  async editOwnMessage(chatId: number, messageId: number, text: string): Promise<void> {
+    await this.call("editMessageText", { chat_id: chatId, message_id: messageId, text, disable_web_page_preview: true }, 15000);
   }
 
   /** Send a message with an inline keyboard (button grid). */

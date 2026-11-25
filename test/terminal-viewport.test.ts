@@ -114,11 +114,29 @@ test("scrollback keeps composer and work status live and follows new output on d
 });
 
 test("completed tall output remains visible when Ink leaves an erased streaming region before a short composer", async t => {
-  let output = "";
-  const view = new TerminalViewport({ columns: 80, rows: 12, dockHeight: () => 2, liveHeight: () => 2, write: s => { output = s; } });
-  t.after(() => view.dispose());
+  const screen = new xterm.Terminal({ cols: 80, rows: 12, allowProposedApi: true });
+  const view = new TerminalViewport({ columns: 80, rows: 12, dockHeight: () => 2, liveHeight: () => 2, write: s => { screen.write(s); } });
+  t.after(() => { view.dispose(); screen.dispose(); });
+  const visible = async () => { await new Promise<void>(resolve => screen.write("", resolve)); return Array.from({ length: 12 }, (_, n) => screen.buffer.active.getLine(n)!.translateToString(true)).join("\n"); };
   view.feed(Array.from({ length: 50 }, (_, i) => `answer ${i}\r\n`).join("") + "STREAM_COMPLETE\r\n" + "\r\n".repeat(35) + "> draft\r\nstatus\r\n");
-  await view.renderLive(); assert.match(output, /STREAM_COMPLETE/); assert.match(output, /> draft/);
-  await view.scroll(-4); await view.scroll(100); assert.equal(view.active, false); assert.match(output, /STREAM_COMPLETE/);
-  await view.scroll(100); assert.equal(view.active, false); assert.match(output, /STREAM_COMPLETE/);
+  await view.renderLive(); assert.match(await visible(), /STREAM_COMPLETE/); assert.match(await visible(), /> draft/);
+  await view.scroll(-4); await view.scroll(100); assert.equal(view.active, false); assert.match(await visible(), /STREAM_COMPLETE/);
+  await view.scroll(100); assert.equal(view.active, false); assert.match(await visible(), /STREAM_COMPLETE/);
+});
+
+test("unchanged rows stay untouched across live frames and shortened lines erase only their remainder", async t => {
+  let output = "";
+  const screen = new xterm.Terminal({ cols: 30, rows: 6, allowProposedApi: true });
+  const view = new TerminalViewport({ columns: 30, rows: 6, write: data => { output += data; screen.write(data); } });
+  t.after(() => { view.dispose(); screen.dispose(); });
+  view.feed("stable heading\r\nlong changing status"); await view.renderLive();
+  output = ""; await view.renderLive(); assert.doesNotMatch(output, /stable heading|long changing|\x1b\[2K/);
+  view.feed("\x1b[2;1H\x1b[2Kdone"); output = ""; await view.renderLive();
+  assert.doesNotMatch(output, /stable heading|\x1b\[2K/); assert.match(output, /done/);
+  assert.match(output, /\x1b\[\?2026h/); assert.match(output, /\x1b\[\?2026l/);
+  await new Promise<void>(resolve => screen.write("", resolve));
+  assert.equal(screen.buffer.active.getLine(0)!.translateToString(true).trimEnd(), "stable heading");
+  assert.equal(screen.buffer.active.getLine(1)!.translateToString(true).trimEnd(), "done");
+  await view.scroll(-1); await view.leave(); await new Promise<void>(resolve => screen.write("", resolve));
+  assert.equal(screen.buffer.active.getLine(0)!.translateToString(true).trimEnd(), "stable heading");
 });

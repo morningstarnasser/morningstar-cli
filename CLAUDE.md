@@ -97,3 +97,14 @@ See [README.md](README.md), [PARITY.md](PARITY.md),
 - Learned notes are lower-trust reference context; policy remains authoritative. /learn controls activation; forget retains evidence but prevents automatic reactivation.
 - /review uses a fixed read-only allowlist and plan policy even under YOLO. Git snapshots use fixed argv and disable external diff/textconv.
 - Swarm planning retries invalid output at most three times with full schema/path validation. Never execute partial or fabricated plans.
+
+## Same-session channels, workers and rendering (1.3.0)
+
+- TelegramChannel is a transport for App's existing processInput, snapshot and approval bridge. Never instantiate a separate agent/conversation for channel DMs.
+- Global Morningstar AGENTS are loaded by buildSystemPrompt. Preserve custom files; built-in verification rules supply the missing-file fallback. Do not pull private SOUL/USER/MEMORY files into the CLI prompt.
+- Active workers live in AgentFooter. Completion removes them from the footer and sends reference reports to the main runner with inherited policy, abort and budget. Worker assertions are not proof; parent synthesis cannot spawn recursive swarms.
+- Channel allowlists, pairing and bot configuration are local controls. Groups/bots/old messages are dropped. Never parse a remote DM as a local slash/bang command. Each update is consumed once; polling conflicts stop the channel.
+- Telegram tools target only the linked paired chat in this session. File sending stays within workspace boundaries; edits are limited to message IDs sent by this channel. Policy, plan mode and agent allowlists remain authoritative.
+- Channel tokens use masked input and private config. Never expose them in history, errors, fixtures, public exports or docs. Existing standalone gateway sessions are separate.
+- Terminal mouse reports may span input chunks. Retain incomplete sequences before dispatch, and verify the composer remains unchanged under burst/fragmented input.
+- TerminalViewport caches painted rows and groups changes with synchronized output. Reset row cache on screen-buffer changes and resize. Test resulting screen state, not an assumption that every frame repaints all content. No screenshot proves absence of perceptual flicker.

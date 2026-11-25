@@ -53,6 +53,7 @@ export interface ProjectContext {
 }
 
 export interface CLIConfig {
+  telegramChannel?: boolean;
   apiKey: string;
   model: string;
   baseUrl: string;

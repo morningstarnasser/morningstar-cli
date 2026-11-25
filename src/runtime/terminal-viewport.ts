@@ -24,6 +24,7 @@ function style(cell: IBufferCell): string {
 export class TerminalViewport {
   readonly terminal: xterm.Terminal;
   private snapshot: Line[] = [];
+  private paintedRows: string[] = [];
   private top = 0;
   private anchor: Point | null = null;
   private end: Point | null = null;
@@ -94,7 +95,7 @@ export class TerminalViewport {
     await this.flush();
     if (this.active || this.disposed) return;
     const live = this.liveFrame();
-    this.options.write(this.frame(live.lines, live.top, false) + `${CSI}${live.cursorY + 1};${Math.min(this.terminal.cols, live.cursorX + 1)}H${CSI}?25l`);
+    this.options.write(this.frame(live.lines, live.top, false) + `${CSI}0m${CSI}${live.cursorY + 1};${Math.min(this.terminal.cols, live.cursorX + 1)}H${CSI}?25l`);
   }
   /** Align the first short frame if Morningstar started below an existing shell prompt. */
   async alignCursor(row: number) {
@@ -111,6 +112,7 @@ export class TerminalViewport {
     if (this.active || this.disposed) return;
     const live = this.liveFrame(true); this.snapshot = live.lines; this.top = live.top;
     this.active = true; this.notice = ""; this.pendingUpdates = 0;
+    this.paintedRows = [];
     this.options.write(`${CSI}?1049h${CSI}?25l`);
   }
   async scroll(amount: number) {
@@ -171,6 +173,7 @@ export class TerminalViewport {
     if (this.disposed) return;
     this.active = false; this.snapshot = []; this.anchor = this.end = null; this.dragging = false; this.detailTitle = ""; this.searching = false; this.searchMatches = [];
     this.options.write(`${CSI}?1049l`);
+    this.paintedRows = [];
     await this.renderLive();
   }
   private point(x: number, y: number): Point {
@@ -237,7 +240,7 @@ export class TerminalViewport {
     if (this.active) this.paint();
   }
   private frame(lines: Line[], top: number, overlay: boolean): string {
-    const range = overlay ? this.bounds() : null; let result = `${CSI}?25l`;
+    const range = overlay ? this.bounds() : null; let result = ""; const rows: string[] = [];
     const visible = this.terminal.rows - (overlay ? 1 + this.pinnedHeight : 0);
     const matchesByRow = new Map<number, SearchMatch[]>();
     if (overlay && this.searching) for (const match of this.searchMatches) {
@@ -246,7 +249,7 @@ export class TerminalViewport {
       }
     }
     for (let y = 0; y < visible; y++) {
-      result += `${CSI}${y + 1};1H${CSI}0m${CSI}2K`; let previous = "";
+      result = `${CSI}${y + 1};1H${CSI}0m`; let previous = "";
       const cells = lines[top + y]?.cells ?? [];
       for (let x = 0; x < Math.min(cells.length, this.terminal.cols); x++) {
         const cell = cells[x]; if (!cell.width) continue;
@@ -259,16 +262,23 @@ export class TerminalViewport {
         if (previous !== appearance) { result += appearance; previous = appearance; }
         result += cell.text;
       }
+      if (cells.length < this.terminal.cols) result += `${CSI}0m${CSI}K`;
+      rows.push(result);
     }
     if (overlay) {
       const live = this.pinnedHeight ? this.liveFrame() : undefined;
       for (let y = visible; y < this.terminal.rows - 1; y++) {
-        result += `${CSI}${y + 1};1H${CSI}0m${CSI}2K`;
-        for (const cell of live?.lines[(live?.top ?? 0) + y]?.cells ?? []) if (cell.width) result += cell.style + cell.text;
+        result = `${CSI}${y + 1};1H${CSI}0m`;
+        const cells = live?.lines[(live?.top ?? 0) + y]?.cells ?? [];
+        for (const cell of cells) if (cell.width) result += cell.style + cell.text;
+        if (cells.length < this.terminal.cols) result += `${CSI}0m${CSI}K`;
+        rows.push(result);
       }
-      result += this.footer();
+      rows.push(this.footer());
     }
-    return result + `${CSI}0m`;
+    const changes = rows.filter((row, index) => row !== this.paintedRows[index]).join("");
+    this.paintedRows = rows;
+    return changes ? `${CSI}?2026h${CSI}?25l${changes}${CSI}0m${CSI}?2026l` : "";
   }
   private footer(): string {
     if (this.searching) {
@@ -287,6 +297,7 @@ export class TerminalViewport {
   paint() { if (this.active && !this.disposed) this.options.write(this.frame(this.snapshot, this.top, true)); }
   resize(columns: number, rows: number) {
     if (this.disposed) return;
+    this.paintedRows = [];
     if (this.active) this.options.write(`${CSI}?1049l`);
     this.active = false; this.snapshot = []; this.anchor = this.end = null; this.dragging = false; this.detailTitle = ""; this.searching = false; this.searchMatches = [];
     // xterm 6 flushes pending writes synchronously before reflow. Resize must run

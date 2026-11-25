@@ -5,6 +5,7 @@ import { useTheme } from "../hooks/useTheme.js";
 import { useTerminalColumns } from "../hooks/useTerminalColumns.js";
 import { displayText } from "../runtime/work-log.js";
 import { CodeBlock } from "./CodeBlock.js";
+import stringWidth from "string-width";
 
 /** No HTML/ANSI execution: Markdown becomes Ink elements, never terminal commands. */
 export function markdownTokens(text: string): Token[] {
@@ -45,11 +46,31 @@ function Blocks({ tokens, compact = false }: { tokens: Token[]; compact?: boolea
       </Box>)}</Box>;
       case "table": {
         const table = token as Tokens.Table;
-        // Stack columns on small terminals so long values stay readable.
-        return <Box key={i} marginTop={gap} flexDirection="column">{table.rows.map((row, r) => <Box key={r} flexDirection={columns < 85 ? "column" : "row"} marginTop={r ? 1 : 0}>
-          {row.map((cell, c) => <Box key={c} flexDirection="column" flexGrow={1} flexBasis={0} flexShrink={1} paddingRight={2}>
-            <Text bold color={t.primary}><Inline tokens={table.header[c]?.tokens ?? []} /></Text><Text><Inline tokens={cell.tokens} /></Text>
-          </Box>)}
+        const available = Math.max(16, Math.min(110, columns - 8));
+        const count = table.header.length;
+        const widths = table.header.map((header, c) => Math.max(8, ...[header, ...table.rows.map(row => row[c])].filter(Boolean).map(cell => Math.min(80, stringWidth(displayText(cell.text))))));
+        const minimum = count * 8 + Math.max(0, count - 1) * 3;
+        if (minimum <= available && columns >= 60) {
+          while (widths.reduce((a, b) => a + b, 0) + (count - 1) * 3 > available) {
+            const widest = widths.indexOf(Math.max(...widths)); widths[widest]--;
+          }
+          const row = (cells: Tokens.TableCell[], header: boolean, key: number) => <Box key={key}>
+            {table.header.map((_, c) => <Box key={c} width={widths[c]} flexShrink={0} marginRight={c < count - 1 ? 3 : 0}>
+              <Text bold={header} color={header ? t.primary : undefined} wrap="wrap"><Inline tokens={cells[c]?.tokens ?? []} /></Text>
+            </Box>)}
+          </Box>;
+          return <Box key={i} marginTop={gap} flexDirection="column" alignSelf="flex-start">
+            {row(table.header, true, -1)}
+            <Text color={t.dim}>{widths.map(width => "─".repeat(width)).join("   ")}</Text>
+            {table.rows.map((cells, r) => row(cells, false, r))}
+          </Box>;
+        }
+        // Narrow terminals use compact records, with the first cell as identity.
+        return <Box key={i} marginTop={gap} flexDirection="column">{table.rows.map((cells, r) => <Box key={r} flexDirection="column" marginTop={r && count > 2 ? 1 : 0}>
+          {count === 2 ? <Text wrap="wrap"><Text bold color={t.primary}><Inline tokens={cells[0]?.tokens ?? []} />: </Text><Inline tokens={cells[1]?.tokens ?? []} /></Text> : <>
+            <Text bold color={t.primary}><Inline tokens={cells[0]?.tokens ?? []} /></Text>
+            {cells.slice(1).map((cell, c) => <Text key={c} wrap="wrap"><Text color={t.dim}><Inline tokens={table.header[c + 1]?.tokens ?? []} />: </Text><Inline tokens={cell.tokens} /></Text>)}
+          </>}
         </Box>)}</Box>;
       }
       default: return <Box key={i} marginTop={gap}><Text wrap="wrap">{inline}</Text></Box>;

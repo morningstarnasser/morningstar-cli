@@ -1,4 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
+import { getTelegramToolDefinitions } from "./telegram/channel-tools.js";
 import { cycleInteractionMode, configForInteractionMode } from "./runtime/interaction-mode.js";
 import { RemoteControlPanel, RemotePairing } from "./components/RemoteControlPanel.js";
 import { remoteTimeline } from "./remote-timeline.js";
@@ -6,7 +7,8 @@ import { ImageText } from "./components/ImageText.js";
 import { RewindPicker } from "./components/RewindPicker.js";
 import { rewindConversation } from "./runtime/rewind.js";
 import { TerminalPointer, TerminalDock, TerminalLiveFooter } from "./hooks/useTerminalPointer.js";
-import { AgentTabs } from "./components/AgentTabs.js";
+import { AgentFooter, activeAgentBranches } from "./components/AgentFooter.js";
+import { handoffAgentResults } from "./agent-handoff.js";
 import { terminalReport } from "./runtime/composer-layout.js";
 import { randomUUID } from "node:crypto";
 import { SessionController } from "./session-controller.js";
@@ -233,6 +235,11 @@ function AppBody({ config: initialConfig, ctx, chatOnly, skipPermissions: initia
         clearTimeout(noteTimer.current); }, []);
     const [backendAgents, setBackendAgents] = useState([]);
     const remoteRef = useRef(null);
+    const telegramRef = useRef(null);
+    const telegramStarting = useRef(false);
+    const telegramBridge = useRef({ message: async () => { throw new Error("Sitzung noch nicht bereit."); } });
+    const [telegramSetup, setTelegramSetup] = useState(false);
+    const [telegramName, setTelegramName] = useState("");
     const remoteBridge = useRef({ snapshot: () => { throw new Error("Noch nicht bereit"); }, action: () => { throw new Error("Noch nicht bereit"); } });
     const remoteStarting = useRef(false);
     const commandBusy = useRef(false);
@@ -499,6 +506,7 @@ function AppBody({ config: initialConfig, ctx, chatOnly, skipPermissions: initia
     useEffect(() => () => {
         stopDashboard();
         void remoteRef.current?.stop();
+        telegramRef.current?.stop();
     }, [stopDashboard]);
     // ── Smart CD: find directories by name across common locations ──
     function findDirectorySmart(name) {
@@ -570,6 +578,8 @@ Wenn der User ein Bild erstellen/generieren/malen moechte, antworte IMMER mit:
 Du kannst KEINE Bilder direkt erstellen. Nur /imagine kann Bilder generieren (via lokales Stable Diffusion).
 Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten übergeben. Analysiere diese direkt anhand der Nutzerfrage; /imagine ist nur für die Erstellung neuer Bilder.
 --- Ende ---`;
+        if (getTelegramToolDefinitions().length)
+            prompt += "\nTelegram ist mit dieser Sitzung verbunden. Abschlussantworten werden automatisch gesendet. Für angeforderte Dateien, Reaktionen oder Änderungen eigener Bot-Nachrichten sind telegram_reply, telegram_react und telegram_edit_message verfügbar; deren Parameter stehen in den Tool-Schemas. Zugriffsrechte bleiben ausschliesslich im Terminal verwaltet.";
         const mcpPrompt = formatConnectedMCPToolsForPrompt();
         if (mcpPrompt)
             prompt += `\n\n${mcpPrompt}`;
@@ -720,7 +730,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
     }
     // ── SIGINT handler + ctrl+o expand/collapse ──
     useInput((_input, key) => {
-        if (historySearchRef.current)
+        if (historySearchRef.current || telegramSetup)
             return;
         if (terminalReport(_input) || showRemoteMenu)
             return;
@@ -793,6 +803,105 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
         }
     });
     // ── Slash Command Handler ──
+    async function telegramCommand(command) {
+        const [action = "status", value = ""] = command.trim().split(/\s+/);
+        if (action === "configure") {
+            if (value)
+                throw new Error("Token nur im verdeckten Eingabefeld eingeben: /telegram:configure");
+            setTelegramSetup(true);
+            return;
+        }
+        if (action === "off") {
+            telegramRef.current?.stop();
+            telegramRef.current = null;
+            setTelegramName("");
+            addOutput({ type: "info", content: "Telegram getrennt; die Terminal-Sitzung läuft weiter." });
+            return;
+        }
+        if (action === "on") {
+            if (telegramRef.current?.running || telegramStarting.current) {
+                addOutput({ type: "info", content: "Telegram ist bereits verbunden oder wird verbunden." });
+                return;
+            }
+            telegramStarting.current = true;
+            try {
+                const [{ TelegramChannel }, { loadTelegramConfig }] = await Promise.all([import("./telegram/channel.js"), import("./telegram/config.js")]);
+                const settings = loadTelegramConfig();
+                if (!settings.token) {
+                    setTelegramSetup(true);
+                    addOutput({ type: "info", content: "Bot bei @BotFather erstellen und den Token im verdeckten Feld eingeben." });
+                    return;
+                }
+                const channel = new TelegramChannel({ token: settings.token, allowedUsers: settings.allowedUsers,
+                    snapshot: () => remoteBridge.current.snapshot(), message: (text, images) => telegramBridge.current.message(text, images),
+                    action: action => remoteBridge.current.action(action), notice: content => { addOutput({ type: "notice", content }); if (!telegramRef.current?.running)
+                        setTelegramName(""); },
+                });
+                telegramRef.current = channel;
+                const name = await channel.start();
+                setTelegramName(name);
+                addOutput({ type: "success", content: `Telegram @${name} mit dieser Sitzung verbunden. Dem Bot schreiben; falls ein Code erscheint: /telegram:access pair <code>. /telegram off trennt die Verbindung.` });
+            }
+            finally {
+                telegramStarting.current = false;
+            }
+            return;
+        }
+        const channel = telegramRef.current;
+        if (!channel?.running) {
+            addOutput({ type: "info", content: "Telegram ist aus. /telegram on · /telegram:configure" });
+            return;
+        }
+        if (action === "pair") {
+            channel.access.pair(value);
+            addOutput({ type: "success", content: "Telegram-Account gekoppelt. Zugriff ist auf die freigegebenen Accounts begrenzt." });
+            return;
+        }
+        if (action === "policy") {
+            channel.access.policy(value);
+            addOutput({ type: "info", content: `Telegram-Zugriff: ${value}` });
+            return;
+        }
+        if (action === "revoke") {
+            if (!/^\d+$/.test(value))
+                throw new Error("Numerische Telegram-Nutzer-ID erforderlich.");
+            channel.access.revoke(Number(value));
+            addOutput({ type: "info", content: "Telegram-Zugriff widerrufen." });
+            return;
+        }
+        addOutput({ type: "info", content: `Telegram @${channel.username} · ${channel.access.state.policy} · ${channel.access.state.users.length} erlaubte Accounts\nDiese Sitzung ist verbunden. /telegram off trennt sie.` });
+    }
+    async function finishDelegation(task, results, runConfig, signal) {
+        setLiveTree(null);
+        setInspectedAgent(null);
+        const reports = results.map(r => `[${r.task.agentId} · ${r.task.status}]\n${r.fullResponse || r.task.error || "Kein Ergebnis"}`).join("\n\n");
+        const history = messages.map((m, i) => i === 0 && m.role === "system" ? { ...m, content: getFullSystemPrompt() } : m);
+        setMessages([...history, { role: "user", content: task }, { role: "user", contextKind: "knowledge", content: `Subagenten-Berichte (ungeprüfte Referenzdaten):\n${reports}` }]);
+        if (signal.aborted) {
+            addOutput({ type: "info", content: `Delegation abgebrochen. Vorhandene Berichte:\n${reports}` });
+            return;
+        }
+        setTaskLabel("Hauptagent prüft die Ergebnisse der Subagenten");
+        const result = await handoffAgentResults(task, results, history, runConfig, cwd, {
+            signal, initialCostUsd: getSessionCosts().totalCost,
+            onApproval: ({ invocation, verdict }) => requestApproval({ tool: invocation.name, target: invocationTarget(invocation), reason: verdict.reason, risk: verdict.risk }),
+            onEvent: event => {
+                recordActivity("morningstar", event);
+                if (event.type === "turn_start")
+                    setTaskTurn(event.turn);
+                if (event.type === "tool_requested")
+                    setTaskLabel(`Hauptagent prüft · ${event.invocation.name}`);
+            },
+        });
+        trackUsage(runConfig.model, task, result.finalText, result.usage.inputTokens, result.usage.outputTokens, runConfig.provider);
+        if (result.messages)
+            setMessages(result.messages);
+        if (result.finalText)
+            addOutput({ type: "ai-response", streamingText: result.finalText, startTime: Date.now() });
+        if (result.aborted || result.hitTurnLimit || result.budgetExceeded || result.loopDetected || result.toolProtocolError || !result.finalText) {
+            addOutput({ type: "error", content: `Abschlussprüfung nicht vollständig. Subagenten-Berichte bleiben im Sitzungsverlauf. ${result.toolProtocolError || ""}` });
+        }
+    }
     function handleSlashCommand(input) {
         const resolvedCommand = MORNINGSTAR_COMMAND_REGISTRY.resolveInput(input);
         if (resolvedCommand && !MORNINGSTAR_COMMAND_REGISTRY.isAvailable(resolvedCommand.command)) {
@@ -815,6 +924,11 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
         const cmd = parts[0].toLowerCase();
         const arg = parts.slice(1).join(" ");
         switch (cmd) {
+            case "/telegram":
+            case "/telegram:configure":
+            case "/telegram:access":
+                void telegramCommand(cmd === "/telegram:configure" ? `configure ${arg}` : arg || "status").catch(() => addOutput({ type: "error", content: "Telegram-Aktion fehlgeschlagen. Konfiguration, Pairing-Code oder bestehende Verbindung prüfen." }));
+                return true;
             case "/help":
                 addOutput({ type: "help" });
                 return true;
@@ -2167,8 +2281,13 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                     const ac = new AbortController();
                     abortRef.current = ac;
                     setIsProcessing(true);
+                    const started = Date.now();
+                    const treeId = nextId.current++;
+                    const branch = (detail) => ({ id: treeId, type: "agent-tree", treeTitle: delegateTask, startTime: started, treeBranches: [{ taskId: `delegate-${treeId}`, agentId: delegateAgent, status: "running", detail, elapsedMs: Date.now() - started }] });
+                    setLiveTree(branch(delegateTask));
+                    const delegateConfig = { ...config, permissionMode: interactionMode };
                     try {
-                        const result = await executeSubAgent(delegateAgent, delegateTask, config, cwd, getFullSystemPrompt(), ac.signal, config.maxTurns ?? 0, (status) => setTaskLabel(status), {
+                        const result = await executeSubAgent(delegateAgent, delegateTask, delegateConfig, cwd, getFullSystemPrompt(), ac.signal, config.maxTurns ?? 0, (status) => { setTaskLabel(status); setLiveTree(branch(status)); }, {
                             onEvent: event => recordActivity(delegateAgent, event),
                             onApproval: ({ invocation, verdict }) => requestApproval({
                                 tool: invocation.name,
@@ -2178,15 +2297,16 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                             }),
                         });
                         addOutput({ type: result.task.status === "completed" ? "success" : "error", content: formatSubAgentResults([result]) });
-                        if (result.fullResponse) {
-                            addOutput({ type: "ai-response", streamingText: result.fullResponse, streamingReasoning: "", startTime: result.task.startTime });
-                            setMessages(prev => [...prev, { role: "assistant", content: `[Sub-Agent ${delegateAgent}]: ${result.fullResponse}` }]);
-                        }
+                        await finishDelegation(delegateTask, [result], delegateConfig, ac.signal);
                     }
                     catch (e) {
                         addOutput({ type: "error", content: `Sub-Agent Fehler: ${e.message}` });
                     }
                     finally {
+                        setLiveTree(null);
+                        setInspectedAgent(null);
+                        setTaskLabel("");
+                        setTaskTurn(0);
                         setIsProcessing(false);
                         abortRef.current = null;
                     }
@@ -2262,15 +2382,16 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                             onApproval: ({ invocation, verdict }) => requestApproval({ tool: invocation.name, target: invocationTarget(invocation), reason: verdict.reason, risk: verdict.risk }),
                         });
                         addOutput({ ...lastTree, treeDone: true, treeElapsed: Date.now() - startTs });
-                        const combined = results.map(r => `[${r.task.id} · ${r.task.agentId} · ${r.task.status}]\n${r.fullResponse || r.task.error || "Kein Ergebnis"}`).join("\n\n");
-                        addOutput({ type: "ai-response", streamingText: combined, startTime: startTs });
-                        setMessages(prev => [...prev, { role: "user", content: input }, { role: "assistant", content: combined }]);
+                        await finishDelegation(raw, results, swarmConfig, ac.signal);
                     }
                     catch (error) {
                         addOutput({ type: "error", content: `Swarm: ${error.message}` });
                     }
                     finally {
                         setLiveTree(null);
+                        setInspectedAgent(null);
+                        setTaskLabel("");
+                        setTaskTurn(0);
                         setIsProcessing(false);
                         abortRef.current = null;
                     }
@@ -3164,14 +3285,46 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
             steeringRef.current = false;
         }
     }, [messages, config, activeAgent, activeSkill, planMode, thinkMode, debugMode, chatOnly, cwd, customCommands, requestApproval, skipPermissions, pendingCdChoices, isProcessing]);
+    const footerBranches = [...new Map([...(liveTree?.treeBranches ?? []), ...backendAgents].map(b => [b.taskId ?? b.agentId, b])).values()];
+    telegramBridge.current.message = async (text, images) => {
+        if (telegramSetup || showRemoteMenu || showRewind || showSessionPicker || pendingApproval || showModelPicker || showLoginPicker || pendingKeyOption || oauthRunning)
+            throw new Error("Zuerst den offenen Dialog im Terminal schliessen.");
+        if (isProcessing || commandBusy.current)
+            throw new Error("Sitzung arbeitet bereits. Nachricht erneut senden.");
+        commandBusy.current = true;
+        try {
+            const first = Math.max(0, ...messages.flatMap(m => m.images ?? []).map(image => image.id)) + 1;
+            const attachments = images?.map((image, i) => { text = text.replaceAll(`[Image #${image.id}]`, `[Image #${first + i}]`); return { ...image, id: first + i }; });
+            await processInput(text, { images: attachments });
+        }
+        finally {
+            commandBusy.current = false;
+        }
+    };
+    const telegramAutoStarted = useRef(false);
+    useEffect(() => {
+        if (!initialConfig.telegramChannel || telegramAutoStarted.current)
+            return;
+        telegramAutoStarted.current = true;
+        void telegramCommand("on").catch(() => addOutput({ type: "error", content: "Telegram-Verbindung fehlgeschlagen. /telegram status prüfen." }));
+    }, []);
+    const activeBranchIds = activeAgentBranches(footerBranches).map(b => b.taskId ?? b.agentId);
+    useEffect(() => {
+        if (inspectedAgent && !activeBranchIds.includes(inspectedAgent))
+            setInspectedAgent(null);
+    }, [inspectedAgent, activeBranchIds.join("|")]);
     const allBranches = [...new Map([
             ...output.flatMap(o => o.treeBranches ?? []), ...(liveTree?.treeBranches ?? []), ...backendAgents,
         ].map(b => [b.taskId ?? b.agentId, b])).values()].map(b => {
         const note = agentNotes.current.get(b.taskId ?? b.agentId);
         return { ...b, detail: [note?.task, b.detail, note?.text].filter(Boolean).join("\n\n") };
     });
+    const transcriptRevision = useRef({ messages, revision: 0 });
+    if (transcriptRevision.current.messages !== messages)
+        transcriptRevision.current = { messages, revision: transcriptRevision.current.revision + 1 };
     remoteBridge.current = {
         snapshot: () => ({
+            revision: transcriptRevision.current.revision,
             id: session.id, name: session.name, model: config.model, project: cwd, busy: isProcessing || commandBusy.current, stream: displayText(streamText),
             messages: messages.filter(m => ["user", "assistant"].includes(m.role) && !m.contextKind && m.content.trim()).slice(-100).map(m => ({ role: m.role, content: displayText(m.content).slice(0, 32000) })),
             agents: allBranches.map(b => ({ ...b, taskId: b.taskId ?? b.agentId })),
@@ -3257,7 +3410,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
         }
     }
     // ── Render ──
-    return (_jsxs(_Fragment, { children: [_jsx(Static, { items: output, children: (item) => renderOutputItem(item) }, sessionEpoch), _jsxs(TerminalDock, { children: [_jsxs(Box, { flexDirection: "column", flexShrink: 1, overflowY: "hidden", children: [showIntro ? _jsx(StartupBanner, { config: config, ctx: ctx, skipPermissions: skipPermissions, onDone: finishIntro }) : null, liveTree && !inspectedAgent ? renderOutputItem(liveTree) : null, !inspectedAgent && isStreaming && !streamText && !streamReasoning && (_jsx(MorningstarSpinner, { startTime: streamStart, streamedChars: streamedChars, thinkingTime: thinkingStartTime > 0 ? thinkingStartTime : undefined })), !inspectedAgent && (streamText || streamReasoning) && (_jsx(StreamingOutput, { text: streamText, reasoning: streamReasoning, isStreaming: isStreaming, startTime: streamStart })), !inspectedAgent ? _jsx(ActivityFeed, { entries: activity, active: isProcessing, label: liveTree ? undefined : taskLabel, turn: liveTree ? 0 : taskTurn, maxTurns: taskMaxTurns }) : null, pendingApproval ? (_jsx(ApprovalPrompt, { tool: pendingApproval.tool, target: pendingApproval.target, reason: pendingApproval.reason, risk: pendingApproval.risk, onDecision: resolveApproval })) : null, showModelPicker ? (_jsx(ModelPicker, { currentModel: config.model, currentProvider: config.provider || detectProvider(config.model), hasCredential: (provider) => KEYLESS_PROVIDERS.has(provider)
+    return (_jsxs(_Fragment, { children: [_jsx(Static, { items: output, children: (item) => renderOutputItem(item) }, sessionEpoch), _jsxs(TerminalDock, { children: [_jsxs(Box, { flexDirection: "column", flexShrink: 1, overflowY: "hidden", children: [showIntro ? _jsx(StartupBanner, { config: config, ctx: ctx, skipPermissions: skipPermissions, onDone: finishIntro }) : null, !inspectedAgent && isStreaming && !streamText && !streamReasoning && (_jsx(MorningstarSpinner, { startTime: streamStart, streamedChars: streamedChars, thinkingTime: thinkingStartTime > 0 ? thinkingStartTime : undefined })), !inspectedAgent && (streamText || streamReasoning) && (_jsx(StreamingOutput, { text: streamText, reasoning: streamReasoning, isStreaming: isStreaming, startTime: streamStart })), !inspectedAgent ? _jsx(ActivityFeed, { entries: activity, active: isProcessing, label: liveTree ? undefined : taskLabel, turn: liveTree ? 0 : taskTurn, maxTurns: taskMaxTurns }) : null, pendingApproval ? (_jsx(ApprovalPrompt, { tool: pendingApproval.tool, target: pendingApproval.target, reason: pendingApproval.reason, risk: pendingApproval.risk, onDecision: resolveApproval })) : null, showModelPicker ? (_jsx(ModelPicker, { currentModel: config.model, currentProvider: config.provider || detectProvider(config.model), hasCredential: (provider) => KEYLESS_PROVIDERS.has(provider)
                                     || Boolean(getStoredApiKey(provider)), onSelect: (model, provider) => {
                                     const nextConfig = buildModelSwitchConfig(config, model, provider, getStoredApiKey);
                                     setConfig(nextConfig);
@@ -3267,7 +3420,26 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                                         type: "success",
                                         content: `Model: ${getModelDisplayName(model)} [${provider}]`,
                                     });
-                                }, onCancel: () => setShowModelPicker(false) })) : null, oauthRunning ? (_jsx(Box, { marginY: 1, marginX: 1, children: _jsx(Text, { color: accent, children: `Anmeldung läuft in ${oauthRunning} — Browser folgen, danach hierher zurück.` }) })) : null, showLoginPicker && !oauthRunning ? (authGroups === null ? (_jsx(Box, { marginY: 1, marginX: 1, children: _jsx(Text, { color: dim, children: "Pr\u00FCfe Anmeldungen \u2026" }) })) : (_jsx(LoginPicker, { groups: authGroups, activeProvider: config.provider || detectProvider(config.model), onSelect: handleAuthSelect, onCancel: () => setShowLoginPicker(false) }))) : null, pendingKeyOption ? (_jsx(SecretInput, { label: `${pendingKeyOption.vendor} · API-Key`, hint: pendingKeyOption.envKey
+                                }, onCancel: () => setShowModelPicker(false) })) : null, oauthRunning ? (_jsx(Box, { marginY: 1, marginX: 1, children: _jsx(Text, { color: accent, children: `Anmeldung läuft in ${oauthRunning} — Browser folgen, danach hierher zurück.` }) })) : null, showLoginPicker && !oauthRunning ? (authGroups === null ? (_jsx(Box, { marginY: 1, marginX: 1, children: _jsx(Text, { color: dim, children: "Pr\u00FCfe Anmeldungen \u2026" }) })) : (_jsx(LoginPicker, { groups: authGroups, activeProvider: config.provider || detectProvider(config.model), onSelect: handleAuthSelect, onCancel: () => setShowLoginPicker(false) }))) : null, telegramSetup ? _jsx(SecretInput, { label: "Telegram \u00B7 BotFather-Token", hint: "Verdeckte Eingabe; wird nicht in den Chat- oder Eingabeverlauf geschrieben.", onCancel: () => setTelegramSetup(false), onSubmit: token => {
+                                    setTelegramSetup(false);
+                                    if (!/^\d{6,14}:[A-Za-z0-9_-]{30,}$/.test(token)) {
+                                        addOutput({ type: "error", content: "Ungültiges Bot-Token-Format." });
+                                        return;
+                                    }
+                                    void (async () => {
+                                        const [{ TelegramClient }, { loadTelegramConfig, saveTelegramConfig }] = await Promise.all([import("./telegram/api.js"), import("./telegram/config.js")]);
+                                        const me = await new TelegramClient(token).getMe();
+                                        if (!me.is_bot)
+                                            throw new Error("Kein Bot");
+                                        const previous = loadTelegramConfig();
+                                        telegramRef.current?.stop();
+                                        telegramRef.current = null;
+                                        setTelegramName("");
+                                        saveTelegramConfig({ token, allowedUsers: previous.token === token ? previous.allowedUsers : [] });
+                                        addOutput({ type: "success", content: `Bot @${me.username} gespeichert. Verbindung wird gestartet.` });
+                                        await telegramCommand("on");
+                                    })().catch(() => addOutput({ type: "error", content: "Bot-Token konnte nicht geprüft oder gespeichert werden. /telegram:configure erneut öffnen." }));
+                                } }) : null, pendingKeyOption ? (_jsx(SecretInput, { label: `${pendingKeyOption.vendor} · API-Key`, hint: pendingKeyOption.envKey
                                     ? `Alternativ dauerhaft: export ${pendingKeyOption.envKey}=<key>`
                                     : undefined, onSubmit: (key) => {
                                     const option = pendingKeyOption;
@@ -3290,7 +3462,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                                 }
                                 catch (error) {
                                     addOutput({ type: "error", content: error.message });
-                                } }, onClose: () => setShowSessionPicker(false) }) : null, _jsx(AgentTabs, { branches: allBranches, selected: inspectedAgent, onSelect: setInspectedAgent }), inspectedAgent ? _jsxs(Box, { flexDirection: "column", borderStyle: "round", borderColor: accent, paddingX: 1, children: [_jsx(Text, { bold: true, color: accent, children: displayText(allBranches.find(b => (b.taskId ?? b.agentId) === inspectedAgent)?.agentId ?? inspectedAgent) }), _jsx(Text, { children: displayText(allBranches.find(b => (b.taskId ?? b.agentId) === inspectedAgent)?.detail ?? "").slice(0, 1600) }), _jsx(ActivityFeed, { entries: activity.filter(e => e.agent === inspectedAgent), active: isProcessing }), output.filter(o => o.type === "work-log" && o.toolLabel === inspectedAgent).slice(-1).map(renderOutputItem)] }) : null] }), _jsxs(TerminalLiveFooter, { children: [isProcessing ? _jsxs(Text, { color: dim, wrap: "truncate", children: [" ", liveTree && !liveTree.treeDone ? liveTree.treeTitle : taskLabel || "Morningstar arbeitet", taskTurn ? ` · Schritt ${taskTurn}` : ""] }) : null, _jsx(Box, { marginTop: 0, children: _jsx(Input, { initialValue: inputDraft, seedImages: [...messages.flatMap(m => m.images ?? []), ...draftImages], onSendNow: () => { if (abortRef.current) {
+                                } }, onClose: () => setShowSessionPicker(false) }) : null, inspectedAgent ? _jsxs(Box, { flexDirection: "column", borderStyle: "round", borderColor: accent, paddingX: 1, children: [_jsx(Text, { bold: true, color: accent, children: displayText(allBranches.find(b => (b.taskId ?? b.agentId) === inspectedAgent)?.agentId ?? inspectedAgent) }), _jsx(Text, { children: displayText(allBranches.find(b => (b.taskId ?? b.agentId) === inspectedAgent)?.detail ?? "").slice(0, 1600) }), _jsx(ActivityFeed, { entries: activity.filter(e => e.agent === inspectedAgent), active: isProcessing }), output.filter(o => o.type === "work-log" && o.toolLabel === inspectedAgent).slice(-1).map(renderOutputItem)] }) : null] }), _jsxs(TerminalLiveFooter, { children: [telegramName ? _jsxs(Text, { color: dim, wrap: "truncate", children: [" Telegram \u00B7 @", telegramName, " \u00B7 diese Sitzung \u00B7 /telegram off"] }) : null, _jsx(AgentFooter, { branches: footerBranches, selected: inspectedAgent, onSelect: setInspectedAgent }), isProcessing ? _jsxs(Text, { color: dim, wrap: "truncate", children: [" ", liveTree && !liveTree.treeDone ? liveTree.treeTitle : taskLabel || "Morningstar arbeitet", taskTurn ? ` · Schritt ${taskTurn}` : ""] }) : null, _jsx(Box, { marginTop: 0, children: _jsx(Input, { initialValue: inputDraft, seedImages: [...messages.flatMap(m => m.images ?? []), ...draftImages], onSendNow: () => { if (abortRef.current) {
                                         steeringRef.current = true;
                                         abortRef.current.abort();
                                         cancelApprovals();
@@ -3304,6 +3476,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                                             addOutput({ type: "info", content: "Abgebrochen." });
                                         }
                                     }, activeAgent: activeAgent, planMode: planMode, permissionMode: interactionMode, modeLocked: Boolean(config.runtimeSettings?.managedPermissionMode), onCycleMode: reverse => applyInteractionMode(cycleInteractionMode(interactionMode, reverse, config.disableBypassPermissions, config.runtimeSettings?.managedPermissionMode)), thinkMode: thinkMode, isProcessing: isProcessing, suggestions: slashCommands, vimMode: vimMode, cwd: cwd, isActive: !showRemoteMenu && !showRewind
+                                        && !telegramSetup
                                         && !showSessionPicker
                                         && !pendingApproval
                                         && !showModelPicker

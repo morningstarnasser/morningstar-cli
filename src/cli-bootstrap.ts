@@ -23,6 +23,7 @@ export const KEYLESS_PROVIDERS: ReadonlySet<string> = new Set([
 ]);
 
 export interface CLIOptionShape {
+  channels?: string;
   apiKey?: string;
   model?: string;
   dir?: string;
@@ -226,6 +227,7 @@ export function buildCLIConfig(
     && typeof saved.baseUrl === "string";
 
   const config: CLIConfig = {
+    telegramChannel: opts.channels?.split(",").includes("telegram"),
     ...DEFAULT_CONFIG,
     model: selectedModel,
     provider: selectedProvider,

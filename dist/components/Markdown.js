@@ -6,6 +6,7 @@ import { useTheme } from "../hooks/useTheme.js";
 import { useTerminalColumns } from "../hooks/useTerminalColumns.js";
 import { displayText } from "../runtime/work-log.js";
 import { CodeBlock } from "./CodeBlock.js";
+import stringWidth from "string-width";
 /** No HTML/ANSI execution: Markdown becomes Ink elements, never terminal commands. */
 export function markdownTokens(text) {
     return Lexer.lex(displayText(text), { gfm: true });
@@ -41,8 +42,20 @@ function Blocks({ tokens, compact = false }) {
                 case "list": return _jsx(Box, { marginTop: gap, flexDirection: "column", children: token.items.map((item, n) => _jsxs(Box, { children: [_jsx(Text, { color: item.task && item.checked ? t.success : t.accent, children: item.task ? item.checked ? "✓ " : "☐ " : token.ordered ? `${Number(token.start) + n}. ` : "• " }), _jsx(Box, { flexGrow: 1, flexShrink: 1, children: _jsx(Blocks, { tokens: item.tokens, compact: !token.loose }) })] }, n)) }, i);
                 case "table": {
                     const table = token;
-                    // Stack columns on small terminals so long values stay readable.
-                    return _jsx(Box, { marginTop: gap, flexDirection: "column", children: table.rows.map((row, r) => _jsx(Box, { flexDirection: columns < 85 ? "column" : "row", marginTop: r ? 1 : 0, children: row.map((cell, c) => _jsxs(Box, { flexDirection: "column", flexGrow: 1, flexBasis: 0, flexShrink: 1, paddingRight: 2, children: [_jsx(Text, { bold: true, color: t.primary, children: _jsx(Inline, { tokens: table.header[c]?.tokens ?? [] }) }), _jsx(Text, { children: _jsx(Inline, { tokens: cell.tokens }) })] }, c)) }, r)) }, i);
+                    const available = Math.max(16, Math.min(110, columns - 8));
+                    const count = table.header.length;
+                    const widths = table.header.map((header, c) => Math.max(8, ...[header, ...table.rows.map(row => row[c])].filter(Boolean).map(cell => Math.min(80, stringWidth(displayText(cell.text))))));
+                    const minimum = count * 8 + Math.max(0, count - 1) * 3;
+                    if (minimum <= available && columns >= 60) {
+                        while (widths.reduce((a, b) => a + b, 0) + (count - 1) * 3 > available) {
+                            const widest = widths.indexOf(Math.max(...widths));
+                            widths[widest]--;
+                        }
+                        const row = (cells, header, key) => _jsx(Box, { children: table.header.map((_, c) => _jsx(Box, { width: widths[c], flexShrink: 0, marginRight: c < count - 1 ? 3 : 0, children: _jsx(Text, { bold: header, color: header ? t.primary : undefined, wrap: "wrap", children: _jsx(Inline, { tokens: cells[c]?.tokens ?? [] }) }) }, c)) }, key);
+                        return _jsxs(Box, { marginTop: gap, flexDirection: "column", alignSelf: "flex-start", children: [row(table.header, true, -1), _jsx(Text, { color: t.dim, children: widths.map(width => "─".repeat(width)).join("   ") }), table.rows.map((cells, r) => row(cells, false, r))] }, i);
+                    }
+                    // Narrow terminals use compact records, with the first cell as identity.
+                    return _jsx(Box, { marginTop: gap, flexDirection: "column", children: table.rows.map((cells, r) => _jsx(Box, { flexDirection: "column", marginTop: r && count > 2 ? 1 : 0, children: count === 2 ? _jsxs(Text, { wrap: "wrap", children: [_jsxs(Text, { bold: true, color: t.primary, children: [_jsx(Inline, { tokens: cells[0]?.tokens ?? [] }), ": "] }), _jsx(Inline, { tokens: cells[1]?.tokens ?? [] })] }) : _jsxs(_Fragment, { children: [_jsx(Text, { bold: true, color: t.primary, children: _jsx(Inline, { tokens: cells[0]?.tokens ?? [] }) }), cells.slice(1).map((cell, c) => _jsxs(Text, { wrap: "wrap", children: [_jsxs(Text, { color: t.dim, children: [_jsx(Inline, { tokens: table.header[c + 1]?.tokens ?? [] }), ": "] }), _jsx(Inline, { tokens: cell.tokens })] }, c))] }) }, r)) }, i);
                 }
                 default: return _jsx(Box, { marginTop: gap, children: _jsx(Text, { wrap: "wrap", children: inline }) }, i);
             }

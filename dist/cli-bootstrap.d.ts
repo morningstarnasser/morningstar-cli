@@ -6,6 +6,7 @@ import type { MorningstarSettings } from "./settings.js";
  */
 export declare const KEYLESS_PROVIDERS: ReadonlySet<string>;
 export interface CLIOptionShape {
+    channels?: string;
     apiKey?: string;
     model?: string;
     dir?: string;

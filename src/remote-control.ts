@@ -9,6 +9,7 @@ import { remoteHTML, remoteScript, remoteCSS } from "./remote-page.js";
 
 export interface RemoteAction { type: "message" | "stop" | "approve" | "new" | "resume" | "rename"; id: string; text?: string; sessionId?: string; approvalId?: string; allow?: boolean }
 export interface RemoteSnapshot {
+  revision?: number;
   id: string; name: string; model: string; project: string; busy: boolean; stream: string;
   messages: { role: string; content: string }[];
   timeline?: RemoteTimelineEntry[];
