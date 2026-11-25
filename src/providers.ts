@@ -17,6 +17,7 @@ import {
   type CodexCatalogModel,
 } from "./providers/codex-cli.js";
 import { getDiscoveredProviderModels } from "./provider-model-discovery.js";
+import { selectRequestTools } from "./runtime/tool-discovery.js";
 
 export interface ToolCallData {
   id: string;
@@ -93,7 +94,7 @@ export function resolveModelSelectionArg(input: string): {
 }
 
 // Providers that support native function calling
-const NATIVE_TOOL_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", "openrouter", "nvidia", "github-models"]);
+const NATIVE_TOOL_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", "openrouter", "nvidia", "github-models", "ollama"]);
 
 /**
  * Serialize provider-neutral native tool turns into OpenAI-compatible chat
@@ -723,7 +724,8 @@ async function* openaiCompatibleStream(
 
   // Add native function calling tools for supported providers
   if (enableTools && providerName && NATIVE_TOOL_PROVIDERS.has(providerName)) {
-    const tools = getOpenAIToolDefinitions(allowedTools, enableSwarm);
+    const definitions = getOpenAIToolDefinitions(allowedTools, enableSwarm);
+    const tools = providerName === "ollama" ? selectRequestTools(definitions, messages) : definitions;
     if (tools.length) body.tools = tools;
   }
 

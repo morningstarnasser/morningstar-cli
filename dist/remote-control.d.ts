@@ -20,6 +20,11 @@ export interface RemoteSnapshot {
         content: string;
         isError?: boolean;
     }[];
+    activity?: {
+        label: string;
+        status: string;
+    }[];
+    workCount?: number;
     timeline?: RemoteTimelineEntry[];
     agents: {
         taskId: string;

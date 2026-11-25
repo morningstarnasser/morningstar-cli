@@ -16,7 +16,8 @@ import { unknownToolMessage } from "./final-answer.js";
 import { verifyProject, formatVerification } from "./verification.js";
 import { runSkillCommand } from "./skills-runtime.js";
 import { runVaultCommandAsync } from "./vault.js";
-import { callQualifiedMCPTool, isMCPToolName } from "./mcp.js";
+import { callQualifiedMCPTool, isMCPToolName, getConnectedMCPTools } from "./mcp.js";
+import { rankTools } from "./runtime/tool-discovery.js";
 import { guardRead, guardWrite, resolvePatternWithinWorkspace, resolveWithinWorkspace } from "./file-guards.js";
 import { sandboxCommand } from "./sandbox.js";
 const MAX_OUTPUT = 15000; // truncate long outputs
@@ -35,6 +36,17 @@ export function getAgentToolFilter() {
     if (!_activeAgentTools)
         return null;
     return Array.from(_activeAgentTools);
+}
+function searchTools(query) {
+    if (typeof query !== "string" || !query.trim() || query.length > 500) {
+        return { tool: "tool_search", success: false, result: "Provide a non-empty tool search query (max 500 characters)." };
+    }
+    const matches = rankTools(getConnectedMCPTools()
+        .filter(tool => isToolAllowedForAgent(tool.qualifiedName))
+        .map(tool => ({ name: tool.qualifiedName, description: tool.description ?? "" })), query).slice(0, 8);
+    return { tool: "tool_search", success: true, result: JSON.stringify({ tools: matches, note: matches.length
+                ? "Use the exact tool name and its provided parameter schema. Discovery does not authorize execution."
+                : "No matching connected tools. Try another service or task keyword." }) };
 }
 const backgroundTasks = new Map();
 function generateTaskId() {
@@ -1039,6 +1051,7 @@ export function parseToolCalls(response) {
                 call.args = { command: value.trim() };
                 break;
             case "swarm":
+            case "tool_search":
             case "notebook_edit": {
                 try {
                     const parsed = JSON.parse(value);
@@ -1191,6 +1204,8 @@ export async function executeToolCall(call, cwd, signal) {
         return { tool, result: call.error, success: false };
     try {
         switch (tool) {
+            case "tool_search":
+                return searchTools(args.query);
             case "read":
                 return readFile(args.filePath, cwd, args.offset, args.limit);
             case "write":
@@ -1304,6 +1319,8 @@ export function executeNativeToolCall(name, args, cwd, signal) {
     }
     countTool(name);
     switch (name) {
+        case "tool_search":
+            return searchTools(args.query);
         case "read":
             return readFile(args.filePath, cwd, args.offset, args.limit);
         case "write":

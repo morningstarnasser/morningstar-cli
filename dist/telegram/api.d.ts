@@ -1,3 +1,4 @@
+import type { TelegramPage } from "./presentation.js";
 export interface TelegramUser {
     id: number;
     is_bot: boolean;
@@ -63,6 +64,11 @@ export declare class TelegramClient {
     constructor(token: string);
     private call;
     getMe(): Promise<TelegramUser>;
+    setMyCommands(): Promise<void>;
+    sendRichMessage(chatId: number, page: TelegramPage, replyTo?: number, buttons?: InlineButton[][]): Promise<number | null>;
+    /** A final answer must be acknowledged; unlike optional progress edits this
+     * cannot silently disappear. Clear obsolete Stop buttons on completion. */
+    editRichMessage(chatId: number, messageId: number, page: TelegramPage, buttons?: InlineButton[][]): Promise<boolean>;
     getWebhookInfo(): Promise<{
         url: string;
         pending_update_count: number;

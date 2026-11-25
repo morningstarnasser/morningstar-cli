@@ -3,6 +3,8 @@
 // methods the gateway needs. All network calls go through one `call()` helper
 // so retries/timeouts live in a single place.
 
+import type { TelegramPage } from "./presentation.js";
+
 const TELEGRAM_API = "https://api.telegram.org";
 const MAX_MESSAGE_LEN = 4096;
 
@@ -113,6 +115,40 @@ export class TelegramClient {
 
   async getMe(): Promise<TelegramUser> {
     return this.call<TelegramUser>("getMe", {}, 15000);
+  }
+
+  async setMyCommands(): Promise<void> {
+    await this.call("setMyCommands", { commands: [
+      { command: "status", description: "Verbindung und laufende Arbeit" },
+      { command: "help", description: "So nutzt du Morningstar" },
+      { command: "stop", description: "Lauf und Warteschlange stoppen" },
+    ] }, 15000);
+  }
+
+  async sendRichMessage(chatId: number, page: TelegramPage, replyTo?: number, buttons: InlineButton[][] = []): Promise<number | null> {
+    const body: Record<string, unknown> = { chat_id: chatId, text: page.html, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: buttons } };
+    if (replyTo) body.reply_parameters = { message_id: replyTo, allow_sending_without_reply: true };
+    try { return (await this.call<TelegramMessage>("sendMessage", body, 20000)).message_id; }
+    catch (error) {
+      if (!/400.*(?:parse|entit|tag)/i.test(String(error))) throw error;
+      delete body.parse_mode; body.text = page.text;
+      return (await this.call<TelegramMessage>("sendMessage", body, 20000)).message_id;
+    }
+  }
+
+  /** A final answer must be acknowledged; unlike optional progress edits this
+   * cannot silently disappear. Clear obsolete Stop buttons on completion. */
+  async editRichMessage(chatId: number, messageId: number, page: TelegramPage, buttons: InlineButton[][] = []): Promise<boolean> {
+    const body: Record<string, unknown> = { chat_id: chatId, message_id: messageId, text: page.html, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: buttons } };
+    try { await this.call("editMessageText", body, 15000); return true; }
+    catch (error) {
+      if (/message is not modified/i.test(String(error))) return true;
+      if (/400.*(?:parse|entit|tag)/i.test(String(error))) {
+        delete body.parse_mode; body.text = page.text;
+        try { await this.call("editMessageText", body, 15000); return true; } catch { return false; }
+      }
+      return false;
+    }
   }
 
   async getWebhookInfo(): Promise<{ url: string; pending_update_count: number }> {

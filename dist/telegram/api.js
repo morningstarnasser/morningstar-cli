@@ -67,6 +67,53 @@ export class TelegramClient {
     async getMe() {
         return this.call("getMe", {}, 15000);
     }
+    async setMyCommands() {
+        await this.call("setMyCommands", { commands: [
+                { command: "status", description: "Verbindung und laufende Arbeit" },
+                { command: "help", description: "So nutzt du Morningstar" },
+                { command: "stop", description: "Lauf und Warteschlange stoppen" },
+            ] }, 15000);
+    }
+    async sendRichMessage(chatId, page, replyTo, buttons = []) {
+        const body = { chat_id: chatId, text: page.html, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: buttons } };
+        if (replyTo)
+            body.reply_parameters = { message_id: replyTo, allow_sending_without_reply: true };
+        try {
+            return (await this.call("sendMessage", body, 20000)).message_id;
+        }
+        catch (error) {
+            if (!/400.*(?:parse|entit|tag)/i.test(String(error)))
+                throw error;
+            delete body.parse_mode;
+            body.text = page.text;
+            return (await this.call("sendMessage", body, 20000)).message_id;
+        }
+    }
+    /** A final answer must be acknowledged; unlike optional progress edits this
+     * cannot silently disappear. Clear obsolete Stop buttons on completion. */
+    async editRichMessage(chatId, messageId, page, buttons = []) {
+        const body = { chat_id: chatId, message_id: messageId, text: page.html, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: buttons } };
+        try {
+            await this.call("editMessageText", body, 15000);
+            return true;
+        }
+        catch (error) {
+            if (/message is not modified/i.test(String(error)))
+                return true;
+            if (/400.*(?:parse|entit|tag)/i.test(String(error))) {
+                delete body.parse_mode;
+                body.text = page.text;
+                try {
+                    await this.call("editMessageText", body, 15000);
+                    return true;
+                }
+                catch {
+                    return false;
+                }
+            }
+            return false;
+        }
+    }
     async getWebhookInfo() {
         return this.call("getWebhookInfo", {}, 15000);
     }

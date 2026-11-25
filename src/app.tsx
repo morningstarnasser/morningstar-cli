@@ -3323,6 +3323,8 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
       id: session.id, name: session.name, model: config.model, project: cwd, busy: isProcessing || commandBusy.current, stream: displayText(streamText),
       messages: messages.filter(m => ["user", "assistant"].includes(m.role) && !m.contextKind && m.content.trim()).slice(-100).map(m => ({ role: m.role, content: displayText(m.content).slice(0, 32000), ...(m.isError ? { isError: true } : {}) })),
       agents: allBranches.map(b => ({ ...b, taskId: b.taskId ?? b.agentId })),
+      activity: activity.filter(a => ["running", "waiting"].includes(a.status)).slice(-4).map(a => ({ label: displayText(a.label), status: a.status })),
+      workCount: output.reduce((n, o) => n + (o.type === "work-log" ? o.toolResults?.length ?? 0 : 0), 0),
       timeline: remoteTimeline(output),
       work: output.filter(o => o.type === "work-log").slice(-100).flatMap(o => (o.toolResults ?? []).map(r => ({ agent: o.toolLabel ?? "morningstar", heading: displayText(workHeading(r)), success: r.success, output: displayText(r.result).slice(0, 16000), change: r.diff ? fileChange(r.diff.oldStr, r.diff.newStr) : undefined }))),
       approval: pendingApproval && approvalId.current ? { id: approvalId.current, tool: pendingApproval.tool, target: pendingApproval.target, reason: pendingApproval.reason } : null,

@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { resolve, relative, isAbsolute } from "node:path";
 import { realpathSync } from "node:fs";
 const READ_TOOLS = new Set([
+    "tool_search",
     "read",
     "grep",
     "glob",

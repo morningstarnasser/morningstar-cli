@@ -7,6 +7,7 @@ import { TelegramChannel } from "../src/telegram/channel.js";
 import { TelegramAccess } from "../src/telegram/channel-access.js";
 import type { RemoteSnapshot, RemoteAction } from "../src/remote-control.js";
 import type { InlineButton, TelegramUpdate } from "../src/telegram/api.js";
+import type { TelegramPage } from "../src/telegram/presentation.js";
 
 function fixture(t: TestContext, users = [42]) {
   const root = mkdtempSync(join(tmpdir(), "morningstar-channel-")); t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -42,13 +43,54 @@ test("Telegram routes allowed DMs into one existing session and returns its resu
   assert.equal(f.state.id, "session-a");
 });
 
+test("one live card becomes the rich final result and its menu cannot stop work", async t => {
+  const f = fixture(t), edits: { id: number; page: TelegramPage; buttons: InlineButton[][] }[] = [], replies: TelegramPage[] = [];
+  Object.assign(f.client, {
+    editRichMessage: async (_chat: number, id: number, page: TelegramPage, buttons: InlineButton[][]) => { edits.push({ id, page, buttons }); return true; },
+    sendRichMessage: async (_chat: number, page: TelegramPage) => { replies.push(page); return 90; },
+  });
+  f.state.work.push({ heading: "Old task", success: true } as typeof f.state.work[number]);
+  f.state.workCount = 100;
+  await f.channel.start(false); await f.channel.handle(f.update(1, "VPS status")); await new Promise(r => setTimeout(r, 0));
+  f.state.work.push({ heading: "mcp__host_status__get_system__0123456789abcdef", success: true } as typeof f.state.work[number]);
+  f.state.work.shift(); f.state.workCount = 101;
+  await f.channel.tick();
+  assert.match(edits.at(-1)!.page.text, /✓ get system/); assert.doesNotMatch(edits.at(-1)!.page.text, /Old task/);
+  await f.finish({ role: "assistant", content: "## VPS\n\nRAM: **4 GB**" });
+  const last = edits.at(-1)!;
+  assert.equal(last.id, 1); assert.match(last.page.html, /<b>VPS<\/b>/);
+  assert.match(last.page.text, /1 Werkzeugschritte/);
+  assert.deepEqual(last.buttons[0].map(b => b.text), ["Status", "Hilfe"]);
+  assert.equal(replies.length, 0); assert.equal(f.sent.length, 1);
+  await f.channel.handle({ update_id: 2, callback_query: { id: "status", data: last.buttons[0][0].callback_data, from: { id: 42, is_bot: false }, message: { message_id: 1, date: 0, chat: { id: 42, type: "private" } } } });
+  assert.equal(f.actions.length, 0); assert.match(replies[0].text, /Bereit/);
+});
+
+test("failed final delivery is retried without replaying the model or already delivered pages", async t => {
+  const f = fixture(t); let sends = 0, edits = 0;
+  Object.assign(f.client, {
+    editRichMessage: async () => { edits++; return true; },
+    sendRichMessage: async () => { sends++; if (sends === 1) throw new Error("network unavailable"); return 12; },
+  });
+  await f.channel.start(false); await f.channel.handle(f.update(1, "long result")); await new Promise(r => setTimeout(r, 0));
+  await assert.rejects(f.finish({ role: "assistant", content: "z".repeat(5000) }), /network unavailable/);
+  await f.channel.tick();
+  assert.equal(edits, 1); assert.equal(sends, 2); assert.equal(f.prompts.length, 1);
+});
+
+test("a raw incomplete tool attempt is never published as a successful answer", async t => {
+  const f = fixture(t); await f.channel.start(false); await f.channel.handle(f.update(1, "status")); await new Promise(r => setTimeout(r, 0));
+  await f.finish({ role: "assistant", content: 'Ich prüfe.\n<tool:mcp__x__status>{"id":"x"}' });
+  assert.ok(f.sent.some(s => s.text.includes("Auftrag fehlgeschlagen.") && s.text.includes("keine verifizierten Messwerte")));
+  assert.ok(!f.sent.some(s => s.text.includes("<tool:")));
+});
+
 for (const legacy of [false, true]) test(`Telegram reports a failed model turn as failure, including legacy=${legacy}`, async t => {
   const f = fixture(t); await f.channel.start(false); await f.channel.handle(f.update(1, "wie gehts"));
   await new Promise(r => setTimeout(r, 0));
   const content = legacy ? "[Der vorherige Lauf ist mit einem Fehler beendet worden: context budget]" : "Model request failed";
   await f.finish({ role: "assistant", content, ...(!legacy ? { isError: true } : {}) });
-  assert.ok(f.sent.some(s => s.text === "Auftrag fehlgeschlagen."));
-  assert.ok(f.sent.some(s => s.text === content));
+  assert.ok(f.sent.some(s => s.text.includes("Auftrag fehlgeschlagen.") && s.text.includes(content)));
   assert.ok(!f.sent.some(s => s.text === "Auftrag beendet."));
 });
 

@@ -7,6 +7,7 @@ import { getAnthropicToolDefinitions, getGoogleToolDefinitions, getOpenAIToolDef
 import { claudeCliStream } from "./providers/claude-cli.js";
 import { codexCliStream, getCodexModelDisplayName, listCodexModels, } from "./providers/codex-cli.js";
 import { getDiscoveredProviderModels } from "./provider-model-discovery.js";
+import { selectRequestTools } from "./runtime/tool-discovery.js";
 export const PROVIDER_NAMES = [
     "deepseek",
     "openai",
@@ -34,7 +35,7 @@ export function resolveModelSelectionArg(input) {
     return { model: input.trim(), provider: detectProvider(input.trim()) };
 }
 // Providers that support native function calling
-const NATIVE_TOOL_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", "openrouter", "nvidia", "github-models"]);
+const NATIVE_TOOL_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", "openrouter", "nvidia", "github-models", "ollama"]);
 /**
  * Serialize provider-neutral native tool turns into OpenAI-compatible chat
  * messages while retaining every call id.
@@ -616,7 +617,8 @@ async function* openaiCompatibleStream(baseUrl, apiKey, model, messages, maxToke
     body.stream_options = { include_usage: true };
     // Add native function calling tools for supported providers
     if (enableTools && providerName && NATIVE_TOOL_PROVIDERS.has(providerName)) {
-        const tools = getOpenAIToolDefinitions(allowedTools, enableSwarm);
+        const definitions = getOpenAIToolDefinitions(allowedTools, enableSwarm);
+        const tools = providerName === "ollama" ? selectRequestTools(definitions, messages) : definitions;
         if (tools.length)
             body.tools = tools;
     }

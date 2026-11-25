@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.3.3** (2026-11-25).
+Current release: **1.3.4** (2026-11-26).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -37,9 +37,7 @@ install Git for Windows. Morningstar resolves its Bash and grep directly; comman
 use Git Bash too. Windows file privacy follows the Windows user-profile ACLs rather than
 POSIX chmod bits.
 
-Use the repository URL supplied for your checkout. This development line is maintained in
-`morningstarnasser/morningstar-cli-private-archive`; access requires an authorized GitHub account.
-The separate public `morningstar-cli` repository may be on a different release.
+Install from the public product repository:
 
 ```sh
 git clone https://github.com/morningstarnasser/morningstar-cli.git morningstar-cli
@@ -276,9 +274,11 @@ or use `/telegram on` in a running session.
 4. Continue by DM: messages and answers use this terminal's conversation, model,
    project and permission mode. Pairing automatically switches to `allowlist`.
 
-The pinned footer shows the connected bot. Telegram displays work status, active
-agent counts, approval buttons and the final answer. `/status` and `/stop` work in
-the DM. New messages queue while work runs. Approvals are single-use and bound to
+The pinned footer shows the connected bot. One Telegram progress message shows
+recent tool steps, active workers and elapsed time, then becomes the final answer.
+Headings, code and compact table rows are formatted for the phone. Status and Help
+buttons remain after completion; `/status`, `/help` and `/stop` appear in the bot
+menu. Approval buttons remain bound to the current request. New messages queue while work runs. Approvals are single-use and bound to
 the current account, session and request. `/telegram off` disconnects the channel
 without closing the terminal conversation. Access changes remain local:
 `/telegram:access policy pairing|allowlist|disabled` and
@@ -361,7 +361,7 @@ The `website/` package has its own lockfile and build. Follow [AGENTS.md](AGENTS
 [CLAUDE.md](CLAUDE.md) before contributing.
 
 The release checks include the complete test suite on Mac and Windows, typecheck, build,
-OSV scanning and terminal keyboard/mouse read-back. See [1.3.3 large MCP catalogs and Telegram errors](docs/release-1.3.3-2026-11-25.md), [1.3.2 configured local images](docs/release-1.3.2-2026-11-25.md), [1.3.1 Telegram connection checks](docs/release-1.3.1-2026-11-25.md), [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
+OSV scanning and terminal keyboard/mouse read-back. See [1.3.4 native local tools and Telegram presentation](docs/release-1.3.4-2026-11-26.md), [1.3.3 large MCP catalogs and Telegram errors](docs/release-1.3.3-2026-11-25.md), [1.3.2 configured local images](docs/release-1.3.2-2026-11-25.md), [1.3.1 Telegram connection checks](docs/release-1.3.1-2026-11-25.md), [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
 [1.1.1 release verification](docs/release-1.1.1-2026-11-24.md);
 a package version or screenshot alone is not an inference, security or cross-platform guarantee.
 

@@ -18,6 +18,26 @@ test("standalone broken MCP calls are detected; quoted examples and prose stay t
   for (const value of ['Beispiel: <tool:read>file', '`<tool:read>file`', '```\n<tool:read>file\n```', '<tool:read>file</tool>', 'Hallo!']) assert.equal(isMalformedToolAttempt(value), false);
 });
 
+test("a preamble or an unrelated code block cannot hide unfinished tool invocations", () => {
+  for (const prefix of ["Ich prüfe den VPS.\n\n", "```text\nexample\n```\n\n"]) {
+    assert.equal(isMalformedToolAttempt(prefix + '<tool:mcp__atlas__status>{"host":"vps"}'), true);
+  }
+  assert.equal(isMalformedToolAttempt('Zitat:\n```xml\n<tool:read>file\n```'), false);
+  assert.equal(isMalformedToolAttempt('Zitat:\n> <tool:read>file'), false);
+});
+
+test("the reported VPS response is repaired and ends with an error flag if still malformed", async () => {
+  const response = 'Ich prüfe den Status deines VPS.\n\n<tool:mcp__atlas__get_system>{"account":"vps"}\n<tool:mcp__atlas__get_metrics>{"account":"vps"}';
+  const result = await runAgent([{ role: "user", content: "gib mir vps status" }], config, process.cwd(), {
+    streamFn: async function* () { yield { type: "content", text: response }; },
+  });
+  assert.equal(result.turns, 3);
+  assert.ok(result.toolProtocolError);
+  assert.equal(result.messages.at(-1)?.isError, true);
+  assert.ok(!result.finalText.includes("<tool:"));
+  assert.equal(result.toolCalls.length, 0);
+});
+
 test("malformed attempt is repaired through normal native authorization, never executed directly", async () => {
   let calls = 0;
   let executions = 0;

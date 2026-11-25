@@ -8,6 +8,14 @@ export const TOOL_DEFINITIONS = [
     {
         type: "function",
         function: {
+            name: "tool_search",
+            description: "Find connected MCP tools by name or task. Use this when the needed native tool is not offered. Matching tools and their full schemas become available on the next turn. Search with specific service/action terms; never invent tool names or account IDs.",
+            parameters: { type: "object", properties: { query: { type: "string", minLength: 1, maxLength: 500 } }, required: ["query"], additionalProperties: false },
+        },
+    },
+    {
+        type: "function",
+        function: {
             name: "swarm",
             description: "Start a team yourself when independent subtasks benefit from parallel work. Each worker inherits your permissions and context. Supply distinct writePaths for parallel edits, exclusive:true for shell/build work, and dependsOn for ordered work/review. Returns real task statuses and reports; then continue and synthesize the answer. No nested swarms.",
             parameters: {

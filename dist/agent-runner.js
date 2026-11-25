@@ -442,7 +442,7 @@ export async function runAgent(messages, config, cwd, options = {}) {
             return complete(false);
         }
         const parsedText = parseToolCalls(response);
-        if (!parsedText.calls.length && !nativeCalls.size && isMalformedToolAttempt(response)) {
+        if (isMalformedToolAttempt(parsedText.cleanResponse)) {
             // Ask the model to correct its protocol. Never execute or guess a broken
             // call, never resolve a fabricated MCP alias to a similarly named tool.
             const retry = options.enableTools !== false && protocolRepairs < 2 && turnIndex < maxTurns - 1;
@@ -458,7 +458,7 @@ export async function runAgent(messages, config, cwd, options = {}) {
             else {
                 toolProtocolError = text;
                 finalText = text;
-                conversation.push({ role: "assistant", content: text });
+                conversation.push({ role: "assistant", content: text, isError: true });
             }
             options.onTurnEnd?.(text, []);
             emit({ type: "turn_end", turn, text, tools: [] });

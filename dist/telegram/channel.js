@@ -6,6 +6,8 @@ import { resolveWithinWorkspace } from "../file-guards.js";
 import { registerTelegramTools } from "./channel-tools.js";
 import { attachImage } from "../runtime/images.js";
 import { displayText } from "../runtime/work-log.js";
+import { isMalformedToolAttempt } from "../runtime/tool-protocol.js";
+import { telegramPages, telegramToolLabel } from "./presentation.js";
 import { TelegramClient } from "./api.js";
 import { TelegramAccess } from "./channel-access.js";
 /** Telegram is a transport for the existing TUI session, not another agent. */
@@ -63,6 +65,8 @@ export class TelegramChannel {
         }
         this.running = true;
         this.connectedAt = Math.floor(Date.now() / 1000);
+        if (this.client.setMyCommands)
+            void this.client.setMyCommands().catch(() => this.options.notice("Telegram-Befehlsmenü konnte nicht aktualisiert werden; /help bleibt verfügbar."));
         if (poll) {
             this.timer = setInterval(() => { void this.tick().catch(() => this.options.notice("Telegram-Update fehlgeschlagen; Verbindung wird erneut geprüft.")); }, 1200);
             void this.poll();
@@ -155,9 +159,9 @@ export class TelegramChannel {
             }
         }
     }
-    button(chat, session, approval, allow) {
+    button(chat, session, approval, allow, view) {
         const key = randomBytes(16).toString("hex");
-        this.callbacks.set(key, { chat, session, approval, allow, expires: Date.now() + 600000 });
+        this.callbacks.set(key, { chat, session, approval, allow, view, expires: Date.now() + 600000 });
         return key;
     }
     async handle(update) {
@@ -176,6 +180,11 @@ export class TelegramChannel {
                 return;
             }
             this.callbacks.delete(cb.data);
+            if (entry.view) {
+                await this.sendPresentation(chat.id, entry.view === "help" ? this.help() : this.status(snapshot), undefined, this.menu(chat.id, snapshot.id));
+                await this.client.answerCallbackQuery(cb.id);
+                return;
+            }
             if (entry.approval && snapshot.approval?.id !== entry.approval) {
                 await this.client.answerCallbackQuery(cb.id, "Freigabe ist nicht mehr aktuell.");
                 return;
@@ -203,7 +212,7 @@ export class TelegramChannel {
         const text = (msg.text ?? msg.caption ?? "").trim(), snapshot = this.options.snapshot();
         this.linked = { chat: msg.chat.id, message: msg, text: "", session: snapshot.id };
         if (/^\/(status|start|help)(?:@\w+)?$/.test(text)) {
-            await this.client.sendMessage(msg.chat.id, this.status(snapshot));
+            await this.sendPresentation(msg.chat.id, /^\/status/.test(text) ? this.status(snapshot) : this.help(), msg.message_id, this.menu(msg.chat.id, snapshot.id));
             return;
         }
         if (/^\/stop(?:@\w+)?$/.test(text)) {
@@ -226,12 +235,39 @@ export class TelegramChannel {
             return;
         this.queue.push({ chat: msg.chat.id, message: msg, text, session: snapshot.id });
         if (snapshot.busy || this.active)
-            await this.client.sendMessage(msg.chat.id, `Nachricht wartet in derselben Sitzung (${this.queue.length} in der Warteschlange). /stop bricht ab.`);
+            await this.client.sendMessage(msg.chat.id, `In der Warteschlange · Position ${this.queue.length}\nIch bearbeite deine Nachricht als Nächstes. /stop stoppt den Lauf und leert die Warteschlange.`, undefined, msg.message_id);
         await this.tick();
     }
     status(s) {
         const agents = s.agents.filter(a => a.status === "running" || a.status === "pending");
-        return `Morningstar · ${displayText(s.name || s.id.slice(0, 8))}\n${displayText(s.model)}\n${s.busy ? "Arbeitet" : "Bereit"}${agents.length ? ` · ${agents.length} Subagenten` : ""}\n${agents.slice(0, 4).map(a => `${a.agentId}: ${a.status} · ${displayText(a.detail).slice(0, 100)}`).join("\n")}\nNachrichten landen in der verbundenen Terminal-Sitzung. /status · /stop`.trim();
+        return `**Morningstar**\n${s.busy ? "● Arbeitet" : "● Bereit"} · ${displayText(s.model)}\n\n${agents.slice(0, 4).map(a => `• ${a.agentId}: ${a.status === "running" ? "arbeitet" : "wartet"} · ${displayText(a.detail).slice(0, 100)}`).join("\n")}${agents.length ? "\n\n" : ""}Mit deiner Terminal-Sitzung verbunden.\n/status · /help · /stop`;
+    }
+    help() {
+        return "**Morningstar**\nDein Assistent aus der laufenden Terminal-Sitzung.\n\nSchreib deinen Auftrag direkt hier. Bilder und Textdateien kannst du anhängen. Laufende Arbeit und Werkzeugschritte erscheinen in einer aktualisierten Nachricht.\n\n**Befehle**\n/status — Verbindung und laufende Arbeit\n/stop — Lauf und Warteschlange stoppen\n/help — Diese Übersicht\n\nDas Terminal muss geöffnet bleiben. Modell, Arbeitsmodus und Zugriffsrechte verwaltest du dort.";
+    }
+    menu(chat, session) {
+        return [[{ text: "Status", callback_data: this.button(chat, session, undefined, undefined, "status") }, { text: "Hilfe", callback_data: this.button(chat, session, undefined, undefined, "help") }]];
+    }
+    async sendPresentation(chat, text, replyTo, buttons = this.menu(chat, this.options.snapshot().id)) {
+        const pages = telegramPages(text);
+        for (const [index, page] of pages.entries()) {
+            if (this.client.sendRichMessage)
+                await this.client.sendRichMessage(chat, page, replyTo, index === pages.length - 1 ? buttons : []);
+            else
+                await this.client.sendMessage(chat, page.text, undefined, replyTo);
+        }
+    }
+    progress(s, job) {
+        const seconds = Math.max(0, Math.floor((Date.now() - job.startedAt) / 1000));
+        const count = Math.max(0, (s.workCount ?? s.work.length) - job.workBefore);
+        const work = count ? s.work.slice(-Math.min(count, 4)) : [];
+        const current = s.approval ? "Freigabe erforderlich" : s.activity?.length ? "Werkzeuge arbeiten" : "Antwort wird vorbereitet";
+        const lines = work.map(w => `${w.success ? "✓" : "!"} ${telegramToolLabel(w.heading)}`);
+        for (const activity of s.activity ?? [])
+            lines.push(`› ${telegramToolLabel(activity.label)}`);
+        for (const agent of s.agents.filter(a => ["running", "pending"].includes(a.status)).slice(0, 3))
+            lines.push(`› ${displayText(agent.agentId)} · ${agent.status === "running" ? "arbeitet" : "wartet"}`);
+        return `**Morningstar**\n${current}\n\n${lines.length ? lines.join("\n") + "\n\n" : ""}${seconds} s · ${displayText(s.model)}`;
     }
     async attachment(job) {
         const photo = job.message.photo?.at(-1), document = job.message.document, file = photo ?? document;
@@ -287,20 +323,50 @@ export class TelegramChannel {
                     const lastMessage = snapshot.messages.filter(m => m.role === "assistant").at(-1);
                     const last = lastMessage?.content;
                     const fresh = snapshot.messages.at(-1)?.role === "assistant" && (last !== job.responseBefore || (snapshot.revision ?? snapshot.messages.length) !== job.revisionBefore);
-                    const failed = Boolean(job.error || fresh && (lastMessage?.isError || last?.startsWith("[Der vorherige Lauf ist mit einem Fehler beendet worden:")));
+                    const malformed = Boolean(last && isMalformedToolAttempt(last));
+                    const failed = Boolean(job.error || fresh && (lastMessage?.isError || malformed || last?.startsWith("[Der vorherige Lauf ist mit einem Fehler beendet worden:")));
                     const completed = !failed && !job.cancelled && Boolean(last && fresh);
-                    if (job.messageId)
-                        await this.client.editMessageText(job.chat, job.messageId, failed ? "Auftrag fehlgeschlagen." : job.cancelled ? "Auftrag abgebrochen." : completed ? "Auftrag beendet." : "Auftrag nicht abgeschlossen.");
-                    await this.client.sendMessage(job.chat, job.error || (last && fresh ? last : "Keine neue Abschlussantwort vorhanden; Terminal-Verlauf prüfen."));
+                    const answer = job.error || (malformed ? "Der Werkzeugaufruf konnte nicht ausgeführt werden. Es liegen keine verifizierten Messwerte vor." : last && fresh ? last : "Keine neue Abschlussantwort vorhanden; Terminal-Verlauf prüfen.");
+                    const tools = Math.max(0, (snapshot.workCount ?? snapshot.work.length) - job.workBefore);
+                    const elapsed = Math.max(1, Math.round((Date.now() - job.startedAt) / 1000));
+                    const heading = failed ? "**Auftrag fehlgeschlagen.**\n\n" : job.cancelled ? "**Auftrag abgebrochen.**\n\n" : completed ? "" : "**Auftrag nicht abgeschlossen.**\n\n";
+                    if (!job.delivery) {
+                        this.callbacks.clear();
+                        this.approvalSent = "";
+                        job.delivery = { pages: telegramPages(heading + answer + (tools ? `\n\n_${tools} Werkzeugschritte · ${elapsed} s_` : "")), next: 0 };
+                    }
+                    const { pages } = job.delivery;
+                    for (let index = job.delivery.next; index < pages.length; index++) {
+                        const page = pages[index];
+                        const buttons = index === pages.length - 1 ? this.menu(job.chat, snapshot.id) : [];
+                        let edited = false;
+                        if (index === 0 && job.messageId) {
+                            if (this.client.editRichMessage)
+                                edited = await this.client.editRichMessage(job.chat, job.messageId, page, buttons);
+                            else {
+                                await this.client.editMessageText(job.chat, job.messageId, page.text);
+                                edited = true;
+                            }
+                        }
+                        if (!edited) {
+                            if (this.client.sendRichMessage)
+                                await this.client.sendRichMessage(job.chat, page, job.message.message_id, buttons);
+                            else
+                                await this.client.sendMessage(job.chat, page.text, undefined, job.message.message_id);
+                        }
+                        job.delivery.next = index + 1;
+                    }
                     this.active = undefined;
-                    this.callbacks.clear();
-                    this.approvalSent = "";
                 }
                 else {
-                    const status = this.status(snapshot);
-                    if (job.messageId && status !== job.status) {
-                        await this.client.editMessageText(job.chat, job.messageId, status);
+                    const status = this.progress(snapshot, job);
+                    if (job.messageId && status !== job.status && Date.now() - (job.editedAt ?? 0) >= 2000) {
+                        if (this.client.editRichMessage)
+                            await this.client.editRichMessage(job.chat, job.messageId, telegramPages(status)[0], [[{ text: "Stoppen", callback_data: this.button(job.chat, snapshot.id) }]]);
+                        else
+                            await this.client.editMessageText(job.chat, job.messageId, telegramPages(status)[0].text);
                         job.status = status;
+                        job.editedAt = Date.now();
                     }
                     await this.client.sendChatAction(job.chat);
                     if (snapshot.approval && snapshot.approval.id !== this.approvalSent) {
@@ -315,9 +381,10 @@ export class TelegramChannel {
                 const job = this.queue.shift();
                 if (job.session !== snapshot.id || !this.access.allowed(job.chat, job.chat, "private"))
                     return;
-                const active = { ...job, done: false, responseBefore: snapshot.messages.filter(m => m.role === "assistant").at(-1)?.content ?? "", revisionBefore: snapshot.revision ?? snapshot.messages.length, messageId: null, status: "", error: undefined };
+                const active = { ...job, done: false, responseBefore: snapshot.messages.filter(m => m.role === "assistant").at(-1)?.content ?? "", revisionBefore: snapshot.revision ?? snapshot.messages.length, messageId: null, status: "", error: undefined, startedAt: Date.now(), workBefore: snapshot.workCount ?? snapshot.work.length };
                 this.active = active;
-                active.messageId = await this.client.sendKeyboard(job.chat, "Morningstar arbeitet in deiner Terminal-Sitzung.", [[{ text: "Stoppen", callback_data: this.button(job.chat, snapshot.id) }]]);
+                active.status = this.progress(snapshot, active);
+                active.messageId = await this.client.sendKeyboard(job.chat, telegramPages(active.status)[0].html, [[{ text: "Stoppen", callback_data: this.button(job.chat, snapshot.id) }]], "HTML");
                 void (async () => {
                     try {
                         const input = await this.attachment(job);
@@ -336,8 +403,8 @@ export class TelegramChannel {
             }
             else if (snapshot.busy && this.linked?.session === snapshot.id && this.access.allowed(this.linked.chat, this.linked.chat, "private")) {
                 const job = this.linked;
-                const messageId = await this.client.sendKeyboard(job.chat, "Deine Terminal-Sitzung arbeitet.", [[{ text: "Stoppen", callback_data: this.button(job.chat, snapshot.id) }]]);
-                this.active = { ...job, done: true, responseBefore: snapshot.messages.filter(m => m.role === "assistant").at(-1)?.content ?? "", revisionBefore: snapshot.revision ?? snapshot.messages.length, messageId, status: "" };
+                const messageId = await this.client.sendKeyboard(job.chat, "Morningstar · Deine Terminal-Sitzung arbeitet.", [[{ text: "Stoppen", callback_data: this.button(job.chat, snapshot.id) }]]);
+                this.active = { ...job, done: true, responseBefore: snapshot.messages.filter(m => m.role === "assistant").at(-1)?.content ?? "", revisionBefore: snapshot.revision ?? snapshot.messages.length, messageId, status: "", startedAt: Date.now(), workBefore: snapshot.workCount ?? snapshot.work.length };
             }
         }
         finally {

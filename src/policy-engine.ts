@@ -27,6 +27,7 @@ interface ActionProfile {
 }
 
 const READ_TOOLS = new Set([
+  "tool_search",
   "read",
   "grep",
   "glob",

@@ -6,6 +6,29 @@ test("short text stays one chunk", () => {
   assert.deepEqual(chunkMessage("hello"), ["hello"]);
 });
 
+test("rich Telegram messages preserve threading, clear buttons and only fall back for entity errors", async t => {
+  const { TelegramClient } = await import("../src/telegram/api.js"); const client = new TelegramClient("fixture");
+  const bodies: any[] = []; let mode = "parse";
+  t.mock.method(globalThis, "fetch", async (_url: unknown, options: RequestInit) => {
+    const body = JSON.parse(String(options.body)); bodies.push(body);
+    if (mode === "network") throw new Error("network");
+    if (body.parse_mode && mode === "parse") return Response.json({ ok: false, error_code: 400, description: "can't parse entities" });
+    if (mode === "unchanged") return Response.json({ ok: false, error_code: 400, description: "message is not modified" });
+    return Response.json({ ok: true, result: { message_id: 77 } });
+  });
+  const page = { html: "<b>result</b>", text: "result" };
+  assert.equal(await client.sendRichMessage(42, page, 12), 77);
+  assert.equal(bodies.length, 2); assert.equal(bodies[1].parse_mode, undefined);
+  assert.equal(bodies[1].reply_parameters.message_id, 12);
+  mode = "ok"; assert.equal(await client.editRichMessage(42, 77, page), true);
+  assert.deepEqual(bodies.at(-1).reply_markup.inline_keyboard, []);
+  mode = "unchanged"; assert.equal(await client.editRichMessage(42, 77, page), true);
+  mode = "network"; const count = bodies.length;
+  await assert.rejects(client.sendRichMessage(42, page), /network/);
+  assert.equal(bodies.length, count + 1);
+  assert.equal(await client.editRichMessage(42, 77, page), false);
+});
+
 test("empty text yields no chunks", () => {
   assert.deepEqual(chunkMessage(""), []);
 });
