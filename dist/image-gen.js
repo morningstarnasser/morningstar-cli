@@ -2,14 +2,16 @@ import { execSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, totalmem } from "node:os";
+import { loadImageBackend, runImageBackend } from "./image-backend.js";
+import { randomBytes } from "node:crypto";
 export const IMAGE_GEN_DIR = join(homedir(), ".morningstar", "image-gen");
 export const IMAGE_OUTPUT_DIR = join(homedir(), "Downloads");
 const SERVER_PORT = 7860;
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 const PID_FILE = join(IMAGE_GEN_DIR, "server.pid");
 export const IMAGE_MODELS = [
-    { id: "gemini", name: "Nano Banana Pro (Gemini 3 Pro Image)", size: "API", description: "Allerbeste Qualitaet, Cloud (Standard)", steps: 0, resolution: "1408x1408" },
-    { id: "gemini-flash", name: "Nano Banana (Gemini 2.5 Flash Image)", size: "API", description: "Schnell + hochwertig, Cloud", steps: 0, resolution: "1024x1024" },
+    { id: "gemini", name: "Nano Banana Pro (Gemini 3 Pro Image)", size: "API", description: "Cloud, API-Kosten möglich", steps: 0, resolution: "1408x1408" },
+    { id: "gemini-flash", name: "Nano Banana (Gemini 2.5 Flash Image)", size: "API", description: "Cloud, API-Kosten möglich", steps: 0, resolution: "1024x1024" },
     { id: "realvis", name: "RealVisXL V4.0", size: "~7GB", description: "Photorealistisch, lokal", steps: 40, resolution: "1024x1024" },
     { id: "sdxl", name: "Stable Diffusion XL", size: "~7GB", description: "Hohe Qualitaet, lokal", steps: 40, resolution: "1024x1024" },
     { id: "sdxl-turbo", name: "SDXL Turbo", size: "~7GB", description: "Schnell (1-4 Steps), lokal", steps: 4, resolution: "512x512" },
@@ -360,10 +362,17 @@ export async function hasPython() {
     }
 }
 export async function isSetupComplete() {
+    if (loadImageBackend())
+        return true;
     return existsSync(join(IMAGE_GEN_DIR, "venv", "bin", "python")) &&
         (existsSync(join(IMAGE_GEN_DIR, "server.py")) || existsSync(join(IMAGE_GEN_DIR, "generate.py")));
 }
 export async function setupImageGen(onProgress) {
+    const backend = loadImageBackend();
+    if (backend) {
+        onProgress?.(`Konfiguriertes Bild-Backend: ${backend.name}. Wird beim Bildauftrag gestartet.`);
+        return;
+    }
     if (!(await hasPython()))
         throw new Error("Python 3 nicht installiert. Installiere: brew install python3");
     mkdirSync(IMAGE_GEN_DIR, { recursive: true });
@@ -451,6 +460,12 @@ function hasGeminiKey() {
     return !!getGoogleApiKey();
 }
 export async function generateImage(prompt, options) {
+    const backend = loadImageBackend();
+    if (backend && (!options?.model || options.model === "local")) {
+        mkdirSync(IMAGE_OUTPUT_DIR, { recursive: true });
+        const output = join(IMAGE_OUTPUT_DIR, `${randomBytes(6).toString("hex")}_${outputFilename(prompt)}`);
+        return runImageBackend(backend, prompt, options ?? {}, output);
+    }
     let modelId = options?.model ?? DEFAULT_IMAGE_MODEL;
     // Auto-fallback: if gemini requested but no API key, use local model
     if ((modelId === "gemini" || modelId === "gemini-flash") && !hasGeminiKey()) {

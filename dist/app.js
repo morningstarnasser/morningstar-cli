@@ -1,5 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { telegramConnectionMessage } from "./telegram/connection-errors.js";
+import { loadImageBackend } from "./image-backend.js";
 import { getTelegramToolDefinitions } from "./telegram/channel-tools.js";
 import { cycleInteractionMode, configForInteractionMode } from "./runtime/interaction-mode.js";
 import { RemoteControlPanel, RemotePairing } from "./components/RemoteControlPanel.js";
@@ -73,7 +74,7 @@ import { getRepoMap, generateOnboarding, generateProjectScore, generateCodeRoast
 import { parseMentions, formatMentionContext } from "./mentions.js";
 import { getFastModel, getDefaultModel } from "./fast-model-map.js";
 import { loadCustomCommands } from "./custom-commands.js";
-import { generateImage, isSetupComplete, setupImageGen, startImageServer, stopImageServer, IMAGE_MODELS } from "./image-gen.js";
+import { generateImage, isSetupComplete, setupImageGen, startImageServer, stopImageServer, IMAGE_MODELS, IMAGE_OUTPUT_DIR } from "./image-gen.js";
 import { analyzeImageFull, isOllamaRunning, isVisionModelInstalled, pullVisionModel, VISION_MODELS, DEFAULT_VISION_MODEL } from "./vision.js";
 import { getSkill, matchSkillByTrigger, createSkill, getSkillPromptAddition } from "./skills.js";
 import { migrateAgentsJsonToMd } from "./file-agents.js";
@@ -576,7 +577,7 @@ function AppBody({ config: initialConfig, ctx, chatOnly, skipPermissions: initia
         prompt += `\n\n--- WICHTIG: Bild-Generierung ---
 Wenn der User ein Bild erstellen/generieren/malen moechte, antworte IMMER mit:
 "Nutze den Befehl: /imagine <dein prompt>"
-Du kannst KEINE Bilder direkt erstellen. Nur /imagine kann Bilder generieren (via lokales Stable Diffusion).
+Du kannst KEINE Bilder direkt erstellen. /imagine verwendet das konfigurierte Bild-Backend; verfügbare Modelle und Kosten hängen von der lokalen Einrichtung ab.
 Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten übergeben. Analysiere diese direkt anhand der Nutzerfrage; /imagine ist nur für die Erstellung neuer Bilder.
 --- Ende ---`;
         if (getTelegramToolDefinitions().length)
@@ -1659,6 +1660,11 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
             }
             // ── /imagine — Image Generation (direct, no AI filter) ──
             case "/imagine": {
+                const imageBackend = loadImageBackend();
+                if (imageBackend && (!arg || ["setup", "start", "stop", "models"].includes(arg))) {
+                    addOutput({ type: "info", content: `Bild-Backend: ${imageBackend.name}\n/imagine <Beschreibung> — Bild erzeugen\n/imagine <Beschreibung> --seed 42 --width 1024 --height 1024\nDer konfigurierte Backend-Prozess verwaltet seinen Bildauftrag. Bilder werden in ${IMAGE_OUTPUT_DIR} gespeichert.` });
+                    return true;
+                }
                 if (!arg) {
                     addOutput({ type: "info", content: "Nutzung: /imagine <prompt>\n  /imagine setup  — Lokales Stable Diffusion installieren\n  /imagine start  — Lokalen Server starten\n  /imagine stop   — Server stoppen\n  /imagine models — Verfuegbare Modelle\n\n  Standard: Gemini (Nano Banana Qualitaet, benoetigt GOOGLE_API_KEY)\n  Fallback: RealVisXL V4.0 (lokal, photorealistisch)\n\n  Optionen:\n    --model gemini|realvis|sdxl|sdxl-turbo|sd15\n    --steps 40  --width 1024  --height 1024\n    --seed 42   --negative 'blurry, ugly'\n\n  Bilder werden in ~/Downloads gespeichert" });
                     return true;
@@ -1681,7 +1687,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                     (async () => {
                         try {
                             await startImageServer((s) => addOutput({ type: "info", content: `  ${s}` }));
-                            addOutput({ type: "success", content: "Image Server bereit! Bilder werden jetzt in ~2-5s generiert." });
+                            addOutput({ type: "success", content: "Image Server bereit. Die Dauer hängt von Modell und Hardware ab." });
                         }
                         catch (e) {
                             addOutput({ type: "error", content: `Server-Start Fehler: ${e.message}` });

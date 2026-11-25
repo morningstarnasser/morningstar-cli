@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.3.1** (2026-11-25).
+Current release: **1.3.2** (2026-11-25).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -361,7 +361,7 @@ The `website/` package has its own lockfile and build. Follow [AGENTS.md](AGENTS
 [CLAUDE.md](CLAUDE.md) before contributing.
 
 The release checks include the complete test suite on Mac and Windows, typecheck, build,
-OSV scanning and terminal keyboard/mouse read-back. See [1.3.1 Telegram connection checks](docs/release-1.3.1-2026-11-25.md), [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
+OSV scanning and terminal keyboard/mouse read-back. See [1.3.2 configured local images](docs/release-1.3.2-2026-11-25.md), [1.3.1 Telegram connection checks](docs/release-1.3.1-2026-11-25.md), [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
 [1.1.1 release verification](docs/release-1.1.1-2026-11-24.md);
 a package version or screenshot alone is not an inference, security or cross-platform guarantee.
 
@@ -371,3 +371,13 @@ Its model lists and implementation claims are not the current contract.
 ## License
 
 [MIT](LICENSE) · Ali Nasser / Morningstar
+
+### Configured image backend
+
+`/imagine` can use an explicitly configured global backend in
+`~/.morningstar/image-backend.json`. It receives a versioned JSON request on stdin
+and returns a PNG plus actual dimensions, seed, steps and duration. Prompts are
+never interpolated into shell commands. Startup failures, invalid output and timeouts
+are reported without showing private backend logs. A configured backend takes
+priority; `--model local` selects it explicitly. Model availability and GPU needs
+depend on the operator's local setup. No universal speed or quality guarantee.

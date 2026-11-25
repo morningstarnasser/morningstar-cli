@@ -4,14 +4,14 @@ export declare const IMAGE_MODELS: readonly [{
     readonly id: "gemini";
     readonly name: "Nano Banana Pro (Gemini 3 Pro Image)";
     readonly size: "API";
-    readonly description: "Allerbeste Qualitaet, Cloud (Standard)";
+    readonly description: "Cloud, API-Kosten möglich";
     readonly steps: 0;
     readonly resolution: "1408x1408";
 }, {
     readonly id: "gemini-flash";
     readonly name: "Nano Banana (Gemini 2.5 Flash Image)";
     readonly size: "API";
-    readonly description: "Schnell + hochwertig, Cloud";
+    readonly description: "Cloud, API-Kosten möglich";
     readonly steps: 0;
     readonly resolution: "1024x1024";
 }, {
