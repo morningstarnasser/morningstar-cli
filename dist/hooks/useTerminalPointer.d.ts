@@ -11,6 +11,9 @@ export interface Pointer {
 export declare function TerminalPointer({ children }: {
     children: React.ReactNode;
 }): import("react/jsx-runtime").JSX.Element;
+export declare function TerminalLiveFooter({ children }: {
+    children: React.ReactNode;
+}): import("react/jsx-runtime").JSX.Element;
 export declare function TerminalDock({ children }: {
     children: React.ReactNode;
 }): import("react/jsx-runtime").JSX.Element;

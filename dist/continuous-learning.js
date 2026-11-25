@@ -22,7 +22,7 @@ const VALID_DOMAINS = ["code-style", "testing", "git", "debugging", "workflow", 
 // ---------------------------------------------------------------------------
 function ensureDir(dir) {
     if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true });
+        mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
 }
 function ensureLearningDirs() {
@@ -66,17 +66,25 @@ function safeReadJsonFile(filePath) {
 function safeWriteJsonFile(filePath, data) {
     const dir = join(filePath, "..");
     ensureDir(dir);
-    writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+    const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    writeFileSync(temporary, JSON.stringify(data, null, 2), { encoding: "utf-8", mode: 0o600, flag: "wx" });
+    renameSync(temporary, filePath);
+}
+function safeId(value) {
+    if (!/^[a-zA-Z0-9_-]{1,80}$/.test(value))
+        throw new Error("Invalid learning identifier");
+    return value;
 }
 function projectObservationsDir(projectId) {
-    return join(PROJECTS_DIR, projectId);
+    return join(PROJECTS_DIR, safeId(projectId));
 }
 function projectObservationsFile(projectId) {
     return join(projectObservationsDir(projectId), "observations.jsonl");
 }
 function instinctFilePath(instinct) {
+    safeId(instinct.id);
     if (instinct.scope === "project" && instinct.projectId) {
-        const dir = join(PROJECTS_DIR, instinct.projectId, "instincts");
+        const dir = join(PROJECTS_DIR, safeId(instinct.projectId), "instincts");
         ensureDir(dir);
         return join(dir, `${instinct.id}.json`);
     }
@@ -172,7 +180,7 @@ function loadInstinctsFromDir(dir) {
         const instincts = [];
         for (const file of files) {
             const instinct = safeReadJsonFile(join(dir, file));
-            if (instinct && instinct.id && instinct.trigger && instinct.action) {
+            if (instinct && typeof instinct.id === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(instinct.id) && typeof instinct.trigger === "string" && typeof instinct.action === "string" && Number.isFinite(instinct.confidence) && Array.isArray(instinct.evidence) && typeof instinct.updatedAt === "string") {
                 instincts.push(instinct);
             }
         }
@@ -183,6 +191,7 @@ function loadInstinctsFromDir(dir) {
     }
 }
 function findInstinctFile(instinctId) {
+    safeId(instinctId);
     // Search personal instincts
     const personalPath = join(INSTINCTS_PERSONAL_DIR, `${instinctId}.json`);
     if (existsSync(personalPath))
@@ -308,7 +317,7 @@ export function loadInstincts(projectId) {
     }
     // Load project-specific instincts
     if (projectId) {
-        const projectInstDir = join(PROJECTS_DIR, projectId, "instincts");
+        const projectInstDir = join(PROJECTS_DIR, safeId(projectId), "instincts");
         for (const inst of loadInstinctsFromDir(projectInstDir)) {
             byId.set(inst.id, inst);
         }
@@ -328,6 +337,8 @@ export function loadInstincts(projectId) {
 export function saveInstinct(instinct) {
     ensureLearningDirs();
     const validated = {
+        disabled: instinct.disabled,
+        source: instinct.source,
         id: instinct.id || generateInstinctId(),
         trigger: instinct.trigger.slice(0, 500),
         action: instinct.action.slice(0, 500),
@@ -440,12 +451,14 @@ export function importInstincts(json) {
                 continue;
             }
             // Skip if a personal instinct with this ID already exists (don't overwrite)
+            safeId(String(raw.id));
             const personalPath = join(INSTINCTS_PERSONAL_DIR, `${raw.id}.json`);
             if (existsSync(personalPath)) {
                 errors.push(`Instinct "${raw.id}": skipped (personal version exists)`);
                 continue;
             }
             const instinct = {
+                source: "imported",
                 id: String(raw.id).slice(0, 50),
                 trigger: String(raw.trigger || "").slice(0, 500),
                 action: String(raw.action || "").slice(0, 500),

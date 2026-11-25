@@ -11,6 +11,8 @@ export interface Observation {
     duration?: number;
 }
 export interface Instinct {
+    disabled?: boolean;
+    source?: "user-correction" | "verified-check" | "imported";
     id: string;
     trigger: string;
     action: string;

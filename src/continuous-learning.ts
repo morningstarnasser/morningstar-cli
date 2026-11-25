@@ -39,6 +39,8 @@ export interface Observation {
 }
 
 export interface Instinct {
+  disabled?: boolean;
+  source?: "user-correction" | "verified-check" | "imported";
   id: string;
   trigger: string;
   action: string;
@@ -57,7 +59,7 @@ export interface Instinct {
 
 function ensureDir(dir: string): void {
   if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
 }
 
@@ -104,11 +106,18 @@ function safeReadJsonFile<T>(filePath: string): T | null {
 function safeWriteJsonFile(filePath: string, data: unknown): void {
   const dir = join(filePath, "..");
   ensureDir(dir);
-  writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(temporary, JSON.stringify(data, null, 2), { encoding: "utf-8", mode: 0o600, flag: "wx" });
+  renameSync(temporary, filePath);
+}
+
+function safeId(value: string): string {
+  if (!/^[a-zA-Z0-9_-]{1,80}$/.test(value)) throw new Error("Invalid learning identifier");
+  return value;
 }
 
 function projectObservationsDir(projectId: string): string {
-  return join(PROJECTS_DIR, projectId);
+  return join(PROJECTS_DIR, safeId(projectId));
 }
 
 function projectObservationsFile(projectId: string): string {
@@ -116,8 +125,9 @@ function projectObservationsFile(projectId: string): string {
 }
 
 function instinctFilePath(instinct: Instinct): string {
+  safeId(instinct.id);
   if (instinct.scope === "project" && instinct.projectId) {
-    const dir = join(PROJECTS_DIR, instinct.projectId, "instincts");
+    const dir = join(PROJECTS_DIR, safeId(instinct.projectId), "instincts");
     ensureDir(dir);
     return join(dir, `${instinct.id}.json`);
   }
@@ -212,7 +222,7 @@ function loadInstinctsFromDir(dir: string): Instinct[] {
 
     for (const file of files) {
       const instinct = safeReadJsonFile<Instinct>(join(dir, file));
-      if (instinct && instinct.id && instinct.trigger && instinct.action) {
+      if (instinct && typeof instinct.id === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(instinct.id) && typeof instinct.trigger === "string" && typeof instinct.action === "string" && Number.isFinite(instinct.confidence) && Array.isArray(instinct.evidence) && typeof instinct.updatedAt === "string") {
         instincts.push(instinct);
       }
     }
@@ -223,6 +233,7 @@ function loadInstinctsFromDir(dir: string): Instinct[] {
 }
 
 function findInstinctFile(instinctId: string): string | null {
+  safeId(instinctId);
   // Search personal instincts
   const personalPath = join(INSTINCTS_PERSONAL_DIR, `${instinctId}.json`);
   if (existsSync(personalPath)) return personalPath;
@@ -361,7 +372,7 @@ export function loadInstincts(projectId?: string): Instinct[] {
 
   // Load project-specific instincts
   if (projectId) {
-    const projectInstDir = join(PROJECTS_DIR, projectId, "instincts");
+    const projectInstDir = join(PROJECTS_DIR, safeId(projectId), "instincts");
     for (const inst of loadInstinctsFromDir(projectInstDir)) {
       byId.set(inst.id, inst);
     }
@@ -383,6 +394,8 @@ export function saveInstinct(instinct: Instinct): void {
   ensureLearningDirs();
 
   const validated: Instinct = {
+    disabled: instinct.disabled,
+    source: instinct.source,
     id: instinct.id || generateInstinctId(),
     trigger: instinct.trigger.slice(0, 500),
     action: instinct.action.slice(0, 500),
@@ -507,6 +520,7 @@ export function importInstincts(json: string): { imported: number; errors: strin
       }
 
       // Skip if a personal instinct with this ID already exists (don't overwrite)
+      safeId(String(raw.id));
       const personalPath = join(INSTINCTS_PERSONAL_DIR, `${raw.id}.json`);
       if (existsSync(personalPath)) {
         errors.push(`Instinct "${raw.id}": skipped (personal version exists)`);
@@ -514,6 +528,7 @@ export function importInstincts(json: string): { imported: number; errors: strin
       }
 
       const instinct: Instinct = {
+        source: "imported",
         id: String(raw.id).slice(0, 50),
         trigger: String(raw.trigger || "").slice(0, 500),
         action: String(raw.action || "").slice(0, 500),

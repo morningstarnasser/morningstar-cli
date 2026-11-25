@@ -10,6 +10,7 @@ export interface ViewportOptions {
         body: string;
     } | undefined;
     dockHeight?: () => number;
+    liveHeight?: () => number;
 }
 /** Mirrors actual terminal output. Read mode freezes a snapshot while Ink keeps working. */
 export declare class TerminalViewport {
@@ -43,6 +44,9 @@ export declare class TerminalViewport {
     enter(): Promise<void>;
     scroll(amount: number): Promise<void>;
     page(direction: number): Promise<void>;
+    get modal(): boolean;
+    private get pinnedHeight();
+    isLiveRow(y: number): boolean;
     home(): Promise<void>;
     find(query?: string): Promise<void>;
     private updateSearch;

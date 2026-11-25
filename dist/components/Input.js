@@ -47,7 +47,7 @@ function getFileCompletions(partial, cwd, maxResults = 8) {
         return [];
     }
 }
-export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask", modeLocked, onCycleMode, thinkMode, isProcessing, suggestions, vimMode, cwd, isActive = true, onSelectionChange, onCancel, onSendNow, initialValue = "", seedImages = [] }) {
+export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask", modeLocked, onCycleMode, thinkMode, isProcessing, suggestions, vimMode, cwd, isActive = true, onSelectionChange, onHistorySearchChange, onCancel, onSendNow, initialValue = "", seedImages = [] }) {
     const { prompt, accent, warning, dim, primary } = useTheme();
     const columns = useTerminalColumns();
     const rule = composerRule(columns);
@@ -55,6 +55,8 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
     const [cursorPos, setCursorPos] = useState(initialValue.length);
     const [anchor, setAnchor] = useState(null);
     const [copyError, setCopyError] = useState("");
+    const [historySearch, setHistorySearch] = useState(null);
+    useEffect(() => { onHistorySearchChange?.(Boolean(historySearch) && isActive); return () => onHistorySearchChange?.(false); }, [Boolean(historySearch), isActive, onHistorySearchChange]);
     const images = useRef();
     images.current ??= new ImageDrafts(seedImages);
     images.current.seed(seedImages);
@@ -96,7 +98,8 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
     }
     const [showSuggestions, setShowSuggestions] = useState(false);
     const [selectedSuggIdx, setSelectedSuggIdx] = useState(0);
-    const { isNavigating, addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
+    const { history, isNavigating, addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
+    const searchMatches = historySearch ? history.filter(text => text.toLocaleLowerCase().includes(historySearch.query.toLocaleLowerCase())) : [];
     // Helper: update value AND put cursor at the end (used for history nav, completions, clear)
     function setValueEnd(next) {
         editorRef.current = { value: next, cursor: next.length, anchor: null };
@@ -203,6 +206,42 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
         const editor = editorRef.current;
         const { value, cursor: cursorPos, anchor } = editor;
         const selection = selectedText(editor);
+        if (key.ctrl && input === "r") {
+            setShowSuggestions(false);
+            setFileCompletions([]);
+            setHistorySearch(previous => previous ? { ...previous, index: Math.min(previous.index + 1, Math.max(0, searchMatches.length - 1)) } : { query: "", index: 0, draft: value });
+            return;
+        }
+        if (historySearch) {
+            if (key.escape || key.ctrl && input === "c") {
+                setValueEnd(historySearch.draft);
+                setHistorySearch(null);
+                return;
+            }
+            if (key.return || key.tab) {
+                if (searchMatches[historySearch.index]) {
+                    resetNavigation();
+                    setValueEnd(searchMatches[historySearch.index]);
+                }
+                setHistorySearch(null);
+                return;
+            }
+            if (key.upArrow || key.downArrow) {
+                setHistorySearch({ ...historySearch, index: Math.max(0, Math.min(searchMatches.length - 1, historySearch.index + (key.upArrow ? 1 : -1))) });
+                return;
+            }
+            if (key.backspace || key.delete) {
+                setHistorySearch({ ...historySearch, query: [...historySearch.query].slice(0, -1).join(""), index: 0 });
+                return;
+            }
+            if (key.ctrl && input === "u") {
+                setHistorySearch({ ...historySearch, query: "", index: 0 });
+                return;
+            }
+            if (input && !key.ctrl && !key.meta)
+                setHistorySearch({ ...historySearch, query: historySearch.query + input, index: 0 });
+            return;
+        }
         // Editing is identical while idle and while a message is queued.
         const editing = isProcessing || !vimMode || vimModeState === "insert";
         if (key.ctrl && input === "c") {
@@ -452,10 +491,10 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
             return;
         }
     }, { isActive });
-    return (_jsxs(Box, { flexDirection: "column", children: [queued.length > 0 && (_jsxs(Box, { marginLeft: 1, flexDirection: "column", children: [queued.slice(0, 3).map((text, i) => _jsxs(Text, { backgroundColor: "#303632", color: primary, children: ["\u203A ", _jsx(ImageText, { text: text.slice(0, Math.max(10, columns - 6)) })] }, i)), queued.length > 3 ? _jsxs(Text, { color: dim, children: ["+", queued.length - 3, " weitere Nachrichten"] }) : null, _jsx(Text, { color: dim, children: "Ctrl+X Ctrl+S sofort \u00FCbernehmen \u00B7 Alt+\u2191 Queue bearbeiten \u00B7 Esc verwirft" })] })), _jsx(Text, { color: dim, children: rule }), _jsx(Box, { ref: inputNode, marginLeft: 1, width: Math.max(16, columns - 3), flexDirection: "column", children: rows.map((row, i) => _jsx(Text, { wrap: "truncate", children: row.map((cell, j) => {
+    return (_jsxs(Box, { flexDirection: "column", children: [queued.length > 0 && (_jsxs(Box, { marginLeft: 1, flexDirection: "column", children: [queued.slice(0, 3).map((text, i) => _jsxs(Text, { backgroundColor: "#303632", color: primary, children: ["\u203A ", _jsx(ImageText, { text: text.slice(0, Math.max(10, columns - 6)) })] }, i)), queued.length > 3 ? _jsxs(Text, { color: dim, children: ["+", queued.length - 3, " weitere Nachrichten"] }) : null, _jsx(Text, { color: dim, children: "Ctrl+X Ctrl+S sofort \u00FCbernehmen \u00B7 Alt+\u2191 Queue bearbeiten \u00B7 Esc verwirft" })] })), _jsx(Text, { color: dim, children: rule }), historySearch ? _jsxs(Box, { flexDirection: "column", marginLeft: 1, children: [_jsxs(Text, { color: accent, children: ["Verlauf suchen: ", historySearch.query, "\u258F \u00B7 ", searchMatches.length ? historySearch.index + 1 : 0, "/", searchMatches.length] }), _jsx(Text, { wrap: "truncate", children: searchMatches[historySearch.index]?.replace(/\n/g, " ↵ ") || "Keine passende Eingabe" }), _jsx(Text, { color: dim, children: "Ctrl+R/\u2191 \u00E4lter \u00B7 \u2193 neuer \u00B7 Enter/Tab \u00FCbernehmen \u00B7 Esc zur\u00FCck" })] }) : null, _jsx(Box, { ref: inputNode, marginLeft: 1, width: Math.max(16, columns - 3), flexDirection: "column", children: rows.map((row, i) => _jsx(Text, { wrap: "truncate", children: row.map((cell, j) => {
                         const marked = !cell.prefix && selection && cell.index >= bounds(editor)[0] && cell.index < bounds(editor)[1];
                         const image = !cell.prefix && imageRanges.some(([start, end]) => cell.index >= start && cell.index < end);
                         return _jsx(Text, { color: cell.prefix ? promptColor : marked ? "#101718" : image ? IMAGE_FOREGROUND : undefined, bold: cell.prefix || image, backgroundColor: marked ? accent : image ? IMAGE_BACKGROUND : undefined, inverse: !cell.prefix && !selection && cell.index === cursorPos, children: cell.text }, j);
-                    }) }, i)) }), copyError ? _jsxs(Text, { color: warning, children: [" ", copyError] }) : null, showSuggestions && filteredSuggestions.length > 0 && (_jsx(Box, { flexDirection: "column", marginLeft: 1, children: filteredSuggestions.map((s, i) => (_jsx(Box, { children: i === selectedSuggIdx ? (_jsxs(Text, { inverse: true, children: [_jsxs(Text, { bold: true, children: [" ", s.cmd] }), _jsxs(Text, { children: ["  ", s.desc, " "] })] })) : (_jsxs(Text, { children: [_jsxs(Text, { color: primary, children: [" ", s.cmd] }), _jsxs(Text, { color: dim, children: ["  ", s.desc] })] })) }, s.cmd))) })), showFileSuggestions && (_jsxs(Box, { flexDirection: "column", marginLeft: 1, children: [_jsx(Text, { color: dim, children: " Dateien \u00B7 Tab vervollst\u00E4ndigt" }), fileCompletions.map((f, i) => (_jsx(Box, { children: i === selectedFileIdx ? (_jsx(Text, { inverse: true, children: _jsxs(Text, { bold: true, children: [" ", f, " "] }) })) : (_jsxs(Text, { color: dim, children: [" ", f] })) }, f)))] })), _jsx(Text, { color: dim, children: rule }), _jsxs(Text, { color: dim, children: [" ", _jsx(Text, { bold: true, color: permissionMode === "bypassPermissions" ? warning : permissionMode === "plan" ? accent : primary, children: interactionModeLabel(permissionMode) }), modeLocked ? " · verwaltet" : " · Tab Modus wechseln · Shift+Tab zurück", isProcessing ? " · nächster Auftrag" : ""] }), _jsxs(Text, { color: dim, children: [" ", selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "↑↓ Verlauf · Ctrl+F suchen · Esc live" : "↑↓ Eingabeverlauf · Ctrl+F suchen · Ziehen kopiert · Mausrad scrollt · Esc zurück"] })] }));
+                    }) }, i)) }), copyError ? _jsxs(Text, { color: warning, children: [" ", copyError] }) : null, showSuggestions && filteredSuggestions.length > 0 && (_jsx(Box, { flexDirection: "column", marginLeft: 1, children: filteredSuggestions.map((s, i) => (_jsx(Box, { children: i === selectedSuggIdx ? (_jsxs(Text, { inverse: true, children: [_jsxs(Text, { bold: true, children: [" ", s.cmd] }), _jsxs(Text, { children: ["  ", s.desc, " "] })] })) : (_jsxs(Text, { children: [_jsxs(Text, { color: primary, children: [" ", s.cmd] }), _jsxs(Text, { color: dim, children: ["  ", s.desc] })] })) }, s.cmd))) })), showFileSuggestions && (_jsxs(Box, { flexDirection: "column", marginLeft: 1, children: [_jsx(Text, { color: dim, children: " Dateien \u00B7 Tab vervollst\u00E4ndigt" }), fileCompletions.map((f, i) => (_jsx(Box, { children: i === selectedFileIdx ? (_jsx(Text, { inverse: true, children: _jsxs(Text, { bold: true, children: [" ", f, " "] }) })) : (_jsxs(Text, { color: dim, children: [" ", f] })) }, f)))] })), _jsx(Text, { color: dim, children: rule }), _jsxs(Text, { color: dim, children: [" ", _jsx(Text, { bold: true, color: permissionMode === "bypassPermissions" ? warning : permissionMode === "plan" ? accent : primary, children: interactionModeLabel(permissionMode) }), modeLocked ? " · verwaltet" : " · Tab Modus wechseln · Shift+Tab zurück", isProcessing ? " · nächster Auftrag" : ""] }), _jsxs(Text, { color: dim, children: [" ", selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "↑↓ Verlauf · Ctrl+R Eingabe suchen" : "↑↓ Verlauf · Ctrl+R Eingabe suchen · Ctrl+F Ausgabe suchen · Mausrad scrollt"] })] }));
 }
 //# sourceMappingURL=Input.js.map

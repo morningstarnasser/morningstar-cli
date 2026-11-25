@@ -4,7 +4,7 @@ import { remoteTimeline } from "./remote-timeline.js";
 import { ImageText } from "./components/ImageText.js";
 import { RewindPicker } from "./components/RewindPicker.js";
 import { rewindConversation, type RewindAction } from "./runtime/rewind.js";
-import { TerminalPointer, TerminalDock } from "./hooks/useTerminalPointer.js";
+import { TerminalPointer, TerminalDock, TerminalLiveFooter } from "./hooks/useTerminalPointer.js";
 import { AgentTabs } from "./components/AgentTabs.js";
 import { terminalReport } from "./runtime/composer-layout.js";
 import { randomUUID } from "node:crypto";
@@ -134,7 +134,8 @@ import { fetchPRData, analyzePRDiff, generateReviewPrompt, formatReviewResult } 
 import { getCacheStats, formatCacheStats, trackCacheHit, trackRequest } from "./prompt-cache.js";
 import { createMultiplexer, setLayout, formatLayoutList, formatPaneList, formatStatusLine, getAvailableLayouts, type MultiplexerState } from "./terminal-multiplexer.js";
 import { runDoctor, runAudit, runRepair, formatDoctorReport, formatAuditReport } from "./harness.js";
-import { recordObservation, loadInstincts, getInstinctsPromptAddition, formatInstinctsStatus, exportInstincts, importInstincts } from "./continuous-learning.js";
+import { detectProjectId, loadInstincts, saveInstinct, formatInstinctsStatus, exportInstincts, importInstincts } from "./continuous-learning.js";
+import { runCodeReview } from "./code-review.js";
 import { runBuiltinPreHooks, runBuiltinPostHooks, getBuiltinHookDefaults, formatBuiltinHooksStatus, type BuiltinHookConfig } from "./builtin-hooks.js";
 import { MORNINGSTAR_COMMAND_REGISTRY, toAutocompleteItems } from "./command-registry.js";
 import { useTerminalColumns } from "./hooks/useTerminalColumns.js";
@@ -383,6 +384,8 @@ function AppBody({ config: initialConfig, ctx, chatOnly, skipPermissions: initia
     setOutput(prev => prev.some(item => item.type === "banner") ? prev : [{ id: 0, type: "banner" }, ...prev]);
   }, []);
   const selectionRef = useRef("");
+  const historySearchRef = useRef(false);
+  const updateHistorySearch = useCallback((active: boolean) => { historySearchRef.current = active; }, []);
   const updateSelection = useCallback((text: string) => { selectionRef.current = text; }, []);
   const [liveTree, setLiveTree] = useState<OutputItem | null>(null);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
@@ -773,6 +776,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
 
   // ── SIGINT handler + ctrl+o expand/collapse ──
   useInput((_input, key) => {
+    if (historySearchRef.current) return;
     if (terminalReport(_input) || showRemoteMenu) return;
     if (showIntro) finishIntro();
     if (key.ctrl && _input === "c" && selectionRef.current) {
@@ -1776,9 +1780,27 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
 
       // ── /instinct-status — Show learning status ──
       case "/instinct-status":
+      case "/learn":
       case "/instincts": {
-        const status = formatInstinctsStatus();
-        addOutput({ type: "info", content: status });
+        const projectId = detectProjectId(cwd);
+        if (arg === "on" || arg === "off") {
+          const enabled = arg === "on";
+          setConfig(prev => ({ ...prev, selfImprovement: enabled }));
+          if (!config.noSessionPersistence) saveConfig({ selfImprovement: enabled });
+          addOutput({ type: "info", content: `Aktives Lernen ${enabled ? "eingeschaltet" : "ausgeschaltet"}.${config.noSessionPersistence ? " Diese Sitzung speichert weiterhin nichts." : ""}` });
+          return true;
+        }
+        if (arg?.startsWith("forget ")) {
+          const id = arg.slice(7).trim();
+          const instinct = loadInstincts(projectId).find(i => i.id === id && i.projectId === projectId);
+          if (!instinct) { addOutput({ type: "error", content: "Keine gelernte Projektregel mit dieser ID." }); return true; }
+          if (config.noSessionPersistence) { addOutput({ type: "info", content: "Ohne Sitzungsspeicherung werden auch Lernregeln nicht verändert." }); return true; }
+          saveInstinct({ ...instinct, confidence: 0.3, disabled: true });
+          addOutput({ type: "success", content: `Regel deaktiviert: ${id}. Der Nachweis bleibt erhalten.` }); return true;
+        }
+        const rules = loadInstincts(projectId).filter(i => i.projectId === projectId);
+        const status = formatInstinctsStatus(projectId);
+        addOutput({ type: "info", content: `Aktives Lernen: ${config.selfImprovement && !config.noSessionPersistence ? "an" : "aus"}\n/learn on|off · /learn forget <id>\n${rules.map(i => `${i.id} [${i.disabled ? "inaktiv" : i.source ?? "manuell"}] ${i.action}\n  ${i.evidence.at(-1) ?? ""}`).join("\n")}\n${status}` });
         return true;
       }
 
@@ -2214,7 +2236,10 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
               if (!words.length) throw new Error("Aufgabe fehlt: /parallel review,code <Aufgabe>");
               plan = validateSwarmPlan({ title: `Parallel · ${words.join(" ")}`, tasks: csv.split(",").filter(Boolean).map((agentId, i) => ({ id: `task-${i + 1}`, agentId, description: words.join(" "), writePaths: [], dependsOn: [] })) }, cwd);
             } else {
-              plan = await prepareSwarmPlan(raw, swarmConfig, cwd, system, ac.signal);
+              plan = await prepareSwarmPlan(raw, swarmConfig, cwd, system, ac.signal, { onPlanningAttempt: attempt => {
+                lastTree = { ...lastTree, treeBranches: [{ agentId: "planner", status: "running", detail: attempt === 1 ? "teilt das Ziel in Arbeitspakete auf" : `JSON-Plan korrigieren · Versuch ${attempt}/3`, elapsedMs: Date.now() - startTs }] };
+                setLiveTree(lastTree);
+              } });
             }
             if (ac.signal.aborted) throw new Error("Swarm abgebrochen.");
             addOutput({ type: "info", content: `Swarm · ${plan.title}\n${plan.tasks.map(t => `  ${t.id} [${t.agentId}] ${t.description.slice(0, 180)}\n    ${t.exclusive ? "exklusiver Workspace" : t.writePaths.length ? `Dateien: ${t.writePaths.join(", ")}` : "nur lesen"}${t.dependsOn.length ? ` · nach ${t.dependsOn.join(", ")}` : ""}`).join("\n")}` });
@@ -2587,6 +2612,19 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
       }
     }
 
+    if (localRoute === "slash" && /^\/review(?:\s|$)/.test(input)) {
+      const scope = input.replace(/^\/review\s*/, "").trim();
+      const controller = new AbortController(); abortRef.current = controller;
+      setIsProcessing(true); setTaskLabel("Code-Review · nur lesen");
+      addOutput({ type: "info", content: `Review · ${scope || "aktuelle Änderungen"}` });
+      try {
+        const result = await runCodeReview(scope, config, cwd, { signal: controller.signal, initialCostUsd: getSessionCosts().totalCost, onEvent: event => recordActivity("review", event) });
+        trackUsage(config.model, scope, result.finalText, result.usage.inputTokens, result.usage.outputTokens, config.provider);
+        addOutput({ type: result.aborted || result.budgetExceeded || result.hitTurnLimit ? "error" : "info", content: result.finalText || "Review ohne Abschlussantwort." });
+      } catch (error) { addOutput({ type: "error", content: (error as Error).message }); }
+      finally { abortRef.current = null; setIsProcessing(false); setTaskLabel(""); }
+      return;
+    }
     if (localRoute === "slash" && /^\/btw(?:\s|$)/.test(input)) {
       const question = input.replace(/^\/btw\s*/, "").trim();
       if (!question) { addOutput({ type: "info", content: "Verwendung: /btw <Nebenfrage>" }); return; }
@@ -3027,6 +3065,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
               break;
             }
             case "completion":
+              if (event.result.learned?.length) addOutput({ type: "success", content: `Gelernt für dieses Projekt:\n${event.result.learned.map(note => `  ${note}`).join("\n")}\n/learn zeigt Regeln und Nachweise.` });
               if (event.result.structuredOutputError) addOutput({ type: "error", content: `JSON-Schema nicht erfüllt: ${event.result.structuredOutputError}` });
               if (event.result.budgetExceeded) {
                 addOutput({
@@ -3430,7 +3469,8 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
           {output.filter(o => o.type === "work-log" && o.toolLabel === inspectedAgent).slice(-1).map(renderOutputItem)}
         </Box> : null}
         </Box>
-        <Box flexDirection="column" flexShrink={0}>
+        <TerminalLiveFooter>
+        {isProcessing ? <Text color={dim} wrap="truncate"> {liveTree && !liveTree.treeDone ? liveTree.treeTitle : taskLabel || "Morningstar arbeitet"}{taskTurn ? ` · Schritt ${taskTurn}` : ""}</Text> : null}
         {/* Input */}
         <Box marginTop={0}>
           <Input
@@ -3440,6 +3480,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
             onSendNow={() => { if (abortRef.current) { steeringRef.current = true; abortRef.current.abort(); cancelApprovals(); setTaskLabel("Neue Nachricht wird übernommen..."); } }}
             onSubmit={processInput}
             onSelectionChange={updateSelection}
+            onHistorySearchChange={updateHistorySearch}
             onCancel={() => {
               if (abortRef.current && !abortRef.current.signal.aborted) {
                 abortRef.current.abort(); cancelApprovals(); setIsStreaming(false);
@@ -3488,7 +3529,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
             ) : null}
           </>
         )}
-        </Box>
+        </TerminalLiveFooter>
       </TerminalDock>
     </>
   );

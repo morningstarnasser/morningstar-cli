@@ -139,6 +139,7 @@ export interface AgentRunOptions {
     nativeToolExecFn?: NativeToolExecFn;
 }
 export interface AgentRunResult {
+    learned?: string[];
     /** The model's final natural-language answer (tool tags stripped). */
     finalText: string;
     /** Actual provider transcript for resuming; includes tool calls and results. */

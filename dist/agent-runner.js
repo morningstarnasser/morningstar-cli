@@ -1,4 +1,5 @@
 import { compactRequest } from "./runtime/request-context.js";
+import { ActiveLearning, isLearnedContext } from "./runtime/active-learning.js";
 import { prepareKnowledge } from "./knowledge.js";
 import { canonicalToolName } from "./policy-engine.js";
 import { createOutputValidator } from "./structured-output.js";
@@ -88,6 +89,9 @@ function safeParseNativeArguments(raw) {
     }
 }
 function argumentTarget(args, toolName) {
+    // The structured git tool takes no arguments and performs a read-only status.
+    if (toolName === "git" && Object.keys(args).length === 0)
+        return "";
     if (toolName?.startsWith("mcp__")) {
         try {
             return JSON.stringify(stableValue(args));
@@ -201,7 +205,8 @@ export async function runAgent(messages, config, cwd, options = {}) {
         enableSwarm: swarmEnabled,
     };
     const outputValidator = config.jsonSchema ? createOutputValidator(config.jsonSchema) : undefined;
-    let conversation = [...messages];
+    let conversation = messages.filter(m => !(m.contextKind === "knowledge" && isLearnedContext(m.content)));
+    let learning;
     const advertiseSwarm = swarmEnabled && decidePermission("swarm", "", resolvePermissionMode(config, false), config.allowedTools, config.disallowedTools, config.askTools, config.disableBypassPermissions, cwd).decision !== "deny";
     providerConfig.enableSwarm = advertiseSwarm;
     const swarmInstruction = advertiseSwarm ? autonomousSwarmPrompt()
@@ -239,6 +244,10 @@ export async function runAgent(messages, config, cwd, options = {}) {
     let protocolRepairs = 0;
     let toolProtocolError;
     const emit = (event) => {
+        if (event.type === "tool_result")
+            learning?.observe(event.result, typeof event.invocation.args.command === "string" ? event.invocation.args.command : undefined);
+        if (event.type === "backend_activity" && event.activity.result)
+            learning?.observe(event.activity.result);
         options.onEvent?.(event);
         switch (event.type) {
             case "turn_start":
@@ -277,6 +286,12 @@ export async function runAgent(messages, config, cwd, options = {}) {
             loopDetected,
             ...(toolProtocolError ? { toolProtocolError } : {}),
         };
+        try {
+            const learned = learning?.finish(!aborted && !budgetExceeded && !hitTurnLimit && !loopDetected && !toolProtocolError);
+            if (learned?.length)
+                result.learned = learned;
+        }
+        catch { /* Learning cannot block the task. */ }
         emit({ type: "completion", result });
         options.onComplete?.(result);
         return result;
@@ -286,6 +301,22 @@ export async function runAgent(messages, config, cwd, options = {}) {
     if (!promptHook.allowed) {
         finalText = promptHook.messages.join("\n");
         return complete(true);
+    }
+    if (config.selfImprovement === true && !config.noSessionPersistence && options.enableTools !== false && options.enableSwarm !== false && !signal?.aborted) {
+        try {
+            learning = new ActiveLearning(cwd, messages.filter(m => m.role === "user" && !m.contextKind).at(-1)?.content ?? "");
+            const context = learning.context();
+            if (context) {
+                let taskIndex = conversation.length;
+                for (let i = conversation.length - 1; i >= 0; i--)
+                    if (conversation[i].role === "user" && !conversation[i].contextKind) {
+                        taskIndex = i;
+                        break;
+                    }
+                conversation.splice(Math.max(0, taskIndex), 0, { role: "user", contextKind: "knowledge", content: context });
+            }
+        }
+        catch { /* Unavailable or malformed local learning is optional context. */ }
     }
     if (promptHook.messages.length)
         conversation.push({ role: "user", contextKind: "knowledge", content: `Hook context:\n${promptHook.messages.join("\n")}` });

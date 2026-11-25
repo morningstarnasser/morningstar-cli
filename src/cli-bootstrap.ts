@@ -39,6 +39,7 @@ export interface CLIOptionShape {
   disallowedTools?: string;
   maxTurns?: number;
   autoKnowledge?: boolean;
+  selfImprovement?: boolean;
   contextChars?: number;
   fallbackModel?: string;
   fast?: boolean;
@@ -245,6 +246,7 @@ export function buildCLIConfig(
     runtimeSettings: projectSettings,
     maxTurns: opts.maxTurns ?? undefined,
     autoKnowledge: opts.autoKnowledge !== false,
+    selfImprovement: opts.selfImprovement !== false && saved.selfImprovement !== false,
     contextChars: opts.contextChars,
     fallbackModel: opts.fallbackModel || undefined,
     fast: Boolean(opts.fast),

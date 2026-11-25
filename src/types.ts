@@ -80,6 +80,8 @@ export interface CLIConfig {
   maxTurns?: number;
   /** Normal frontends enable local Superbrain recall; embedders opt in. */
   autoKnowledge?: boolean;
+  /** Persist project-scoped corrections and verified checks; disabled in ephemeral sessions. */
+  selfImprovement?: boolean;
   /** Request character budget including retained system/task text. */
   contextChars?: number;
   fallbackModel?: string;

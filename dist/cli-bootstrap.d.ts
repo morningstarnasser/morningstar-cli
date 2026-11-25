@@ -22,6 +22,7 @@ export interface CLIOptionShape {
     disallowedTools?: string;
     maxTurns?: number;
     autoKnowledge?: boolean;
+    selfImprovement?: boolean;
     contextChars?: number;
     fallbackModel?: string;
     fast?: boolean;

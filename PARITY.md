@@ -1,6 +1,6 @@
 # Claude Code Parity — Morningstar CLI
 
-Last audited: 2026-11-23 (core/settings/session changes; see [implementation report](docs/claude-parity-2026-11-23.md) for evidence and remaining gaps).
+Last audited: 2026-11-25. See [1.2.0 changes and comparison](docs/release-1.2.0-2026-11-25.md) and the earlier [implementation report](docs/claude-parity-2026-11-23.md).
 
 Morningstar targets clean-room behavioral parity with the publicly documented
 Claude Code terminal workflow. It does not copy Anthropic source, branding,
@@ -33,6 +33,8 @@ Legend:
 | Conversation compaction | ✅ | Budget-based runtime compaction and `/compact` |
 | Session save, resume, rename, and history | ✅ | Persistent sessions and searchable history |
 | Conversation branching | ➕ | Named branch, switch, merge, and delete workflows |
+| Read-only code review | ✅ | /review reads staged/unstaged diffs and files; mutations and shell execution denied |
+| Active project learning | ✅ | Explicit durable corrections and repeated successful checks, inspect/disable/forget via /learn; no model-weight training |
 | Auto-test after edits | ➕ | Detects project test runners and verifies changed files |
 
 ## Terminal interaction
@@ -42,13 +44,13 @@ Legend:
 | Slash-command discovery and filtering | ✅ | Typed registry drives autocomplete, help, aliases, and availability |
 | Project/file mentions | ✅ | Files, folders, globs, git, diffs, URLs, tree, and codebase context |
 | Command history | ✅ | Persistent per-user input history |
-| Reverse history search | ✅ | Morningstar history search component |
+| Reverse history search | ✅ | Ctrl+R wired into the live composer: filter, navigate, accept for editing, cancel |
 | Vim input mode | ✅ | Toggleable Vim input hook |
 | Background commands | ✅ | Background process tools with status and output retrieval |
 | Task/progress display | ✅ | Live turn, tool, duration, and token progress |
 | Responsive terminal layout | ✅ | Explicit compact/comfortable/wide behavior at 60/80/120 columns |
 | Custom keybinding file | ⬜ | Built-in input handling only |
-| Scrollable transcript selection | ✅ | Mouse wheel/Page Up/Down, frozen selection and live restoration, 20,000-line viewport |
+| Scrollable transcript selection | ✅ | Mouse wheel/Page Up/Down, live pinned composer/status, bottom auto-follow, frozen selection; 20,000 lines |
 | Terminal voice input | ⬜ | Telegram transcription exists, but not terminal voice input |
 | `/btw` side-question flow | ✅ | Isolated context, hard tool denial, no main-transcript mutation; queued while busy |
 | Generated prompt suggestions | ⬜ | Command/file completion exists; AI follow-up suggestions do not |

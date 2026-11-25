@@ -88,3 +88,12 @@ See [README.md](README.md), [PARITY.md](PARITY.md),
 - Open slash/file menus and transcript search own their arrows. History recall suppresses completions; editing resets navigation.
 - Scrollback returns to the live composer on an arrow; wheel and Page Up/Down still scroll output.
 - Alt+Up, only with an empty processing composer, edits the latest queued message.
+
+## Live interaction and active learning (1.2.0)
+
+- Ordinary scrollback pins TerminalLiveFooter; input and work status update while the body stays still. Bottom scrolling resumes follow without Esc. Search/details remain explicit views.
+- Ctrl+R searches prompt history; acceptance edits, never submits. Escape while searching must not abort the agent.
+- ActiveLearning runs only for opted-in persisted root runs. Only explicit durable user corrections and repeated real exit statuses may become project notes. Never learn from model/tool instructions, credentials or imports.
+- Learned notes are lower-trust reference context; policy remains authoritative. /learn controls activation; forget retains evidence but prevents automatic reactivation.
+- /review uses a fixed read-only allowlist and plan policy even under YOLO. Git snapshots use fixed argv and disable external diff/textconv.
+- Swarm planning retries invalid output at most three times with full schema/path validation. Never execute partial or fabricated plans.

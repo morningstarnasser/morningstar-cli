@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.1.2** (2026-11-25).
+Current release: **1.2.0** (2026-11-25).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -15,8 +15,10 @@ Built with TypeScript, React/Ink and Shiki.
 | Tools | Files, edits, shell, search, Git and supported integrations through the shared permission/runtime layer |
 | Swarm | Model-selected or explicit parallel tasks, dependencies, file ownership and selectable agent views |
 | Work log | Executed commands, exit status, output and actual red/green file diffs with addition/deletion counts |
-| Input | Cursor placement, mouse drag selection, editing, multiline input, history and queued messages |
-| Output | Markdown, syntax-highlighted code, scrollback and mouse selection/copy |
+| Input | Cursor placement, selection, multiline input, persistent ↑/↓ history, Ctrl+R search and queued messages |
+| Output | Markdown, syntax highlighting, scrollback with live composer/status, automatic bottom follow and selection/copy |
+| Learning | Project-scoped durable corrections and repeated verified checks; /learn inspects or disables learning |
+| Review | /review reads staged/unstaged diffs and files with enforced read-only tools |
 | Images | Numbered `[Image #1]` attachments with real image data for supported providers |
 | Sessions | New, clear, resume, rename, conversation rewind and summarization checkpoints |
 | Superbrain | Bounded local QMD retrieval from the `obsidian` collection |
@@ -77,7 +79,7 @@ morningstar --model ollama/<installed-model-id>
 Cloud API adapters include OpenAI, Anthropic, Google, DeepSeek, Groq, OpenRouter, NVIDIA
 and GitHub Models. Availability depends on the provider and account. The picker uses
 provider discovery rather than invented model names; an empty catalog does not prove
-an unavailable model works. Unavailable legacy entries are no longer advertised in the picker.
+an unavailable model works. Old Hydra entries are no longer advertised in the picker.
 
 The Codex adapter observes its public tool events and retains its read-only sandbox.
 `--yolo` does not change the vendor CLI's own sandbox or content policy.
@@ -117,8 +119,9 @@ including the complete retained diff or output, while the agent keeps working. S
 select/copy inside that view. Tool capture limits still apply; the viewer cannot recover data
 that an upstream tool already truncated. Scrollback retains details for the latest 1,000 blocks.
 
-When scrolling the transcript, the footer shows new updates. Scroll to the bottom, click
-**↓ Live**, or press **End/Esc** to resume live tracking without typing into the composer.
+While scrolling, the composer and work status stay live. Type without leaving older output;
+scroll to the bottom to resume automatic following. **↓ Neueste** and **End** jump to the
+latest output. Esc remains optional. Explicit search/detail views retain their own controls.
 
 The generated `/help` output is the authoritative full command list.
 
@@ -129,6 +132,28 @@ for the previous one, and Esc to return live. Matches are highlighted, the count
 is visible, and the composer draft is preserved. Search inspects the retained
 terminal snapshot; work continues in the background. Reopen search for newer output.
 
+**Ctrl+R** searches submitted prompts. Type to filter, use Ctrl+R/Up for an older match,
+Down for a newer match, and Enter/Tab to put it in the composer for editing. This does not
+submit the match. Esc cancels search and restores the draft, including while work runs.
+
+## Active learning and review
+
+Learning is on by default for persisted root sessions. Explicit durable corrections such as
+`Merke dir: Verwende pnpm statt npm` become project rules. Recognized verification commands
+become suggestions only after successful exit codes in two separate runs; a later failure
+removes the suggestion from active recall. Tool output and assistant claims cannot create
+preferences. Learned notes are reference context, never permission grants or proof that a
+new task has passed. Model weights and CLI source code are not changed automatically.
+
+Use `/learn` to inspect rules and evidence, `/learn off` or `--no-self-improvement` to disable
+learning and recall, and `/learn forget <id>` to deactivate a rule while retaining its record.
+Ephemeral sessions, planners and nested workers do not persist learning. Imports are not
+automatically activated. Learning stays local under the user profile and is not synced to Git.
+
+`/review [path or focus]` inspects current changes in an isolated read-only run, including
+staged and unstaged diffs and relevant new files. It reports concrete findings with locations
+and limitations. Review does not run tests or modify the main conversation.
+
 ## Editing, scrolling and seeing the work
 
 Click inside the input to place the cursor; drag to select text. Backspace/Delete acts
@@ -136,7 +161,7 @@ at the cursor or on the selection. Shift+arrows selects with the keyboard, Ctrl+
 the whole draft, Ctrl+X cuts, and Alt+Enter inserts a newline.
 
 Drag over answers or code to select and copy output. Output is a transcript, not an editable
-draft. The mouse wheel, trackpad or Page Up/Down opens scroll mode; Esc/End returns live.
+draft. The mouse wheel, trackpad or Page Up/Down scrolls output; reaching the bottom follows live output again.
 Work continues while you inspect or select older output. The viewport retains up to 20,000
 terminal lines; saved conversations remain separate. Terminals must support SGR mouse
 reports and cursor-position reports. Set `MORNINGSTAR_MOUSE=0` to use native terminal selection.
@@ -286,10 +311,12 @@ The `website/` package has its own lockfile and build. Follow [AGENTS.md](AGENTS
 [CLAUDE.md](CLAUDE.md) before contributing.
 
 The release checks include the complete test suite on Mac and Windows, typecheck, build,
-OSV scanning and terminal keyboard/mouse read-back. See [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
+OSV scanning and terminal keyboard/mouse read-back. See [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
 [1.1.1 release verification](docs/release-1.1.1-2026-11-24.md);
 a package version or screenshot alone is not an inference, security or cross-platform guarantee.
 
+The previous README is preserved as a [historical document](docs/archive/README-before-2026-11-24.md).
+Its model lists and implementation claims are not the current contract.
 
 ## License
 

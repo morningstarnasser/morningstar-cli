@@ -91,29 +91,29 @@ test("prefix search is case-insensitive, alias-aware, ranked, and visibility-saf
   assert.equal(MORNINGSTAR_COMMAND_REGISTRY.search("/res").some((entry) => entry.id === "general.clear"), true);
   assert.equal(MORNINGSTAR_COMMAND_REGISTRY.search("/res").some((entry) => entry.id === "sessions.history-load"), true);
 
-  assert.deepEqual(MORNINGSTAR_COMMAND_REGISTRY.search("/review"), []);
+  assert.equal(MORNINGSTAR_COMMAND_REGISTRY.search("/review")[0]?.id, "ai.review");
   assert.deepEqual(MORNINGSTAR_COMMAND_REGISTRY.search("/serve"), []);
   assert.deepEqual(MORNINGSTAR_COMMAND_REGISTRY.search("/pr-comments"), []);
   assert.deepEqual(MORNINGSTAR_COMMAND_REGISTRY.search("/memory delete"), []);
 });
 
 test("unimplemented commands require an explicit runtime capability", () => {
-  const review = MORNINGSTAR_COMMAND_REGISTRY.resolve("/review");
-  assert.ok(review);
-  assert.equal(MORNINGSTAR_COMMAND_REGISTRY.isAvailable(review), false);
-  assert.equal(MORNINGSTAR_COMMAND_REGISTRY.isAvailable(review, {
-    capabilities: new Set(["command:review"]),
+  const serve = MORNINGSTAR_COMMAND_REGISTRY.resolve("/serve");
+  assert.ok(serve);
+  assert.equal(MORNINGSTAR_COMMAND_REGISTRY.isAvailable(serve), false);
+  assert.equal(MORNINGSTAR_COMMAND_REGISTRY.isAvailable(serve, {
+    capabilities: new Set(["command:serve"]),
   }), true);
 
-  const visibleWithCapability = MORNINGSTAR_COMMAND_REGISTRY.search("/review", {
-    context: { capabilities: new Set(["command:review"]) },
+  const visibleWithCapability = MORNINGSTAR_COMMAND_REGISTRY.search("/serve", {
+    context: { capabilities: new Set(["command:serve"]) },
   });
-  assert.deepEqual(visibleWithCapability.map((entry) => entry.id), ["ai.review"]);
+  assert.deepEqual(visibleWithCapability.map((entry) => entry.id), ["media.serve"]);
 
-  const diagnostic = MORNINGSTAR_COMMAND_REGISTRY.search("/review", {
+  const diagnostic = MORNINGSTAR_COMMAND_REGISTRY.search("/serve", {
     includeUnavailable: true,
   });
-  assert.deepEqual(diagnostic.map((entry) => entry.id), ["ai.review"]);
+  assert.deepEqual(diagnostic.map((entry) => entry.id), ["media.serve"]);
 });
 
 test("hidden and deprecated commands remain resolvable but are not advertised", () => {
@@ -139,7 +139,7 @@ test("behavior and busy policy describe prompt and local command execution separ
   assert.equal(delegate?.whenBusy, "queue");
 
   const review = MORNINGSTAR_COMMAND_REGISTRY.resolve("/review");
-  assert.equal(review?.behavior, "prompt");
+  assert.equal(review?.behavior, "immediate");
   assert.equal(review?.whenBusy, "queue");
 });
 
@@ -265,7 +265,7 @@ test("help groups use stable category ordering and hide unavailable entries", ()
   assert.ok(groups.every((group) => group.commands.length > 0));
 
   const ids = groups.flatMap((group) => group.commands.map((entry) => entry.id));
-  assert.equal(ids.includes("ai.review"), false);
+  assert.equal(ids.includes("ai.review"), true);
   assert.equal(ids.includes("media.serve"), false);
   assert.equal(ids.includes("analysis.pr-comments"), false);
   assert.equal(ids.includes("memory.delete"), false);
@@ -289,7 +289,7 @@ test("autocomplete adapter returns the current App shape without false advertisi
   assert.equal(commands.has("/usage"), true);
   assert.equal(commands.has("/allowed-tools"), true);
   assert.equal(commands.has("/rename <name>"), false);
-  assert.equal(commands.has("/review"), false);
+  assert.equal(commands.has("/review"), true);
   assert.equal(commands.has("/commit"), false);
   assert.equal(commands.has("/serve"), false);
   assert.equal(commands.has("/pr-comments"), false);

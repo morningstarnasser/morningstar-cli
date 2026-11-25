@@ -51,7 +51,7 @@ export class TerminalViewport {
                 this.footerTimer = setTimeout(() => {
                     this.footerTimer = undefined;
                     if (this.active && !this.disposed)
-                        this.options.write(this.footer());
+                        this.paint();
                 }, 100);
         }
     }
@@ -124,6 +124,10 @@ export class TerminalViewport {
             this.anchor = this.end = null;
             this.notice = "";
         }
+        if (!this.modal && !this.dragging) {
+            await this.flush();
+            this.snapshot = this.liveFrame(true).lines;
+        }
         this.top = Math.max(0, Math.min(this.snapshot.length - this.terminal.rows, this.top + amount));
         if (!this.detailTitle && !this.searching && amount > 0 && this.top >= this.snapshot.length - this.terminal.rows && !this.dragging && !this.anchor) {
             await this.leave();
@@ -132,6 +136,9 @@ export class TerminalViewport {
         this.paint();
     }
     async page(direction) { await this.scroll(direction * Math.max(1, this.terminal.rows - 3)); }
+    get modal() { return this.searching || Boolean(this.detailTitle); }
+    get pinnedHeight() { return this.modal ? 0 : Math.min(this.terminal.rows - 3, Math.max(0, Math.ceil(this.options.liveHeight?.() ?? 0))); }
+    isLiveRow(y) { return this.active && !this.modal && y > this.terminal.rows - 1 - this.pinnedHeight && y < this.terminal.rows; }
     async home() { await this.enter(); this.top = 0; this.paint(); }
     async find(query = "") {
         await this.enter();
@@ -298,7 +305,7 @@ export class TerminalViewport {
     frame(lines, top, overlay) {
         const range = overlay ? this.bounds() : null;
         let result = `${CSI}?25l`;
-        const visible = this.terminal.rows - (overlay ? 1 : 0);
+        const visible = this.terminal.rows - (overlay ? 1 + this.pinnedHeight : 0);
         const matchesByRow = new Map();
         if (overlay && this.searching)
             for (const match of this.searchMatches) {
@@ -329,8 +336,16 @@ export class TerminalViewport {
                 result += cell.text;
             }
         }
-        if (overlay)
+        if (overlay) {
+            const live = this.pinnedHeight ? this.liveFrame() : undefined;
+            for (let y = visible; y < this.terminal.rows - 1; y++) {
+                result += `${CSI}${y + 1};1H${CSI}0m${CSI}2K`;
+                for (const cell of live?.lines[(live?.top ?? 0) + y]?.cells ?? [])
+                    if (cell.width)
+                        result += cell.style + cell.text;
+            }
             result += this.footer();
+        }
         return result + `${CSI}0m`;
     }
     footer() {
@@ -341,7 +356,7 @@ export class TerminalViewport {
             const query = this.searchQuery.slice(-Math.max(1, this.terminal.cols - suffix.length - 10));
             return `${CSI}${this.terminal.rows};1H${CSI}0;38;2;16;23;24;48;2;142;205;248m${CSI}2K${`Suche: ${query}▏${suffix}`.slice(0, this.terminal.cols - 1)}${CSI}0m`;
         }
-        const live = this.terminal.cols < 55 ? "↓ Live" : "↓ Live (Klick/Ende/Esc)";
+        const live = this.terminal.cols < 55 ? "↓ Neueste" : "↓ Neueste (scrollen/Klick/Ende)";
         const hint = this.notice || (this.selectedText() ? "Markiert" : this.detailTitle ? "Details" : "Verlauf");
         const updates = this.pendingUpdates ? ` · ${this.pendingUpdates} neue Updates` : " · Mausrad scrollt";
         const text = `${live} · ${hint}${updates}`;

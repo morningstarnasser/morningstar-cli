@@ -69,7 +69,7 @@ if (subcommand === "cron") {
     process.exit(0);
 }
 // ─── Config ──────────────────────────────────────────────
-const VERSION = "1.1.2";
+const VERSION = "1.2.0";
 const sessionStart = Date.now();
 // ─── CLI Setup ───────────────────────────────────────────
 program
@@ -94,6 +94,7 @@ program
     .option("--allowedTools <tools>", "Pre-approve tools (comma-separated)")
     .option("--max-turns <n>", "Optional turn limit (default unlimited; 0 = unlimited)", Number)
     .option("--no-auto-knowledge", "Disable automatic local skills/Superbrain recall")
+    .option("--no-self-improvement", "Disable learning and recall of project corrections and verified checks")
     .option("--context-chars <n>", "Provider request character budget (default 60000)", Number)
     .option("--system-prompt <text>", "Override system prompt")
     .option("--system-prompt-file <path>", "System prompt from file")

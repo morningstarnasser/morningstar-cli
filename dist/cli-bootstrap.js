@@ -174,6 +174,7 @@ export function buildCLIConfig(opts, saved, projectSettings, getStoredApiKey) {
         runtimeSettings: projectSettings,
         maxTurns: opts.maxTurns ?? undefined,
         autoKnowledge: opts.autoKnowledge !== false,
+        selfImprovement: opts.selfImprovement !== false && saved.selfImprovement !== false,
         contextChars: opts.contextChars,
         fallbackModel: opts.fallbackModel || undefined,
         fast: Boolean(opts.fast),

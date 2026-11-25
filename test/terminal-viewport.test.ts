@@ -89,3 +89,22 @@ test("bottom dock stays at the last content row after short output, resize and l
   // The mirror remains free of artificial padding, preserving searchable history.
   assert.equal(view.terminal.buffer.active.getLine(1)!.translateToString(true), "> draft");
 });
+
+test("scrollback keeps composer and work status live and follows new output on downward scroll without Esc", async t => {
+  const screen = new xterm.Terminal({ cols: 80, rows: 12, allowProposedApi: true });
+  const view = new TerminalViewport({ columns: 80, rows: 12, dockHeight: () => 3, liveHeight: () => 3, write: s => screen.write(s) });
+  t.after(() => { view.dispose(); screen.dispose(); });
+  const flush = () => new Promise<void>(resolve => screen.write("", resolve));
+  const row = (n: number) => screen.buffer.active.getLine(n)!.translateToString(true);
+  view.feed(Array.from({ length: 40 }, (_, i) => `history ${i}\r\n`).join("") + "RUNNING 1\r\n> draft\r\nstatus\r\n");
+  await view.renderLive(); await view.scroll(-12); await flush();
+  const before = row(0); assert.match(row(8), /RUNNING 1/); assert.match(row(9), /> draft/);
+  assert.equal(view.isLiveRow(10), true); assert.equal(view.isLiveRow(1), false);
+  view.feed("\x1b[3F\x1b[JRUNNING 2\r\n> edited draft\r\nstatus updated\r\n"); await view.flush();
+  await new Promise(r => setTimeout(r, 130)); await flush();
+  assert.equal(row(0), before); assert.match(row(8), /RUNNING 2/); assert.match(row(9), /> edited draft/); assert.match(row(10), /status updated/);
+  assert.equal(view.active, true);
+  view.feed("\x1b[3F\x1b[JNEW RESULT\r\nDONE\r\n> edited draft\r\nstatus done\r\n"); await view.flush();
+  await view.scroll(100); await flush();
+  assert.equal(view.active, false); assert.match(Array.from({ length: 12 }, (_, n) => row(n)).join("\n"), /NEW RESULT/);
+});

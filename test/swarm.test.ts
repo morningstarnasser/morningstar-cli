@@ -177,3 +177,41 @@ test("a shared budget stops the swarm and prevents dependent model requests", as
     assert.match(results[1].task.error!, /Budget/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("planner recovers from empty and truncated JSON without executing any worker", async t => {
+  const dir = workspace(); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const valid = plan([task("a"), task("review", { dependsOn: ["a"] })]);
+  let calls = 0;
+  const streamFn: StreamFn = async function* (messages, _config, _signal, tools) {
+    assert.equal(tools, false);
+    calls++;
+    if (calls === 1) { yield { type: "reasoning", text: "fixture private reasoning" }; return; }
+    assert.match(messages.at(-1)!.content, /JSON/);
+    if (calls === 2) { yield { type: "content", text: '{"tasks":[' }; return; }
+    yield { type: "content", text: "Hier ist der Plan:\n```json\n" + JSON.stringify(valid) + "\n```" };
+  };
+  const result = await prepareSwarmPlan("review only", config, dir, "system", undefined, { streamFn });
+  assert.equal(calls, 3); assert.equal(result.tasks[1].id, "review");
+});
+
+test("planner reports exhausted invalid output clearly and never fabricates a plan", async t => {
+  const dir = workspace(); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  let calls = 0;
+  const streamFn: StreamFn = async function* () { calls++; yield { type: "content", text: "" }; };
+  await assert.rejects(prepareSwarmPlan("work", config, dir, "sys", undefined, { streamFn }), /Swarm-Plan.*3.*leer/);
+  assert.equal(calls, 3);
+});
+
+test("planner retries validation errors but does not retry aborts, budgets or invalid local files", async t => {
+  const dir = workspace(); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  let calls = 0;
+  const streamFn: StreamFn = async function* () { calls++; yield { type: "content", text: JSON.stringify(plan([task("a", { agentId: calls === 1 ? "unknown" : "code" })])) }; };
+  assert.equal((await prepareSwarmPlan("work", config, dir, "sys", undefined, { streamFn })).tasks[0].agentId, "code");
+  assert.equal(calls, 2);
+  const ac = new AbortController(); ac.abort();
+  await assert.rejects(prepareSwarmPlan("work", config, dir, "sys", ac.signal, { streamFn }), /abgebrochen/);
+  await assert.rejects(prepareSwarmPlan("work", { ...config, maxBudgetUsd: 0 }, dir, "sys", undefined, { streamFn }), /Budget/);
+  writeFileSync(join(dir, "empty.json"), "");
+  await assert.rejects(prepareSwarmPlan("@empty.json", config, dir, "sys", undefined, { streamFn }), /Swarm-Plan.*leer/);
+  assert.equal(calls, 2);
+});

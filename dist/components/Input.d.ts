@@ -20,8 +20,9 @@ interface InputProps {
     cwd?: string;
     isActive?: boolean;
     onSelectionChange?: (text: string) => void;
+    onHistorySearchChange?: (active: boolean) => void;
     onCancel?: () => void;
 }
-export declare function Input({ onSubmit, activeAgent, planMode, permissionMode, modeLocked, onCycleMode, thinkMode, isProcessing, suggestions, vimMode, cwd, isActive, onSelectionChange, onCancel, onSendNow, initialValue, seedImages }: InputProps): import("react/jsx-runtime").JSX.Element;
+export declare function Input({ onSubmit, activeAgent, planMode, permissionMode, modeLocked, onCycleMode, thinkMode, isProcessing, suggestions, vimMode, cwd, isActive, onSelectionChange, onHistorySearchChange, onCancel, onSendNow, initialValue, seedImages }: InputProps): import("react/jsx-runtime").JSX.Element;
 export {};
 //# sourceMappingURL=Input.d.ts.map

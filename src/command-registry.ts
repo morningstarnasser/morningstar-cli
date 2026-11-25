@@ -524,7 +524,7 @@ export const MORNINGSTAR_COMMANDS: readonly CommandDefinition[] = Object.freeze(
   seed("ai.ultrathink", "ultrathink", "ai", "Ultra-Think Modus an/aus"),
   seed("ai.max-turns", "max-turns", "ai", "Maximale Auto-Fix-Durchlaeufe einstellen", "/max-turns [0|unlimited|n]"),
   seed("ai.fast", "fast", "ai", "Fast Mode an/aus"),
-  seed("ai.review", "review", "ai", "Code-Review als Prompt starten", "/review [path]", { behavior: "prompt", isAvailable: planned("review") }),
+  seed("ai.review", "review", "ai", "Änderungen schreibgeschützt auf konkrete Fehler prüfen", "/review [path|focus]", { whenBusy: "queue" }),
 
   seed("agents.list", "agents", "agents", "Verfuegbare Agenten anzeigen", "/agents", { aliases: ["agent:list"] }),
   seed("agents.off", "agent:off", "agents", "Aktiven Agent deaktivieren"),
@@ -639,6 +639,7 @@ export const MORNINGSTAR_COMMANDS: readonly CommandDefinition[] = Object.freeze(
   seed("system.audit", "audit", "system", "Tiefere Systemanalyse ausfuehren", "/audit", { whenBusy: "queue" }),
   seed("system.repair", "repair", "system", "Erkannte Probleme automatisch beheben", "/repair", { whenBusy: "queue" }),
   seed("system.instincts", "instincts", "system", "Gelernte Instincts anzeigen", "/instincts", { aliases: ["instinct-status"] }),
+  seed("system.learn", "learn", "system", "Aktives Lernen steuern und gelernte Projektregeln prüfen", "/learn [on|off|status|forget <id>]", { whenBusy: "queue" }),
   seed("system.instinct-export", "instinct-export", "system", "Instincts als JSON exportieren"),
   seed("system.instinct-import", "instinct-import", "system", "Instincts importieren", "/instinct-import <file>", { whenBusy: "queue" }),
   seed("system.update", "update", "system", "Auf Updates pruefen", "/update [check|run]"),

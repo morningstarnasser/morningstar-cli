@@ -7,6 +7,7 @@ export interface Pointer { x: number; y: number; kind: "down" | "move" | "up"; s
 interface Target { node: RefObject<DOMElement>; handle: (event: Pointer) => void }
 const Context = createContext<Set<Target> | null>(null);
 const DockContext = createContext<React.MutableRefObject<DOMElement | null> | null>(null);
+const FooterContext = createContext<React.MutableRefObject<DOMElement | null> | null>(null);
 /** Coordinates are relative to the actual cursor reported by the terminal,
  * so scrollback, short screens and static output do not move the hit targets. */
 export function TerminalPointer({ children }: { children: React.ReactNode }) {
@@ -14,12 +15,13 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
   const targets = useRef(new Set<Target>());
   const details = useRef(new Map<string, TerminalDetail>());
   const dock = useRef<DOMElement | null>(null);
+  const footer = useRef<DOMElement | null>(null);
   const [ready, setReady] = useState(!stdout.isTTY || process.env.MORNINGSTAR_MOUSE === "0");
   useLayoutEffect(() => {
     if (!stdout.isTTY || process.env.MORNINGSTAR_MOUSE === "0") return;
     const originalWrite = stdout.write;
     const rawWrite = (data: string) => { originalWrite.call(stdout, data); };
-    const viewport = new TerminalViewport({ columns: stdout.columns || 80, rows: stdout.rows || 24, write: rawWrite, detail: id => details.current.get(id), dockHeight: () => dock.current ? measureElement(dock.current).height : 0 });
+    const viewport = new TerminalViewport({ columns: stdout.columns || 80, rows: stdout.rows || 24, write: rawWrite, detail: id => details.current.get(id), dockHeight: () => dock.current ? measureElement(dock.current).height : 0, liveHeight: () => footer.current ? measureElement(footer.current).height : 0 });
     let drawing = false;
     const draw = () => { if (!drawing) { drawing = true; queueMicrotask(() => { drawing = false; void viewport.renderLive(); }); } };
     internal_eventEmitter.on("morningstar:dock", draw);
@@ -49,7 +51,7 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
       return { left: left + 1, top: cursorRow - (root.yogaNode?.getComputedHeight() ?? 0) + top, width, height };
     };
     const dispatch = async (e: Pointer) => {
-      if (viewport.active) { await viewport.pointer(e.kind, e.x, e.y); return; }
+      if (viewport.active && !viewport.isLiveRow(e.y) && !capture) { await viewport.pointer(e.kind, e.x, e.y); return; }
       let hit = false;
       for (const target of capture ? [capture] : [...targets.current].reverse()) {
         const r = rect(target.node.current); if (!r) continue;
@@ -60,7 +62,7 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
         }
       }
       if (e.kind === "up") capture = undefined;
-      if (!hit && e.kind === "down") { await viewport.alignCursor(cursorRow); await viewport.pointer("down", e.x, e.y); }
+      if (!hit && e.kind === "down" && !viewport.isLiveRow(e.y)) { await viewport.alignCursor(cursorRow); await viewport.pointer("down", e.x, e.y); }
     };
     const originalEmit = internal_eventEmitter.emit;
     let pasteBuffer: string | null = null;
@@ -89,7 +91,7 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
           else if ((button & 3) === 0) {
             const e: Pointer = { x: Number(x), y: Number(y), kind: suffix === "m" ? "up" : button & 32 ? "move" : "down", shift: Boolean(button & 4) };
             enqueue(async () => {
-              if (viewport.active) await viewport.pointer(e.kind, e.x, e.y);
+              if (viewport.active) { cursorRow = stdout.rows || 24; await dispatch(e); }
               else { pending.push(e); pending = pending.slice(-100); send(); }
             });
           }
@@ -108,7 +110,12 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
         if (rest === "\x03" || rest === "\x19") enqueue(() => viewport.selectedText() ? viewport.copy() : viewport.leave());
         else if (["\x1b", "\x1b[F", "\x1b[4~", "\x1bOF"].includes(rest)) enqueue(() => viewport.leave());
         else if (["\x1b[H", "\x1b[1~", "\x1bOH"].includes(rest)) enqueue(() => viewport.home());
-        else enqueue(async () => { await viewport.leave(); originalEmit.call(internal_eventEmitter, "input", rest); });
+        else enqueue(async () => {
+          // Ordinary scrolling leaves the composer usable. Arrows still recall
+          // prompt history, and submitting follows the resulting live response.
+          if (viewport.modal || /^(?:\x1b\[[AB]|\r|\n)$/.test(rest)) await viewport.leave();
+          originalEmit.call(internal_eventEmitter, "input", rest);
+        });
         return true;
       }
       return originalEmit.call(this, event, rest, ...args.slice(1));
@@ -127,7 +134,12 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
     setReady(true);
     return () => { disposed = true; disable(); stdout.write = originalWrite; internal_eventEmitter.emit = originalEmit; internal_eventEmitter.off("morningstar:find", find); internal_eventEmitter.off("morningstar:dock", draw); stdout.off("resize", resize); process.off("exit", disable); };
   }, [stdout, internal_eventEmitter]);
-  return <Context.Provider value={targets.current}><DockContext.Provider value={dock}><TerminalDetails.Provider value={details.current}>{ready ? children : null}</TerminalDetails.Provider></DockContext.Provider></Context.Provider>;
+  return <Context.Provider value={targets.current}><DockContext.Provider value={dock}><FooterContext.Provider value={footer}><TerminalDetails.Provider value={details.current}>{ready ? children : null}</TerminalDetails.Provider></FooterContext.Provider></DockContext.Provider></Context.Provider>;
+}
+export function TerminalLiveFooter({ children }: { children: React.ReactNode }) {
+  const footer = useContext(FooterContext);
+  const attach = useCallback((node: DOMElement | null) => { if (footer) footer.current = node; }, [footer]);
+  return <Box ref={attach} flexDirection="column" flexShrink={0}>{children}</Box>;
 }
 export function TerminalDock({ children }: { children: React.ReactNode }) {
   const dock = useContext(DockContext);

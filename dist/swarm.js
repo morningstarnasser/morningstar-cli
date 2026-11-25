@@ -107,27 +107,63 @@ export function createSwarmExecutor(task, cwd, execute = executeNativeToolCall) 
         return execute(name, args, dir, signal);
     };
 }
+/** Accept a complete JSON object, optionally fenced. Never repair partial task lists. */
+export function parseSwarmPlan(text, cwd) {
+    if (!text.trim())
+        throw new Error("Swarm-Plan ist leer (keine JSON-Antwort vom Modell).");
+    if (text.length > 256000)
+        throw new Error("Swarm-Plan ist zu gross.");
+    const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
+    const candidate = (fenced?.[1] ?? text).trim();
+    let raw;
+    try {
+        raw = JSON.parse(candidate);
+    }
+    catch {
+        throw new Error("Swarm-Plan ist unvollstaendig oder kein gueltiges JSON.");
+    }
+    return validateSwarmPlan(raw, cwd);
+}
 export async function prepareSwarmPlan(input, config, cwd, system, signal, options = {}) {
+    if (signal?.aborted)
+        throw new Error("Swarm-Planung abgebrochen.");
     if (input.startsWith("@")) {
         const file = resolveWithinWorkspace(input.slice(1).trim(), cwd);
         if (!file.ok)
             throw new Error(file.reason);
         if (statSync(file.resolved).size > 256000)
             throw new Error("Swarm-Plan ist zu gross.");
-        return validateSwarmPlan(JSON.parse(readFileSync(file.resolved, "utf8")), cwd);
+        return parseSwarmPlan(readFileSync(file.resolved, "utf8"), cwd);
     }
     const agents = getAllAgents();
-    const result = await runAgent([
+    const messages = [
         { role: "system", content: `${system}\nDu planst einen Swarm. Antworte NUR mit JSON: {"title":"...","concurrency":3,"tasks":[{"id":"...","agentId":"code","description":"...","dependsOn":[],"writePaths":[],"exclusive":false}]}. Teile die Aufgabe in konkrete Arbeitspakete und eine abschliessende Review-/Synthese-Aufgabe mit Abhaengigkeiten auf alle Arbeitspakete. 2–8 Tasks. writePaths sind woertliche relative Dateien/Verzeichnisse, keine Globs. [] = nur lesen. Fuer Shell, Builds, Tests oder unbekannte Schreibbereiche exclusive:true; solche Tasks laufen allein. Disjunkte Schreibbereiche erlauben paralleles Editieren. Nenne keine erfundenen Ergebnisse. Jeder Task bekommt ausreichend Kontext aus dem Nutzerziel. Erlaubte agentId: ${Object.keys(agents).join(", ")}.` },
         { role: "user", content: input },
-    ], { ...config, jsonSchema: undefined }, cwd, { signal, initialCostUsd: getSessionCosts().totalCost, enableTools: false, maxTurns: 1, streamFn: options.streamFn });
-    trackUsage(config.model, input, result.finalText, result.usage.inputTokens, result.usage.outputTokens, config.provider);
-    if (signal?.aborted || result.aborted)
-        throw new Error("Swarm-Planung abgebrochen.");
-    if (result.budgetExceeded)
-        throw new Error("Budget-Limit bei der Swarm-Planung erreicht.");
-    const json = result.finalText.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-    return validateSwarmPlan(JSON.parse(json), cwd, agents);
+    ];
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        if (signal?.aborted)
+            throw new Error("Swarm-Planung abgebrochen.");
+        if (config.maxBudgetUsd !== undefined && getSessionCosts().totalCost >= config.maxBudgetUsd)
+            throw new Error("Budget-Limit bei der Swarm-Planung erreicht.");
+        options.onPlanningAttempt?.(attempt);
+        const result = await runAgent(messages, { ...config, jsonSchema: undefined }, cwd, { signal, initialCostUsd: getSessionCosts().totalCost, enableTools: false, maxTurns: 1, streamFn: options.streamFn });
+        trackUsage(config.model, messages.map(m => m.content).join("\n"), result.finalText, result.usage.inputTokens, result.usage.outputTokens, config.provider);
+        if (signal?.aborted || result.aborted)
+            throw new Error("Swarm-Planung abgebrochen.");
+        if (result.budgetExceeded)
+            throw new Error("Budget-Limit bei der Swarm-Planung erreicht.");
+        try {
+            return parseSwarmPlan(result.finalText, cwd);
+        }
+        catch (error) {
+            const reason = error instanceof Error ? error.message : "Ungueltiger Plan";
+            if (attempt === 3)
+                throw new Error(`Swarm-Plan nach 3 Versuchen nicht verwendbar: ${reason} Erneut versuchen oder einen validierten Plan mit /swarm @plan.json laden.`);
+            messages.push({ role: "assistant", content: result.finalText.slice(0, 24000) || "(keine JSON-Antwort)" });
+            messages.push({ role: "user", content: `Korrigiere den JSON-Plan: ${reason.slice(0, 500)}. Antworte sofort mit einem vollstaendigen, kompakten JSON-Objekt, ohne Erklaerung. Plane nur 2–3 kurze Tasks, alle erforderlichen Felder und gueltige Abhaengigkeiten.` });
+        }
+    }
+    throw new Error("Swarm-Planung fehlgeschlagen.");
 }
 export async function runSwarm(plan, config, cwd, system, signal, onSnapshot, options = {}) {
     plan = validateSwarmPlan(plan, cwd);

@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useLayoutEffect, use
 import { Box, useStdin, useStdout, measureElement } from "ink";
 const Context = createContext(null);
 const DockContext = createContext(null);
+const FooterContext = createContext(null);
 /** Coordinates are relative to the actual cursor reported by the terminal,
  * so scrollback, short screens and static output do not move the hit targets. */
 export function TerminalPointer({ children }) {
@@ -13,13 +14,14 @@ export function TerminalPointer({ children }) {
     const targets = useRef(new Set());
     const details = useRef(new Map());
     const dock = useRef(null);
+    const footer = useRef(null);
     const [ready, setReady] = useState(!stdout.isTTY || process.env.MORNINGSTAR_MOUSE === "0");
     useLayoutEffect(() => {
         if (!stdout.isTTY || process.env.MORNINGSTAR_MOUSE === "0")
             return;
         const originalWrite = stdout.write;
         const rawWrite = (data) => { originalWrite.call(stdout, data); };
-        const viewport = new TerminalViewport({ columns: stdout.columns || 80, rows: stdout.rows || 24, write: rawWrite, detail: id => details.current.get(id), dockHeight: () => dock.current ? measureElement(dock.current).height : 0 });
+        const viewport = new TerminalViewport({ columns: stdout.columns || 80, rows: stdout.rows || 24, write: rawWrite, detail: id => details.current.get(id), dockHeight: () => dock.current ? measureElement(dock.current).height : 0, liveHeight: () => footer.current ? measureElement(footer.current).height : 0 });
         let drawing = false;
         const draw = () => { if (!drawing) {
             drawing = true;
@@ -68,7 +70,7 @@ export function TerminalPointer({ children }) {
             return { left: left + 1, top: cursorRow - (root.yogaNode?.getComputedHeight() ?? 0) + top, width, height };
         };
         const dispatch = async (e) => {
-            if (viewport.active) {
+            if (viewport.active && !viewport.isLiveRow(e.y) && !capture) {
                 await viewport.pointer(e.kind, e.x, e.y);
                 return;
             }
@@ -87,7 +89,7 @@ export function TerminalPointer({ children }) {
             }
             if (e.kind === "up")
                 capture = undefined;
-            if (!hit && e.kind === "down") {
+            if (!hit && e.kind === "down" && !viewport.isLiveRow(e.y)) {
                 await viewport.alignCursor(cursorRow);
                 await viewport.pointer("down", e.x, e.y);
             }
@@ -134,8 +136,10 @@ export function TerminalPointer({ children }) {
                     else if ((button & 3) === 0) {
                         const e = { x: Number(x), y: Number(y), kind: suffix === "m" ? "up" : button & 32 ? "move" : "down", shift: Boolean(button & 4) };
                         enqueue(async () => {
-                            if (viewport.active)
-                                await viewport.pointer(e.kind, e.x, e.y);
+                            if (viewport.active) {
+                                cursorRow = stdout.rows || 24;
+                                await dispatch(e);
+                            }
                             else {
                                 pending.push(e);
                                 pending = pending.slice(-100);
@@ -170,7 +174,13 @@ export function TerminalPointer({ children }) {
                 else if (["\x1b[H", "\x1b[1~", "\x1bOH"].includes(rest))
                     enqueue(() => viewport.home());
                 else
-                    enqueue(async () => { await viewport.leave(); originalEmit.call(internal_eventEmitter, "input", rest); });
+                    enqueue(async () => {
+                        // Ordinary scrolling leaves the composer usable. Arrows still recall
+                        // prompt history, and submitting follows the resulting live response.
+                        if (viewport.modal || /^(?:\x1b\[[AB]|\r|\n)$/.test(rest))
+                            await viewport.leave();
+                        originalEmit.call(internal_eventEmitter, "input", rest);
+                    });
                 return true;
             }
             return originalEmit.call(this, event, rest, ...args.slice(1));
@@ -189,7 +199,13 @@ export function TerminalPointer({ children }) {
         setReady(true);
         return () => { disposed = true; disable(); stdout.write = originalWrite; internal_eventEmitter.emit = originalEmit; internal_eventEmitter.off("morningstar:find", find); internal_eventEmitter.off("morningstar:dock", draw); stdout.off("resize", resize); process.off("exit", disable); };
     }, [stdout, internal_eventEmitter]);
-    return _jsx(Context.Provider, { value: targets.current, children: _jsx(DockContext.Provider, { value: dock, children: _jsx(TerminalDetails.Provider, { value: details.current, children: ready ? children : null }) }) });
+    return _jsx(Context.Provider, { value: targets.current, children: _jsx(DockContext.Provider, { value: dock, children: _jsx(FooterContext.Provider, { value: footer, children: _jsx(TerminalDetails.Provider, { value: details.current, children: ready ? children : null }) }) }) });
+}
+export function TerminalLiveFooter({ children }) {
+    const footer = useContext(FooterContext);
+    const attach = useCallback((node) => { if (footer)
+        footer.current = node; }, [footer]);
+    return _jsx(Box, { ref: attach, flexDirection: "column", flexShrink: 0, children: children });
 }
 export function TerminalDock({ children }) {
     const dock = useContext(DockContext);

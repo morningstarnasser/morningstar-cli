@@ -31,6 +31,10 @@ export declare function validateSwarmPlan(raw: unknown, cwd: string, agents?: Re
 export declare function swarmTasksConflict(a: SwarmTask, b: SwarmTask, cwd: string): boolean;
 /** Enforced on both text and native calls, in addition to the normal policy. */
 export declare function createSwarmExecutor(task: SwarmTask, cwd: string, execute?: NativeToolExecFn): NativeToolExecFn;
-export declare function prepareSwarmPlan(input: string, config: CLIConfig, cwd: string, system: string, signal?: AbortSignal, options?: SubAgentExecutionOptions): Promise<SwarmPlan>;
+/** Accept a complete JSON object, optionally fenced. Never repair partial task lists. */
+export declare function parseSwarmPlan(text: string, cwd: string): SwarmPlan;
+export declare function prepareSwarmPlan(input: string, config: CLIConfig, cwd: string, system: string, signal?: AbortSignal, options?: SubAgentExecutionOptions & {
+    onPlanningAttempt?: (attempt: number) => void;
+}): Promise<SwarmPlan>;
 export declare function runSwarm(plan: SwarmPlan, config: CLIConfig, cwd: string, system: string, signal?: AbortSignal, onSnapshot?: (state: SwarmBranch[]) => void, options?: SwarmOptions): Promise<SubAgentResult[]>;
 //# sourceMappingURL=swarm.d.ts.map

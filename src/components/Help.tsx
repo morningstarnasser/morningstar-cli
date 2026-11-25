@@ -23,6 +23,8 @@ const SHORTCUTS = [
   ["Maus + Cmd+C", "Terminal-Ausgabe markieren und kopieren (Mac)"],
   ["Ctrl+O", "Letzte Tool-Gruppe ein-/ausklappen"],
   ["↑ / ↓", "Ältere / neuere Eingabe; ↓ zurück zum Entwurf, auch im Lauf"],
+  ["Ctrl+R", "Frühere Eingaben suchen und zum Bearbeiten übernehmen"],
+  ["Mausrad / PageUp / PageDown", "Verlauf lesen; Eingabe und Arbeitsstatus bleiben live"],
   ["Alt+↑", "Bei leerer Eingabe letzte Queue-Nachricht bearbeiten"],
   ["Tab / Shift+Tab", "Modus vor/zurück; Tab vervollständigt offene Vorschläge"],
   ["Esc", "Auswahl oder wartende Eingabe verwerfen"],

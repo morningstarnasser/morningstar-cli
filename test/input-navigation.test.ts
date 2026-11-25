@@ -113,3 +113,14 @@ test("file suggestions use arrows before history and Tab applies the selected fi
   assert.match(ui.prompt(), /> inspect @fixture-b\.txt$/);
   assert.deepEqual(ui.submitted, []);
 });
+
+test("Ctrl+R filters history, accepts for editing without sending, and Esc restores the draft while busy", async t => {
+  const ui = await fixture(t, true);
+  await ui.key("keep this draft"); await ui.key("\x12"); await ui.key("older");
+  assert.match(ui.frame(), /Verlauf suchen: older/); assert.match(ui.frame(), /older prompt/);
+  await ui.key("\r"); assert.match(ui.prompt(), /> older prompt$/); assert.deepEqual(ui.submitted, []);
+  await ui.key("\x12"); await ui.key("not found"); assert.match(ui.frame(), /Keine passende Eingabe/);
+  await ui.key("\x1b"); assert.match(ui.prompt(), /> older prompt$/);
+  await ui.key("\x12"); await ui.key("\x12"); await ui.key(down); await ui.key("\t");
+  assert.match(ui.prompt(), /> newer prompt$/); assert.deepEqual(ui.submitted, []);
+});

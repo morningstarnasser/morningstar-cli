@@ -35,6 +35,7 @@ interface InputProps {
   cwd?: string;
   isActive?: boolean;
   onSelectionChange?: (text: string) => void;
+  onHistorySearchChange?: (active: boolean) => void;
   onCancel?: () => void;
 }
 
@@ -65,7 +66,7 @@ function getFileCompletions(partial: string, cwd: string, maxResults = 8): strin
   }
 }
 
-export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask", modeLocked, onCycleMode, thinkMode, isProcessing, suggestions, vimMode, cwd, isActive = true, onSelectionChange, onCancel, onSendNow, initialValue = "", seedImages = [] }: InputProps) {
+export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask", modeLocked, onCycleMode, thinkMode, isProcessing, suggestions, vimMode, cwd, isActive = true, onSelectionChange, onHistorySearchChange, onCancel, onSendNow, initialValue = "", seedImages = [] }: InputProps) {
   const { prompt, accent, warning, dim, primary } = useTheme();
   const columns = useTerminalColumns();
   const rule = composerRule(columns);
@@ -73,6 +74,8 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
   const [cursorPos, setCursorPos] = useState(initialValue.length);
   const [anchor, setAnchor] = useState<number | null>(null);
   const [copyError, setCopyError] = useState("");
+  const [historySearch, setHistorySearch] = useState<{ query: string; index: number; draft: string } | null>(null);
+  useEffect(() => { onHistorySearchChange?.(Boolean(historySearch) && isActive); return () => onHistorySearchChange?.(false); }, [Boolean(historySearch), isActive, onHistorySearchChange]);
   const images = useRef<ImageDrafts>();
   images.current ??= new ImageDrafts(seedImages);
   images.current.seed(seedImages);
@@ -103,7 +106,8 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
   }
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggIdx, setSelectedSuggIdx] = useState(0);
-  const { isNavigating, addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
+  const { history, isNavigating, addToHistory, navigateUp, navigateDown, resetNavigation } = useCommandHistory();
+  const searchMatches = historySearch ? history.filter(text => text.toLocaleLowerCase().includes(historySearch.query.toLocaleLowerCase())) : [];
 
   // Helper: update value AND put cursor at the end (used for history nav, completions, clear)
   function setValueEnd(next: string): void {
@@ -201,6 +205,20 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
     const editor = editorRef.current;
     const { value, cursor: cursorPos, anchor } = editor;
     const selection = selectedText(editor);
+    if (key.ctrl && input === "r") {
+      setShowSuggestions(false); setFileCompletions([]);
+      setHistorySearch(previous => previous ? { ...previous, index: Math.min(previous.index + 1, Math.max(0, searchMatches.length - 1)) } : { query: "", index: 0, draft: value });
+      return;
+    }
+    if (historySearch) {
+      if (key.escape || key.ctrl && input === "c") { setValueEnd(historySearch.draft); setHistorySearch(null); return; }
+      if (key.return || key.tab) { if (searchMatches[historySearch.index]) { resetNavigation(); setValueEnd(searchMatches[historySearch.index]); } setHistorySearch(null); return; }
+      if (key.upArrow || key.downArrow) { setHistorySearch({ ...historySearch, index: Math.max(0, Math.min(searchMatches.length - 1, historySearch.index + (key.upArrow ? 1 : -1))) }); return; }
+      if (key.backspace || key.delete) { setHistorySearch({ ...historySearch, query: [...historySearch.query].slice(0, -1).join(""), index: 0 }); return; }
+      if (key.ctrl && input === "u") { setHistorySearch({ ...historySearch, query: "", index: 0 }); return; }
+      if (input && !key.ctrl && !key.meta) setHistorySearch({ ...historySearch, query: historySearch.query + input, index: 0 });
+      return;
+    }
     // Editing is identical while idle and while a message is queued.
     const editing = isProcessing || !vimMode || vimModeState === "insert";
     if (key.ctrl && input === "c") {
@@ -361,6 +379,11 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
       )}
 
       <Text color={dim}>{rule}</Text>
+      {historySearch ? <Box flexDirection="column" marginLeft={1}>
+        <Text color={accent}>Verlauf suchen: {historySearch.query}▏ · {searchMatches.length ? historySearch.index + 1 : 0}/{searchMatches.length}</Text>
+        <Text wrap="truncate">{searchMatches[historySearch.index]?.replace(/\n/g, " ↵ ") || "Keine passende Eingabe"}</Text>
+        <Text color={dim}>Ctrl+R/↑ älter · ↓ neuer · Enter/Tab übernehmen · Esc zurück</Text>
+      </Box> : null}
 
       <Box ref={inputNode} marginLeft={1} width={Math.max(16, columns - 3)} flexDirection="column">
         {rows.map((row, i) => <Text key={i} wrap="truncate">{row.map((cell, j) => {
@@ -411,7 +434,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
       )}
       <Text color={dim}>{rule}</Text>
       <Text color={dim}> <Text bold color={permissionMode === "bypassPermissions" ? warning : permissionMode === "plan" ? accent : primary}>{interactionModeLabel(permissionMode)}</Text>{modeLocked ? " · verwaltet" : " · Tab Modus wechseln · Shift+Tab zurück"}{isProcessing ? " · nächster Auftrag" : ""}</Text>
-      <Text color={dim}> {selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "↑↓ Verlauf · Ctrl+F suchen · Esc live" : "↑↓ Eingabeverlauf · Ctrl+F suchen · Ziehen kopiert · Mausrad scrollt · Esc zurück"}</Text>
+      <Text color={dim}> {selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "↑↓ Verlauf · Ctrl+R Eingabe suchen" : "↑↓ Verlauf · Ctrl+R Eingabe suchen · Ctrl+F Ausgabe suchen · Mausrad scrollt"}</Text>
     </Box>
   );
 }
