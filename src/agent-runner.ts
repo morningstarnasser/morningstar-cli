@@ -421,10 +421,16 @@ export async function runAgent(
       : "";
   // Capabilities belong only in the request; resumed transcripts stay unchanged.
   const providerMessages = (): Message[] => {
+    // Legacy transcripts can contain unfinished XML attempts as assistant text.
+    // They are not tool evidence and otherwise teach the model to repeat the
+    // broken protocol. Preserve the original only in the stored transcript.
+    const request = conversation.map(message => message.role === "assistant" && !message.toolCalls?.length && isMalformedToolAttempt(message.content)
+      ? { ...message, content: "[Frühere Assistant-Antwort enthielt unvollständige Tool-Syntax. Dies ist kein Werkzeugergebnis. Übernimm weder diese Aufrufe noch vermeintliche Messwerte daraus; verwende die aktuell angebotenen nativen Tools. Der Originaltext bleibt im gespeicherten Verlauf.]", isError: true }
+      : message);
     const mcp = options.enableTools === false ? "" : formatConnectedMCPToolsForPrompt();
     const addition = `\n\n<morningstar-work-style>\n${WORK_GUIDANCE}\n</morningstar-work-style>${swarmInstruction ? `\n\n<morningstar-swarm>\n${swarmInstruction}\n</morningstar-swarm>` : ""}\n\n${mcp || "Keine MCP-Tools verbunden. Skills und Vault-Notizen installieren keine Werkzeuge; erfinde keine MCP-Namen."}\nWenn native Tools angeboten werden, verwende diese; andernfalls vollständige <tool:NAME>...</tool>-Tags. Gib einen Tool-Aufruf niemals als bloßen Antworttext aus. Antworte in der Sprache des Nutzers. Nach einer Statusabfrage nenne die gemessenen Werte und ihren Zeitstempel.`;
-    if (conversation[0]?.role === "system") return [{ ...conversation[0], content: stripGeneratedMCPPrompt(conversation[0].content) + addition }, ...conversation.slice(1)];
-    return [{ role: "system", content: addition.trim() }, ...conversation];
+    if (request[0]?.role === "system") return [{ ...request[0], content: stripGeneratedMCPPrompt(request[0].content) + addition }, ...request.slice(1)];
+    return [{ role: "system", content: addition.trim() }, ...request];
   };
   if (config.jsonSchema) {
     const instruction = `Return your final answer as JSON matching this JSON Schema. Do not wrap it in prose.\n${config.jsonSchema}`;

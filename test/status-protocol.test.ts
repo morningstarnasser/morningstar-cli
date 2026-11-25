@@ -9,9 +9,23 @@ import { runAgent, type StreamFn } from "../src/agent-runner.js";
 import { printExitCode } from "../src/print-mode.js";
 import { parseSettings } from "../src/settings-sources.js";
 import { connectConfiguredMCPServers, disconnectAllMCPServers, getConnectedMCPTools } from "../src/mcp.js";
-import type { CLIConfig } from "../src/types.js";
+import type { CLIConfig, Message } from "../src/types.js";
 
 const config: CLIConfig = { provider: "ollama", model: "test", apiKey: "", baseUrl: "", maxTokens: 100, temperature: 0 };
+
+test("resumed malformed assistant calls are labelled as invalid evidence without mutating stored history", async () => {
+  const messages: Message[] = [{ role: "user", content: "status" }, { role: "assistant", content: 'Ich prüfe.\n<tool:mcp__fake__status>{"entity":"vps"}' }, { role: "user", content: "status erneut" }];
+  const before = JSON.stringify(messages);
+  const streamFn: StreamFn = async function* (request) {
+    assert.ok(!request.some(m => m.role === "assistant" && isMalformedToolAttempt(m.content)));
+    assert.ok(request.some(m => m.role === "assistant" && m.content.includes("kein Werkzeugergebnis")));
+    yield { type: "content", text: "Keine Werte ohne neuen Aufruf." };
+  };
+  const result = await runAgent(messages, config, process.cwd(), { streamFn });
+  assert.equal(result.finalText, "Keine Werte ohne neuen Aufruf.");
+  assert.equal(JSON.stringify(messages), before);
+  assert.equal(result.messages?.[1].content, messages[1].content);
+});
 
 test("standalone broken MCP calls are detected; quoted examples and prose stay text", () => {
   for (const value of ['<tool:mcp__vps_status__entity_status>{"entity":"vps"}', 'tool:mcp__vps_status__entity_status{"entity":"pi"}']) assert.equal(isMalformedToolAttempt(value), true);
