@@ -11,6 +11,11 @@ up to eight matching MCP tools keep their complete parameter schemas. `tool_sear
 finds connected tools for the next turn without changing execution permissions.
 Small catalogs and other providers keep their existing schema behavior.
 
+The current native call/result batch also survives context compaction. Oversized
+result text is shortened with an explicit notice in the provider copy; exact
+call IDs and arguments remain intact and full results stay in session history.
+This prevents repeated calls after a large service-list response.
+
 Telegram uses one live progress message with recent tool steps, active workers,
 elapsed time and a Stop button. The final answer replaces that message. Headings,
 code and emphasis render as Telegram HTML; tables become compact labelled rows.

@@ -1,5 +1,27 @@
 const size = (m) => JSON.stringify(m).length;
 const instruction = (m) => m.role === "user" && !m.contextKind && !m.content.startsWith("Tool results:\n");
+/** Keep call IDs and exact arguments intact; only bound oversized result text in
+ * the provider copy. A huge service list must not hide its entire current batch. */
+function boundCurrentBatch(batch, budget) {
+    const marker = "\n[Tool output shortened for request context; full result retained in session history. Missing details are not verified here.]\n";
+    const atLimit = (limit) => batch.map(message => {
+        if (message.role !== "tool" || message.content.length <= limit)
+            return message;
+        const room = limit - marker.length, head = Math.ceil(room * 0.7), tail = room - head;
+        return { ...message, content: message.content.slice(0, head) + marker + (tail ? message.content.slice(-tail) : "") };
+    });
+    let low = marker.length + 120, high = Math.max(...batch.map(m => m.content.length));
+    if (atLimit(low).reduce((n, m) => n + size(m), 0) > budget)
+        return undefined;
+    while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        if (atLimit(mid).reduce((n, m) => n + size(m), 0) <= budget)
+            low = mid;
+        else
+            high = mid - 1;
+    }
+    return atLimit(low);
+}
 /**
  * Bound each provider request, not the stored transcript. Native call/result
  * batches are indivisible. Keep system rules and the first/latest user task.
@@ -33,12 +55,21 @@ export function compactRequest(messages, maxChars = 60000) {
             groups.push(group);
     }
     const selected = new Set(pinned);
+    const copies = new Map();
     // Reserve a small summary first; recent evidence has priority over its summary.
     const summaryReserve = 1000;
     let remaining = maxChars - pinnedSize - summaryReserve - 500;
     for (let g = groups.length - 1; g >= 0; g--) {
         const group = groups[g];
-        const weight = group.reduce((n, i) => n + size(messages[i]), 0);
+        let weight = group.reduce((n, i) => n + size(messages[i]), 0);
+        if (weight > remaining && g === groups.length - 1 && group[0] > (users.at(-1) ?? -1)
+            && messages[group[0]].toolCalls?.length && messages[group.at(-1)].role === "tool") {
+            const bounded = boundCurrentBatch(group.map(i => messages[i]), remaining);
+            if (bounded) {
+                group.forEach((i, index) => copies.set(i, bounded[index]));
+                weight = bounded.reduce((n, m) => n + size(m), 0);
+            }
+        }
         if (weight > remaining || selected.size + group.length > 48)
             break;
         for (const i of group)
@@ -66,9 +97,10 @@ export function compactRequest(messages, maxChars = 60000) {
     }
     const tail = tailParts.reverse().join("\n").slice(-tailBudget);
     summary += first + "\n[…]\n" + tail;
-    const kept = messages.filter((_, i) => selected.has(i));
+    const kept = messages.flatMap((message, i) => selected.has(i) ? [copies.get(i) ?? message] : []);
     const firstNonSystem = kept.findIndex((m) => m.role !== "system");
-    kept.splice(firstNonSystem < 0 ? kept.length : firstNonSystem, 0, { role: "user", contextKind: "summary", content: summary });
+    if (omitted.length)
+        kept.splice(firstNonSystem < 0 ? kept.length : firstNonSystem, 0, { role: "user", contextKind: "summary", content: summary });
     return { messages: kept, removedMessages: omitted.length };
 }
 //# sourceMappingURL=request-context.js.map

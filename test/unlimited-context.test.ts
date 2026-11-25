@@ -72,6 +72,26 @@ test("oversized tool batches become labelled excerpts; oversized task is not sil
   assert.throws(() => compactRequest([{ role: "user", content: "x".repeat(10000) }], 4000), /exceed/);
 });
 
+test("the current native result batch survives compaction even when one service list is huge", () => {
+  const messages: Message[] = [
+    { role: "system", content: "rules ".repeat(6500) },
+    { role: "user", content: "gib mir vps status" },
+    { role: "assistant", content: "", toolCalls: ["system", "metrics", "services"].map(id => ({ id, name: `mcp__server__${id}`, arguments: { accountId: "actual" } })) },
+    { role: "tool", toolCallId: "system", content: '{"uptime":3456789}' },
+    { role: "tool", toolCallId: "metrics", content: '{"ram_percent":55}' },
+    { role: "tool", toolCallId: "services", content: 'SERVICE_START\n' + '{"name":"service","state":"running"}\n'.repeat(1000) + 'SERVICE_END' },
+  ];
+  const before = JSON.stringify(messages), result = compactRequest(messages, 60000);
+  assertPairs(result.messages);
+  assert.equal(result.messages.filter(m => m.role === "tool").length, 3);
+  assert.ok(result.messages.some(m => m.content === '{"ram_percent":55}'));
+  const services = result.messages.find(m => m.toolCallId === "services")!;
+  assert.match(services.content, /SERVICE_START/); assert.match(services.content, /SERVICE_END/);
+  assert.match(services.content, /Tool output shortened/);
+  assert.ok(result.messages.reduce((n, m) => n + JSON.stringify(m).length, 0) <= 60000);
+  assert.equal(JSON.stringify(messages), before);
+});
+
 test("unchanging read loops stop but polling with changing results remains unlimited", async () => {
   const identical: StreamFn = async function* () { yield { type: "content", text: "<tool:read>state.txt</tool>" }; };
   const stuck = await runAgent([{ role: "user", content: "task" }], config, "/tmp", { streamFn: identical,
