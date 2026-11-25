@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { TelegramGateway } from "../src/telegram/gateway.js";
 import type { TelegramClient, TelegramUpdate } from "../src/telegram/api.js";
 import type { TelegramConfig } from "../src/telegram/config.js";
@@ -87,11 +89,20 @@ test("/help returns the help text", async () => {
   assert.ok(sent[0].text.includes("Carry"));
 });
 
-test("/whoami identifies as Carry", async () => {
+test("/whoami displays the configured identity independently of the operator profile", async t => {
+  const personaDir = mkdtempSync(join(tmpdir(), "morningstar-identity-"));
+  t.after(() => rmSync(personaDir, { recursive: true, force: true }));
+  writeFileSync(join(personaDir, "SOUL.md"), "# Carry\nIDENTITY_FIXTURE");
+  writeFileSync(join(personaDir, "AGENTS.md"), "Working rules ".repeat(500));
   const sent: Sent[] = [];
-  const gw = new TelegramGateway(config(), { client: fakeClient(sent), streamFn: fixedReply, brain: fakeBrain() });
+  const gw = new TelegramGateway(config(), { client: fakeClient(sent), streamFn: fixedReply, brain: fakeBrain(), personaDir });
   await gw.processUpdate(update(42, "/whoami"));
   assert.ok(sent[0].text.includes("Carry"));
+  assert.ok(sent[0].text.includes("IDENTITY_FIXTURE"));
+  writeFileSync(join(personaDir, "SOUL.md"), "# Custom identity\nPROFILE_EDIT_VISIBLE");
+  await gw.processUpdate(update(42, "/whoami"));
+  assert.ok(sent[1].text.includes("PROFILE_EDIT_VISIBLE"));
+  assert.ok(!sent[1].text.includes("Carry"));
 });
 
 test("/status reports model and cwd", async () => {

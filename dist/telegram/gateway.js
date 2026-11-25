@@ -49,8 +49,10 @@ export class TelegramGateway {
     approvalTimeoutMs;
     lastDistillDay = "";
     transcribe;
+    personaDir;
     constructor(config, deps = {}) {
         this.config = config;
+        this.personaDir = deps.personaDir;
         this.client = deps.client ?? new TelegramClient(config.token);
         this.streamFn = deps.streamFn;
         this.textToolExecFn = deps.textToolExecFn;
@@ -196,7 +198,7 @@ export class TelegramGateway {
                 return this.runDistillation(chatId);
             case "whoami":
             case "soul": {
-                const persona = loadPersona();
+                const persona = loadPersona(this.personaDir);
                 return void this.client.sendMessage(chatId, persona ? persona.slice(0, 3500) : `Ich bin ${AGENT_NAME}. (Noch keine Persona-Dateien in ~/.morningstar/.)`);
             }
             case "remember":
@@ -450,7 +452,7 @@ export class TelegramGateway {
     }
     /** Carry's persona block (SOUL/USER/MEMORY/AGENTS), reloaded per request so edits apply live. */
     systemPrefix() {
-        const persona = loadPersona();
+        const persona = loadPersona(this.personaDir);
         return persona ? `${persona}\n\n` : "";
     }
     /** Resilient stream over the model fallback chain (or the injected test stream). */

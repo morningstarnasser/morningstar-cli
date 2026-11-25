@@ -62,6 +62,8 @@ export interface GatewayDeps {
   approvalTimeoutMs?: number;
   /** Inject storage explicitly; fake-client test seams default to memory-only. */
   sessionStore?: SessionStore;
+  /** Isolate identity fixtures without reading the operator's private profile. */
+  personaDir?: string;
 }
 
 export class TelegramGateway {
@@ -81,8 +83,10 @@ export class TelegramGateway {
   private approvalTimeoutMs: number;
   private lastDistillDay = "";
   private transcribe?: TranscribeFn;
+  private personaDir?: string;
 
   constructor(private config: TelegramConfig, deps: GatewayDeps = {}) {
+    this.personaDir = deps.personaDir;
     this.client = deps.client ?? new TelegramClient(config.token);
     this.streamFn = deps.streamFn;
     this.textToolExecFn = deps.textToolExecFn;
@@ -232,7 +236,7 @@ export class TelegramGateway {
         return this.runDistillation(chatId);
       case "whoami":
       case "soul": {
-        const persona = loadPersona();
+        const persona = loadPersona(this.personaDir);
         return void this.client.sendMessage(chatId, persona ? persona.slice(0, 3500) : `Ich bin ${AGENT_NAME}. (Noch keine Persona-Dateien in ~/.morningstar/.)`);
       }
       case "remember":
@@ -514,7 +518,7 @@ export class TelegramGateway {
 
   /** Carry's persona block (SOUL/USER/MEMORY/AGENTS), reloaded per request so edits apply live. */
   private systemPrefix(): string {
-    const persona = loadPersona();
+    const persona = loadPersona(this.personaDir);
     return persona ? `${persona}\n\n` : "";
   }
 

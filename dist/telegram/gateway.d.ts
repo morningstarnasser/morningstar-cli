@@ -14,6 +14,8 @@ export interface GatewayDeps {
     approvalTimeoutMs?: number;
     /** Inject storage explicitly; fake-client test seams default to memory-only. */
     sessionStore?: SessionStore;
+    /** Isolate identity fixtures without reading the operator's private profile. */
+    personaDir?: string;
 }
 export declare class TelegramGateway {
     private config;
@@ -33,6 +35,7 @@ export declare class TelegramGateway {
     private approvalTimeoutMs;
     private lastDistillDay;
     private transcribe?;
+    private personaDir?;
     constructor(config: TelegramConfig, deps?: GatewayDeps);
     /** Drive a single update to completion. Public seam for integration tests. */
     processUpdate(update: TelegramUpdate): Promise<void>;
