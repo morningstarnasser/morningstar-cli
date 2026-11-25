@@ -49,6 +49,9 @@ export function TerminalPointer({ children }) {
         const enqueue = (run) => { task = task.then(async () => { if (!disposed)
             await run(); }).catch(() => { viewport.dispose(); }); };
         let finding = false;
+        let historySearch = false;
+        const onHistorySearch = (active) => { historySearch = active; };
+        internal_eventEmitter.on("morningstar:history-search", onHistorySearch);
         const find = (query = "") => { finding = true; enqueue(() => viewport.find(query)); };
         internal_eventEmitter.on("morningstar:find", find);
         let cursorRow = 0, capture;
@@ -167,6 +170,8 @@ export function TerminalPointer({ children }) {
                 return true;
             }
             if (viewport.active) {
+                if (historySearch && !viewport.modal)
+                    return originalEmit.call(this, event, rest, ...args.slice(1));
                 if (rest === "\x03" || rest === "\x19")
                     enqueue(() => viewport.selectedText() ? viewport.copy() : viewport.leave());
                 else if (["\x1b", "\x1b[F", "\x1b[4~", "\x1bOF"].includes(rest))
@@ -197,7 +202,7 @@ export function TerminalPointer({ children }) {
         // Install the mirror before Ink Static prints its first frame; those rows
         // otherwise vanish from selection and detail hit-testing after a refresh.
         setReady(true);
-        return () => { disposed = true; disable(); stdout.write = originalWrite; internal_eventEmitter.emit = originalEmit; internal_eventEmitter.off("morningstar:find", find); internal_eventEmitter.off("morningstar:dock", draw); stdout.off("resize", resize); process.off("exit", disable); };
+        return () => { disposed = true; disable(); stdout.write = originalWrite; internal_eventEmitter.emit = originalEmit; internal_eventEmitter.off("morningstar:find", find); internal_eventEmitter.off("morningstar:history-search", onHistorySearch); internal_eventEmitter.off("morningstar:dock", draw); stdout.off("resize", resize); process.off("exit", disable); };
     }, [stdout, internal_eventEmitter]);
     return _jsx(Context.Provider, { value: targets.current, children: _jsx(DockContext.Provider, { value: dock, children: _jsx(FooterContext.Provider, { value: footer, children: _jsx(TerminalDetails.Provider, { value: details.current, children: ready ? children : null }) }) }) });
 }

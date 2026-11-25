@@ -75,7 +75,6 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
   const [anchor, setAnchor] = useState<number | null>(null);
   const [copyError, setCopyError] = useState("");
   const [historySearch, setHistorySearch] = useState<{ query: string; index: number; draft: string } | null>(null);
-  useEffect(() => { onHistorySearchChange?.(Boolean(historySearch) && isActive); return () => onHistorySearchChange?.(false); }, [Boolean(historySearch), isActive, onHistorySearchChange]);
   const images = useRef<ImageDrafts>();
   images.current ??= new ImageDrafts(seedImages);
   images.current.seed(seedImages);
@@ -89,6 +88,11 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
   editorRef.current = editor;
   const rawInput = useRef("");
   const { internal_eventEmitter } = useStdin();
+  useEffect(() => {
+    const active = Boolean(historySearch) && isActive;
+    onHistorySearchChange?.(active); internal_eventEmitter.emit("morningstar:history-search", active);
+    return () => { onHistorySearchChange?.(false); internal_eventEmitter.emit("morningstar:history-search", false); };
+  }, [Boolean(historySearch), isActive, onHistorySearchChange, internal_eventEmitter]);
   useEffect(() => {
     const capture = (data: string | Buffer) => { rawInput.current = String(data); };
     // Read the exact event before Ink's useInput maps both deletion keys alike.

@@ -88,6 +88,10 @@ test("bottom dock stays at the last content row after short output, resize and l
   assert.equal(screen.buffer.active.getLine(16)!.translateToString(true).trimEnd(), "Context footer");
   // The mirror remains free of artificial padding, preserving searchable history.
   assert.equal(view.terminal.buffer.active.getLine(1)!.translateToString(true), "> draft");
+  await view.scroll(-3); assert.equal(view.active, true);
+  await view.scroll(3); assert.equal(view.active, false);
+  await view.scroll(3); await view.scroll(3); assert.equal(view.active, false);
+  await flush(); assert.equal(screen.buffer.active.getLine(16)!.translateToString(true).trimEnd(), "Context footer");
 });
 
 test("scrollback keeps composer and work status live and follows new output on downward scroll without Esc", async t => {
@@ -107,4 +111,14 @@ test("scrollback keeps composer and work status live and follows new output on d
   view.feed("\x1b[3F\x1b[JNEW RESULT\r\nDONE\r\n> edited draft\r\nstatus done\r\n"); await view.flush();
   await view.scroll(100); await flush();
   assert.equal(view.active, false); assert.match(Array.from({ length: 12 }, (_, n) => row(n)).join("\n"), /NEW RESULT/);
+});
+
+test("completed tall output remains visible when Ink leaves an erased streaming region before a short composer", async t => {
+  let output = "";
+  const view = new TerminalViewport({ columns: 80, rows: 12, dockHeight: () => 2, liveHeight: () => 2, write: s => { output = s; } });
+  t.after(() => view.dispose());
+  view.feed(Array.from({ length: 50 }, (_, i) => `answer ${i}\r\n`).join("") + "STREAM_COMPLETE\r\n" + "\r\n".repeat(35) + "> draft\r\nstatus\r\n");
+  await view.renderLive(); assert.match(output, /STREAM_COMPLETE/); assert.match(output, /> draft/);
+  await view.scroll(-4); await view.scroll(100); assert.equal(view.active, false); assert.match(output, /STREAM_COMPLETE/);
+  await view.scroll(100); assert.equal(view.active, false); assert.match(output, /STREAM_COMPLETE/);
 });

@@ -54,9 +54,9 @@ export class TerminalViewport {
     }
   }
   flush(): Promise<void> { return new Promise(resolve => this.terminal.write("", resolve)); }
-  private lines(terminal = this.terminal, start = 0): Line[] {
+  private lines(terminal = this.terminal, start = 0, end = terminal.buffer.active.length): Line[] {
     const buffer = terminal.buffer.active, lines: Line[] = [];
-    for (let y = start; y < buffer.length; y++) {
+    for (let y = start; y < Math.min(end, buffer.length); y++) {
       const line = buffer.getLine(y)!; const cells: Cell[] = [];
       for (let x = 0; x < line.length; x++) {
         const cell = line.getCell(x)!;
@@ -70,15 +70,24 @@ export class TerminalViewport {
    * to Ink's Static history. A completed/shorter response must not lift input. */
   private liveFrame(includeHistory = false) {
     const buffer = this.terminal.buffer.active;
-    const offset = includeHistory ? 0 : buffer.baseY;
-    const lines = this.lines(this.terminal, offset), top = buffer.baseY - offset;
-    const height = Math.max(0, Math.ceil(this.options.dockHeight?.() ?? 0));
-    const gap = height ? Math.max(0, this.terminal.rows - 1 - buffer.cursorY) : 0;
-    if (gap) {
-      const start = Math.max(top, top + buffer.cursorY - height);
-      lines.splice(start, 0, ...Array.from({ length: gap }, () => ({ cells: [], wrapped: false })));
+    const height = Math.min(this.terminal.rows - 1, Math.max(0, Math.ceil(this.options.dockHeight?.() ?? 0)));
+    if (!height) {
+      const offset = includeHistory ? 0 : buffer.baseY;
+      return { lines: this.lines(this.terminal, offset), top: buffer.baseY - offset, cursorY: buffer.cursorY, cursorX: buffer.cursorX };
     }
-    return { lines, top, cursorY: buffer.cursorY + gap, cursorX: buffer.cursorX };
+    const cursor = buffer.baseY + buffer.cursorY;
+    const dynamicStart = Math.max(0, cursor - height);
+    let bodyEnd = dynamicStart;
+    // Ink can leave the erased tall streaming region between a completed Static
+    // answer and its now-short composer. Fill that gap with the latest answer,
+    // rather than projecting an empty page above the live input.
+    while (bodyEnd > 0 && !buffer.getLine(bodyEnd - 1)?.translateToString(true).trim()) bodyEnd--;
+    const bodyRows = this.terminal.rows - 1 - (cursor - dynamicStart);
+    const start = includeHistory ? 0 : Math.max(0, bodyEnd - bodyRows);
+    const lines = this.lines(this.terminal, start, bodyEnd);
+    const gap = Math.max(0, bodyRows - lines.length);
+    lines.push(...Array.from({ length: gap }, () => ({ cells: [], wrapped: false })), ...this.lines(this.terminal, dynamicStart, cursor), { cells: [], wrapped: false });
+    return { lines, top: Math.max(0, lines.length - this.terminal.rows), cursorY: this.terminal.rows - 1, cursorX: buffer.cursorX };
   }
   async renderLive() {
     if (this.disposed) return;
@@ -105,6 +114,7 @@ export class TerminalViewport {
     this.options.write(`${CSI}?1049h${CSI}?25l`);
   }
   async scroll(amount: number) {
+    if (!this.active && amount > 0) { await this.renderLive(); return; }
     await this.enter();
     // A completed mouse selection must not trap the user in old scrollback.
     if (!this.dragging) { this.anchor = this.end = null; this.notice = ""; }

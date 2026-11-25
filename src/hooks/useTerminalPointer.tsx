@@ -38,6 +38,9 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
     let task = Promise.resolve(), disposed = false;
     const enqueue = (run: () => void | Promise<void>) => { task = task.then(async () => { if (!disposed) await run(); }).catch(() => { viewport.dispose(); }); };
     let finding = false;
+    let historySearch = false;
+    const onHistorySearch = (active: boolean) => { historySearch = active; };
+    internal_eventEmitter.on("morningstar:history-search", onHistorySearch);
     const find = (query = "") => { finding = true; enqueue(() => viewport.find(query)); };
     internal_eventEmitter.on("morningstar:find", find);
     let cursorRow = 0, capture: Target | undefined;
@@ -107,6 +110,7 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
       }
       if (rest === "\x1b[5~" || rest === "\x1b[6~") { enqueue(() => viewport.page(rest === "\x1b[5~" ? -1 : 1)); return true; }
       if (viewport.active) {
+        if (historySearch && !viewport.modal) return originalEmit.call(this, event, rest, ...args.slice(1));
         if (rest === "\x03" || rest === "\x19") enqueue(() => viewport.selectedText() ? viewport.copy() : viewport.leave());
         else if (["\x1b", "\x1b[F", "\x1b[4~", "\x1bOF"].includes(rest)) enqueue(() => viewport.leave());
         else if (["\x1b[H", "\x1b[1~", "\x1bOH"].includes(rest)) enqueue(() => viewport.home());
@@ -132,7 +136,7 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
     // Install the mirror before Ink Static prints its first frame; those rows
     // otherwise vanish from selection and detail hit-testing after a refresh.
     setReady(true);
-    return () => { disposed = true; disable(); stdout.write = originalWrite; internal_eventEmitter.emit = originalEmit; internal_eventEmitter.off("morningstar:find", find); internal_eventEmitter.off("morningstar:dock", draw); stdout.off("resize", resize); process.off("exit", disable); };
+    return () => { disposed = true; disable(); stdout.write = originalWrite; internal_eventEmitter.emit = originalEmit; internal_eventEmitter.off("morningstar:find", find); internal_eventEmitter.off("morningstar:history-search", onHistorySearch); internal_eventEmitter.off("morningstar:dock", draw); stdout.off("resize", resize); process.off("exit", disable); };
   }, [stdout, internal_eventEmitter]);
   return <Context.Provider value={targets.current}><DockContext.Provider value={dock}><FooterContext.Provider value={footer}><TerminalDetails.Provider value={details.current}>{ready ? children : null}</TerminalDetails.Provider></FooterContext.Provider></DockContext.Provider></Context.Provider>;
 }
