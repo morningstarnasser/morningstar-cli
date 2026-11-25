@@ -6,6 +6,7 @@ import { createOutputValidator } from "./structured-output.js";
 import { runRuntimeHooks } from "./runtime-hooks.js";
 import { autonomousSwarmPrompt, executeAutonomousSwarm } from "./swarm-tool.js";
 import { WORK_GUIDANCE } from "./runtime/work-guidance.js";
+import { scopeStatusConclusion } from "./runtime/status-grounding.js";
 import { isMalformedToolAttempt } from "./runtime/tool-protocol.js";
 import { formatConnectedMCPToolsForPrompt, stripGeneratedMCPPrompt } from "./mcp.js";
 import { getOpenAIToolDefinitions } from "./tool-definitions.js";
@@ -707,6 +708,8 @@ export async function runAgent(messages, config, cwd, options = {}) {
                 emit({ type: "tool_result", turn, invocation, result });
             }
         }
+        if (turnResults.length === 0)
+            finalText = scopeStatusConclusion(finalText, toolCalls);
         options.onTurnEnd?.(finalText, turnResults);
         emit({ type: "turn_end", turn, text: finalText, tools: turnResults });
         if (turnResults.length === 0) {
