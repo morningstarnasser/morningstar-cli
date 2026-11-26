@@ -4,7 +4,7 @@ import { mkdtemp, writeFile, mkdir, symlink, rm, truncate, realpath } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { DocumentLinks, readDocument, relativeDocumentHref } from "../src/runtime/document-preview.js";
+import { DocumentLinks, documentLinkIdentity, readDocument, relativeDocumentHref } from "../src/runtime/document-preview.js";
 
 test("file links support spaces, URL encoding and line anchors without changing content", async t => {
   const root = await mkdtemp(join(tmpdir(), "ms-doc-")); t.after(() => rm(root, { recursive: true, force: true }));
@@ -41,4 +41,9 @@ test("link registry resolves a click on its label, not unrelated printed digits"
   assert.equal(links.hit("Vault-Anlei\n   tung [" + link.id + "]", 5)?.id, link.id);
   assert.equal(links.hit("Vault-Anleitung\n   [" + link.id + "]", 20)?.id, link.id);
   links.clear(); assert.equal(links.get(link.id), undefined);
+});
+
+test("Windows document identity joins slash and casing variants without changing POSIX paths", () => {
+  assert.equal(documentLinkIdentity("C:\\Docs\\Guide.md", "win32"), documentLinkIdentity("c:/docs/Guide.md", "win32"));
+  assert.notEqual(documentLinkIdentity("/Docs/Guide.md", "darwin"), documentLinkIdentity("/docs/Guide.md", "darwin"));
 });

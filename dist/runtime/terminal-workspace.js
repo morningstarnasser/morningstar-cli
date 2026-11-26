@@ -3,7 +3,7 @@ import stringWidth from "string-width";
 import { Chalk } from "chalk";
 import { getTheme } from "../theme.js";
 import { displayText } from "./work-log.js";
-import { readDocument, relativeDocumentHref } from "./document-preview.js";
+import { documentLinkIdentity, readDocument, relativeDocumentHref } from "./document-preview.js";
 const tabs = ["Dokumente", "Agenten", "Sitzungen"];
 const c = new Chalk({ level: 3 });
 const segments = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -290,7 +290,7 @@ export class TerminalWorkspace {
         this.sidebar = columns >= 88 ? Math.min(32, Math.floor(columns * .27)) : 0;
         const data = this.data(), theme = getTheme();
         const color = (tone) => c.hex(theme[tone]);
-        this.entries = this.tab === 0 ? [...new Map(this.links.list().map(link => [link.href, link])).values()].map(link => ({ id: link.id, title: link.label, detail: link.href }))
+        this.entries = this.tab === 0 ? [...new Map(this.links.list().map(link => [documentLinkIdentity(link.href), link])).values()].map(link => ({ id: link.id, title: link.label, detail: link.href }))
             : this.tab === 1 ? (data?.agents ?? []).map(agent => ({ id: agent.id, title: `${agent.status === "running" ? "●" : agent.status === "completed" ? "✓" : "○"} ${agent.name}`, detail: `${{ running: "Arbeitet", pending: "Wartet", completed: "Fertig", failed: "Fehler", cancelled: "Abgebrochen" }[agent.status] || agent.status}\n\n${agent.detail}` }))
                 : this.sessionList.map(session => ({ id: session.id, title: session.name, detail: `${session.messageCount} Nachrichten · ${session.savedAt.slice(0, 10)}\n\nR: Diese Sitzung fortsetzen.\nDie aktuelle Sitzung wird vorher gespeichert.` }));
         const stable = this.entries.findIndex(entry => entry.id === this.selectedId);

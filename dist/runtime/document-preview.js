@@ -14,6 +14,9 @@ export function localDocumentHref(href) {
         && (!/^[a-z][\w+.-]*:/i.test(path) || /^(?:file:|qmd:\/\/obsidian\/|[a-z]:[\\/])/i.test(href))
         && !href.startsWith("#") && !/^(?:\\\\|\/\/)/.test(href);
 }
+export function documentLinkIdentity(href, platform = process.platform) {
+    return platform === "win32" && !href.startsWith("qmd:") ? href.replaceAll("\\", "/").toLowerCase() : href;
+}
 /** Static terminal rows retain this small registry after React unmounts them. */
 export class DocumentLinks {
     next = 1;

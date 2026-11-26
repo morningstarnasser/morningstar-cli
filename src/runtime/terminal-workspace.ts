@@ -3,7 +3,7 @@ import stringWidth from "string-width";
 import { Chalk } from "chalk";
 import { getTheme } from "../theme.js";
 import { displayText } from "./work-log.js";
-import { DocumentLinks, readDocument, relativeDocumentHref, type DocumentPreview } from "./document-preview.js";
+import { DocumentLinks, documentLinkIdentity, readDocument, relativeDocumentHref, type DocumentPreview } from "./document-preview.js";
 
 export interface WorkspaceData {
   scope: string; cwd: string; name: string; model: string; status: string; busy: boolean; blocked: boolean;
@@ -187,7 +187,7 @@ export class TerminalWorkspace {
     this.width = columns; this.height = rows; this.sidebar = columns >= 88 ? Math.min(32, Math.floor(columns * .27)) : 0;
     const data = this.data(), theme = getTheme();
     const color = (tone: "primary" | "dim" | "info") => c.hex(theme[tone]);
-    this.entries = this.tab === 0 ? [...new Map(this.links.list().map(link => [link.href, link])).values()].map(link => ({ id: link.id, title: link.label, detail: link.href }))
+    this.entries = this.tab === 0 ? [...new Map(this.links.list().map(link => [documentLinkIdentity(link.href), link])).values()].map(link => ({ id: link.id, title: link.label, detail: link.href }))
       : this.tab === 1 ? (data?.agents ?? []).map(agent => ({ id: agent.id, title: `${agent.status === "running" ? "●" : agent.status === "completed" ? "✓" : "○"} ${agent.name}`, detail: `${({ running: "Arbeitet", pending: "Wartet", completed: "Fertig", failed: "Fehler", cancelled: "Abgebrochen" } as Record<string, string>)[agent.status] || agent.status}\n\n${agent.detail}` }))
       : this.sessionList.map(session => ({ id: session.id, title: session.name, detail: `${session.messageCount} Nachrichten · ${session.savedAt.slice(0, 10)}\n\nR: Diese Sitzung fortsetzen.\nDie aktuelle Sitzung wird vorher gespeichert.` }));
     const stable = this.entries.findIndex(entry => entry.id === this.selectedId);

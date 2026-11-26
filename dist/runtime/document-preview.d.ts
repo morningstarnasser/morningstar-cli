@@ -12,6 +12,7 @@ export interface DocumentPreview {
     markdown: boolean;
 }
 export declare function localDocumentHref(href: string): boolean;
+export declare function documentLinkIdentity(href: string, platform?: NodeJS.Platform): string;
 /** Static terminal rows retain this small registry after React unmounts them. */
 export declare class DocumentLinks {
     private next;
