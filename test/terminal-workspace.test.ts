@@ -64,3 +64,10 @@ test("missing files show an error rather than a stale document; scrolling reache
   await f.workspace.openDocument(join(f.cwd, "missing.md"));
   assert.match(text(f.workspace), /Vorschau nicht verfügbar/); assert.doesNotMatch(text(f.workspace), /Zeile 79/);
 });
+
+test("coalesced Enter and R are handled as two keys when resuming a session", async t => {
+  const f = await fixture(t); f.data.busy = false; f.workspace.open();
+  await f.workspace.input("3"); text(f.workspace);
+  await f.workspace.input("\rr");
+  assert.deepEqual(f.resumed, ["previous"]); assert.equal(f.workspace.active, false);
+});

@@ -113,6 +113,14 @@ export class TerminalWorkspace {
     this.onChange();
   }
   async input(input: string) {
+    // SSH/ConPTY may deliver several keystrokes in one data event. Preserve
+    // complete escape sequences, but process ordinary keys in their order.
+    const keys = input.match(/\x1b\[[\d;]*[A-Za-z~]|\x1bO[A-Z]|\x1b|[^\x1b]/gu) ?? [];
+    if (keys.length > 1) {
+      for (const key of keys) { await this.input(key); if (!this.active) break; }
+      return;
+    }
+    if (["\x1b", "\x02", "\x03"].includes(input)) { this.close(); this.onChange(); return; }
     if (["1", "2", "3"].includes(input)) { this.changeTab(Number(input) - 1); return; }
     if (input === "\t" || input === "b" || input === "\x1b[Z") { this.focus = this.focus === "list" ? "document" : "list"; this.onChange(); return; }
     if (input === "r" && this.tab === 2 && this.selectedId) {
