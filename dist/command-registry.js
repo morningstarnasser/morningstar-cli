@@ -357,6 +357,8 @@ export const MORNINGSTAR_COMMANDS = Object.freeze([
     seed("agents.delegate-list", "delegate:list", "agents", "Verfuegbare Sub-Agents anzeigen"),
     seed("agents.swarm", "swarm", "agents", "Team mit Teilaufgaben und Abhängigkeiten starten", "/swarm <Ziel | @plan.json>", { whenBusy: "queue" }),
     seed("general.activity", "activity", "general", "Arbeitsverlauf: Tools, Agents und Laufzeiten"),
+    seed("general.sidebar", "sidebar", "general", "Seitenleiste: Dokumente, Agenten und Sitzungen (Ctrl+B)", "/sidebar", { whenBusy: "run" }),
+    seed("project.open", "open", "project", "Datei oder Vault-Link in der Vorschau öffnen", "/open <Pfad | Linknummer>", { whenBusy: "run" }),
     seed("general.find", "find", "general", "Verlauf durchsuchen (Ctrl+F; Cmd+F bei Weitergabe durch das Terminal)", "/find [text]", { whenBusy: "run" }),
     seed("agents.parallel", "parallel", "agents", "Mehrere Agents parallel starten", "/parallel <agent,...> <task>", { whenBusy: "queue" }),
     seed("agents.create", "agent:create", "agents", "Neuen Agent erstellen", "/agent:create [definition]", { isAvailable: planned("agent:create") }),

@@ -1,4 +1,7 @@
 import { jsx as _jsx } from "react/jsx-runtime";
+import { TerminalDocuments } from "./useTerminalDocuments.js";
+import { DocumentLinks } from "../runtime/document-preview.js";
+import { TerminalWorkspace } from "../runtime/terminal-workspace.js";
 import { TerminalViewport } from "../runtime/terminal-viewport.js";
 import { joinTerminalInput } from "../runtime/terminal-input.js";
 import { isFindShortcut } from "../runtime/terminal-search.js";
@@ -13,6 +16,7 @@ const FooterContext = createContext(null);
 export function TerminalPointer({ children }) {
     const { internal_eventEmitter } = useStdin(), { stdout } = useStdout();
     const targets = useRef(new Set());
+    const bridge = useRef({ links: new DocumentLinks() });
     const details = useRef(new Map());
     const dock = useRef(null);
     const footer = useRef(null);
@@ -22,7 +26,9 @@ export function TerminalPointer({ children }) {
             return;
         const originalWrite = stdout.write;
         const rawWrite = (data) => { originalWrite.call(stdout, data); };
-        const viewport = new TerminalViewport({ columns: stdout.columns || 80, rows: stdout.rows || 24, write: rawWrite, detail: id => details.current.get(id), dockHeight: () => dock.current ? measureElement(dock.current).height : 0, liveHeight: () => footer.current ? measureElement(footer.current).height : 0 });
+        const workspace = new TerminalWorkspace(bridge.current.links, () => bridge.current.data, () => { if (workspace.active)
+            viewport.paint(); });
+        const viewport = new TerminalViewport({ workspace, links: bridge.current.links, columns: stdout.columns || 80, rows: stdout.rows || 24, write: rawWrite, detail: id => details.current.get(id), dockHeight: () => dock.current ? measureElement(dock.current).height : 0, liveHeight: () => footer.current ? measureElement(footer.current).height : 0 });
         let drawing = false;
         const draw = () => { if (!drawing) {
             drawing = true;
@@ -49,6 +55,25 @@ export function TerminalPointer({ children }) {
         let task = Promise.resolve(), disposed = false;
         const enqueue = (run) => { task = task.then(async () => { if (!disposed)
             await run(); }).catch(() => { viewport.dispose(); }); };
+        const workspaceUpdate = () => { if (workspace.active)
+            viewport.paint(); };
+        const workspaceOpen = (href) => enqueue(async () => {
+            if (workspace.active && !href) {
+                await viewport.leave();
+                return;
+            }
+            finding = false;
+            if (viewport.modal)
+                await viewport.leave();
+            await viewport.enter();
+            if (href)
+                void workspace.openDocument(bridge.current.links.get(href)?.href || href);
+            else
+                workspace.open();
+            viewport.paint();
+        });
+        internal_eventEmitter.on("morningstar:workspace-update", workspaceUpdate);
+        internal_eventEmitter.on("morningstar:workspace", workspaceOpen);
         let finding = false;
         let historySearch = false;
         const onHistorySearch = (active) => { historySearch = active; };
@@ -74,6 +99,10 @@ export function TerminalPointer({ children }) {
             return { left: left + 1, top: cursorRow - (root.yogaNode?.getComputedHeight() ?? 0) + top, width, height };
         };
         const dispatch = async (e) => {
+            if (workspace.active) {
+                void viewport.pointer(e.kind, e.x, e.y);
+                return;
+            }
             if (viewport.active && !viewport.isLiveRow(e.y) && !capture) {
                 await viewport.pointer(e.kind, e.x, e.y);
                 return;
@@ -136,7 +165,8 @@ export function TerminalPointer({ children }) {
                 }
                 pasteBuffer = null;
                 const pasted = value.slice(0, end);
-                if (finding || viewport.searching)
+                if (workspace.active) { /* Pasted prose never runs commands while browsing. */ }
+                else if (finding || viewport.searching)
                     enqueue(() => viewport.searchInput(pasted));
                 else
                     originalEmit.call(this, "input", pasted, ...args.slice(1));
@@ -158,7 +188,7 @@ export function TerminalPointer({ children }) {
                     const button = Number(code);
                     if (button & 64) {
                         if (suffix === "M")
-                            enqueue(() => viewport.scroll(button & 1 ? 3 : -3));
+                            enqueue(() => viewport.scroll(button & 1 ? 3 : -3, Number(x)));
                     }
                     else if ((button & 3) === 0) {
                         const e = { x: Number(x), y: Number(y), kind: suffix === "m" ? "up" : button & 32 ? "move" : "down", shift: Boolean(button & 4) };
@@ -179,6 +209,22 @@ export function TerminalPointer({ children }) {
             });
             if (!rest)
                 return true;
+            if (rest === "\x02") {
+                workspaceOpen();
+                return true;
+            }
+            if (workspace.active) {
+                enqueue(async () => {
+                    if (rest === "\x1b" || rest === "\x03")
+                        await viewport.leave();
+                    else
+                        void workspace.input(rest).then(async () => { if (!workspace.active)
+                            await viewport.leave();
+                        else
+                            viewport.paint(); });
+                });
+                return true;
+            }
             if (isFindShortcut(rest)) {
                 find();
                 return true;
@@ -227,9 +273,9 @@ export function TerminalPointer({ children }) {
         // Install the mirror before Ink Static prints its first frame; those rows
         // otherwise vanish from selection and detail hit-testing after a refresh.
         setReady(true);
-        return () => { disposed = true; disable(); stdout.write = originalWrite; internal_eventEmitter.emit = originalEmit; internal_eventEmitter.off("morningstar:find", find); internal_eventEmitter.off("morningstar:history-search", onHistorySearch); internal_eventEmitter.off("morningstar:dock", draw); stdout.off("resize", resize); process.off("exit", disable); };
+        return () => { disposed = true; disable(); stdout.write = originalWrite; internal_eventEmitter.emit = originalEmit; internal_eventEmitter.off("morningstar:workspace", workspaceOpen); internal_eventEmitter.off("morningstar:workspace-update", workspaceUpdate); internal_eventEmitter.off("morningstar:find", find); internal_eventEmitter.off("morningstar:history-search", onHistorySearch); internal_eventEmitter.off("morningstar:dock", draw); stdout.off("resize", resize); process.off("exit", disable); };
     }, [stdout, internal_eventEmitter]);
-    return _jsx(Context.Provider, { value: targets.current, children: _jsx(DockContext.Provider, { value: dock, children: _jsx(FooterContext.Provider, { value: footer, children: _jsx(TerminalDetails.Provider, { value: details.current, children: ready ? children : null }) }) }) });
+    return _jsx(Context.Provider, { value: targets.current, children: _jsx(DockContext.Provider, { value: dock, children: _jsx(FooterContext.Provider, { value: footer, children: _jsx(TerminalDetails.Provider, { value: details.current, children: _jsx(TerminalDocuments.Provider, { value: stdout.isTTY && process.env.MORNINGSTAR_MOUSE !== "0" ? bridge.current : null, children: ready ? children : null }) }) }) }) });
 }
 export function TerminalLiveFooter({ children }) {
     const footer = useContext(FooterContext);

@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.3.5** (2026-11-26).
+Current release: **1.4.0** (2026-11-26).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -96,6 +96,8 @@ The Codex adapter observes its public tool events and retains its read-only sand
 | `/rename <name>` | Rename the current session |
 | `/rewind` or double Esc | Pick a message to restore or summarize from/up to; preserve the old conversation |
 | `/activity` | Inspect the latest public tool activity |
+| `/sidebar` or Ctrl+B | Open the sidebar with documents, agents and project sessions |
+| `/open <path or link number>` | Read a local file or Vault note in the document preview |
 | `/find [text]` | Search the retained terminal transcript; Ctrl+F opens the same view |
 | `/swarm` | Start a team; active workers appear below, then hand results to the main agent and close |
 | `/telegram on`, `/telegram off` | Connect/disconnect Telegram for this terminal conversation |
@@ -139,6 +141,33 @@ terminal snapshot; work continues in the background. Reopen search for newer out
 **Ctrl+R** searches submitted prompts. Type to filter, use Ctrl+R/Up for an older match,
 Down for a newer match, and Enter/Tab to put it in the composer for editing. This does not
 submit the match. Esc cancels search and restores the draft, including while work runs.
+
+## Sidebar and document preview
+
+Click a file link such as **Project guide [3]** in an assistant answer to read the
+file inside Morningstar. **Ctrl+B** or `/sidebar` opens the same workspace with
+three tabs: documents, agents and saved sessions in the current project. The
+project README and instruction files appear automatically; links from the current
+session join that list. `/open README.md`, `/open 3` and `/open "docs/My guide.md"`
+provide keyboard access. Absolute file paths, `file:` URLs and `:line`/`#Lline`
+positions are supported. Ordinary web links remain visible URLs.
+
+Use **1/2/3** or click a tab, **Up/Down** and **Enter** to choose an entry, and
+**Tab** to move focus between the list and preview. The mouse wheel and Page Up/Down
+scroll the document. **Esc** or **Ctrl+B** returns to the chat with the composer
+intact. Below 88 columns the list and document use separate views; Tab switches
+between them. The navigator is a reading view: work continues, live agent details
+and status update, and approvals remain in the chat. It does not accept new prompts.
+In Sessions, **R** resumes the selected session after saving the current one;
+switching is blocked while a task or another dialog is active.
+
+Preview reads are local and are not added to model context or Telegram messages.
+Files must resolve inside the project or `MORNINGSTAR_VAULT_DIR` (default:
+`~/Documents/obsidian-vault`), including after symlink resolution. Credentials,
+private keys, binary/special files and files above 512 KiB are refused. Existing
+`qmd://obsidian/…` links use the configured QMD command and its existing path filter,
+with a labelled preview of at most 1,000 lines. The navigator requires the interactive
+terminal renderer; `MORNINGSTAR_MOUSE=0` disables it together with the mouse layer.
 
 ## Active learning and review
 
@@ -363,7 +392,7 @@ The `website/` package has its own lockfile and build. Follow [AGENTS.md](AGENTS
 [CLAUDE.md](CLAUDE.md) before contributing.
 
 The release checks include the complete test suite on Mac and Windows, typecheck, build,
-OSV scanning and terminal keyboard/mouse read-back. See [1.3.5 Telegram recovery](docs/release-1.3.5-2026-11-26.md), [1.3.4 native local tools and Telegram presentation](docs/release-1.3.4-2026-11-26.md), [1.3.3 large MCP catalogs and Telegram errors](docs/release-1.3.3-2026-11-25.md), [1.3.2 configured local images](docs/release-1.3.2-2026-11-25.md), [1.3.1 Telegram connection checks](docs/release-1.3.1-2026-11-25.md), [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
+OSV scanning and terminal keyboard/mouse read-back. See [1.4.0 sidebar and document links](docs/release-1.4.0-2026-11-26.md), [1.3.5 Telegram recovery](docs/release-1.3.5-2026-11-26.md), [1.3.4 native local tools and Telegram presentation](docs/release-1.3.4-2026-11-26.md), [1.3.3 large MCP catalogs and Telegram errors](docs/release-1.3.3-2026-11-25.md), [1.3.2 configured local images](docs/release-1.3.2-2026-11-25.md), [1.3.1 Telegram connection checks](docs/release-1.3.1-2026-11-25.md), [1.3.0 Telegram, workers and rendering](docs/release-1.3.0-2026-11-25.md), [1.2.0 learning and live interaction](docs/release-1.2.0-2026-11-25.md), [1.1.2 input history changes](docs/release-1.1.2-2026-11-25.md) and
 [1.1.1 release verification](docs/release-1.1.1-2026-11-24.md);
 a package version or screenshot alone is not an inference, security or cross-platform guarantee.
 

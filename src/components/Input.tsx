@@ -438,7 +438,7 @@ export function Input({ onSubmit, activeAgent, planMode, permissionMode = "ask",
       )}
       <Text color={dim}>{rule}</Text>
       <Text color={dim}> <Text bold color={permissionMode === "bypassPermissions" ? warning : permissionMode === "plan" ? accent : primary}>{interactionModeLabel(permissionMode)}</Text>{modeLocked ? " · verwaltet" : " · Tab Modus wechseln · Shift+Tab zurück"}{isProcessing ? " · nächster Auftrag" : ""}</Text>
-      <Text color={dim}> {selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "↑↓ Verlauf · Ctrl+R Eingabe suchen" : "↑↓ Verlauf · Ctrl+R Eingabe suchen · Ctrl+F Ausgabe suchen · Mausrad scrollt"}</Text>
+      <Text color={dim}> {selection ? `${[...selection].length} Zeichen markiert · Ctrl+C kopieren · Ctrl+X ausschneiden` : columns < 72 ? "↑↓ Verlauf · Ctrl+R Eingabe suchen" : "↑↓ Verlauf · Ctrl+R Eingabe suchen · Ctrl+F Ausgabe · Ctrl+B Seitenleiste"}</Text>
     </Box>
   );
 }

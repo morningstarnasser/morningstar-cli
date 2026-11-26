@@ -1,3 +1,4 @@
+import { useWorkspaceData } from "./hooks/useTerminalDocuments.js";
 import { telegramConnectionMessage } from "./telegram/connection-errors.js";
 import { loadImageBackend } from "./image-backend.js";
 import { getTelegramToolDefinitions } from "./telegram/channel-tools.js";
@@ -922,6 +923,12 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
     const arg = parts.slice(1).join(" ");
 
     switch (cmd) {
+      case "/sidebar":
+      case "/open":
+        if (!process.stdout.isTTY || process.env.MORNINGSTAR_MOUSE === "0") addOutput({ type: "info", content: "Die Vorschau benötigt ein interaktives Terminal mit aktivierter Morningstar-Maussteuerung." });
+        else if (cmd === "/open" && !arg) addOutput({ type: "info", content: "Nutzung: /open <Pfad oder Linknummer> · /sidebar öffnet die Dokumentliste." });
+        else internal_eventEmitter.emit("morningstar:workspace", cmd === "/open" ? arg.replace(/^"|"$/g, "") : undefined);
+        return true;
       case "/telegram":
       case "/telegram:configure":
       case "/telegram:access":
@@ -3316,6 +3323,14 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
   ].map(b => [b.taskId ?? b.agentId, b])).values()].map(b => {
     const note = agentNotes.current.get(b.taskId ?? b.agentId);
     return { ...b, detail: [note?.task, b.detail, note?.text].filter(Boolean).join("\n\n") };
+  });
+  useWorkspaceData({
+    scope: `${cwd}:${session.id}`, cwd, name: session.name, model: config.model, busy: isProcessing || commandBusy.current,
+    blocked: Boolean(pendingApproval || showRemoteMenu || showRewind || showSessionPicker || showModelPicker || showLoginPicker || pendingKeyOption || oauthRunning || telegramSetup),
+    status: pendingApproval ? "Freigabe wartet im Chat" : isProcessing ? taskLabel || "Morningstar arbeitet" : "Bereit",
+    conversation: [...messages.filter(m => ["user", "assistant"].includes(m.role) && !m.contextKind).slice(-4).map(m => `${m.role === "user" ? "Du" : "Morningstar"}: ${m.content}`), streamText].filter(Boolean).join("\n\n").slice(-12000),
+    agents: allBranches.map(b => ({ id: b.taskId ?? b.agentId, name: b.agentId, status: b.status, detail: b.detail })),
+    sessions: () => session.list(), resume: id => changeSession("resume", id),
   });
   const transcriptRevision = useRef({ messages, revision: 0 });
   if (transcriptRevision.current.messages !== messages) transcriptRevision.current = { messages, revision: transcriptRevision.current.revision + 1 };

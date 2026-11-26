@@ -7,6 +7,7 @@ import { useTerminalColumns } from "../hooks/useTerminalColumns.js";
 import { displayText } from "../runtime/work-log.js";
 import { CodeBlock } from "./CodeBlock.js";
 import stringWidth from "string-width";
+import { DocumentLinkText } from "../hooks/useTerminalDocuments.js";
 /** No HTML/ANSI execution: Markdown becomes Ink elements, never terminal commands. */
 export function markdownTokens(text) {
     return Lexer.lex(displayText(text), { gfm: true });
@@ -21,7 +22,7 @@ function Inline({ tokens }) {
                 case "codespan": return _jsx(Text, { color: t.info, children: token.text }, i);
                 case "del": return _jsx(Text, { strikethrough: true, color: t.dim, children: child }, i);
                 case "br": return _jsx(Text, { children: "\n" }, i);
-                case "link": return _jsxs(Text, { color: t.info, underline: true, children: [child, token.href !== token.text ? ` (${displayText(token.href)})` : ""] }, i);
+                case "link": return _jsx(DocumentLinkText, { label: displayText(token.text), href: token.href }, i);
                 case "image": return _jsxs(Text, { color: t.info, children: ["[Bild: ", token.text || token.href, "]"] }, i);
                 default: return _jsx(Text, { children: child }, i);
             }

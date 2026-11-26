@@ -129,7 +129,12 @@ export class TerminalViewport {
         this.paintedRows = [];
         this.options.write(`${CSI}?1049h${CSI}?25l`);
     }
-    async scroll(amount) {
+    async scroll(amount, x) {
+        if (this.options.workspace?.active) {
+            this.options.workspace.scroll(amount, x);
+            this.paint();
+            return;
+        }
         if (!this.active && amount > 0) {
             await this.renderLive();
             return;
@@ -152,7 +157,7 @@ export class TerminalViewport {
         this.paint();
     }
     async page(direction) { await this.scroll(direction * Math.max(1, this.terminal.rows - 3)); }
-    get modal() { return this.searching || Boolean(this.detailTitle); }
+    get modal() { return Boolean(this.options.workspace?.active) || this.searching || Boolean(this.detailTitle); }
     get pinnedHeight() { return this.modal ? 0 : Math.min(this.terminal.rows - 3, Math.max(0, Math.ceil(this.options.liveHeight?.() ?? 0))); }
     isLiveRow(y) { return this.active && !this.modal && y > this.terminal.rows - 1 - this.pinnedHeight && y < this.terminal.rows; }
     async home() { await this.enter(); this.top = 0; this.paint(); }
@@ -204,6 +209,7 @@ export class TerminalViewport {
         this.updateSearch();
     }
     async leave() {
+        this.options.workspace?.close();
         if (!this.active)
             return;
         await this.flush();
@@ -226,6 +232,27 @@ export class TerminalViewport {
         if (this.snapshot[row]?.cells[column]?.width === 0)
             column = Math.max(0, column - 1);
         return { row, column };
+    }
+    async openClickedDocument(point) {
+        if (!this.options.links || !this.options.workspace || this.searching || this.detailTitle)
+            return false;
+        const start = Math.max(0, point.row - 5), end = Math.min(this.snapshot.length - 1, point.row + 5);
+        let text = "", offset = 0;
+        for (let row = start; row <= end; row++) {
+            const cells = this.snapshot[row].cells;
+            const line = cells.filter(c => c.width).map(c => c.text).join("").trimEnd();
+            if (row < point.row)
+                offset += line.length + 1;
+            if (row === point.row)
+                offset += cells.slice(0, point.column).filter(c => c.width).map(c => c.text).join("").length;
+            text += line + "\n";
+        }
+        const link = this.options.links.hit(text, offset);
+        if (!link)
+            return false;
+        void this.options.workspace.openDocument(link.href);
+        this.paint();
+        return true;
     }
     async openClickedDetail(point) {
         if (this.searching || this.detailTitle || !this.options.detail)
@@ -257,6 +284,16 @@ export class TerminalViewport {
         }
     }
     async pointer(kind, x, y) {
+        if (this.options.workspace?.active) {
+            if (kind === "up") {
+                await this.options.workspace.click(x, y);
+                if (!this.options.workspace.active)
+                    await this.leave();
+                else
+                    this.paint();
+            }
+            return;
+        }
         if (this.active && kind === "down" && y >= this.terminal.rows) {
             if (!this.searching)
                 await this.leave();
@@ -278,7 +315,7 @@ export class TerminalViewport {
                 this.dragging = false;
                 if (this.selectedText())
                     await this.copy();
-                else if (this.anchor && await this.openClickedDetail(this.anchor))
+                else if (this.anchor && (await this.openClickedDocument(this.anchor) || await this.openClickedDetail(this.anchor)))
                     return;
                 else
                     this.anchor = this.end = null;
@@ -389,8 +426,19 @@ export class TerminalViewport {
         const text = `${live} · ${hint}${updates}`;
         return `${CSI}${this.terminal.rows};1H${CSI}0;7m${CSI}2K${text.slice(0, this.terminal.cols - 1)}${CSI}0m`;
     }
-    paint() { if (this.active && !this.disposed)
-        this.options.write(this.frame(this.snapshot, this.top, true)); }
+    paint() {
+        if (!this.active || this.disposed)
+            return;
+        if (this.options.workspace?.active) {
+            const rows = this.options.workspace.frame(this.terminal.cols, this.terminal.rows).map((row, i) => `${CSI}${i + 1};1H${CSI}0m${row}${CSI}0m${CSI}K`);
+            const changes = rows.filter((row, i) => row !== this.paintedRows[i]).join("");
+            this.paintedRows = rows;
+            if (changes)
+                this.options.write(`${CSI}?2026h${CSI}?25l${changes}${CSI}?2026l`);
+        }
+        else
+            this.options.write(this.frame(this.snapshot, this.top, true));
+    }
     resize(columns, rows) {
         if (this.disposed)
             return;
@@ -414,9 +462,16 @@ export class TerminalViewport {
             this.terminal.write(`\x1b7${CSI}${Math.max(1, buffer.cursorY - dockHeight + 1)};1H${CSI}J\x1b8`);
         }
         this.terminal.resize(columns, rows);
-        void this.renderLive();
+        if (this.options.workspace?.active) {
+            this.active = true;
+            this.options.write(`${CSI}?1049h`);
+            this.paint();
+        }
+        else
+            void this.renderLive();
     }
     dispose() {
+        this.options.workspace?.close();
         if (this.disposed)
             return;
         if (this.active)

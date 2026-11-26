@@ -1,5 +1,9 @@
 import xterm from "@xterm/headless";
+import type { TerminalWorkspace } from "./terminal-workspace.js";
+import type { DocumentLinks } from "./document-preview.js";
 export interface ViewportOptions {
+    workspace?: TerminalWorkspace;
+    links?: DocumentLinks;
     columns: number;
     rows: number;
     write: (data: string) => void;
@@ -43,7 +47,7 @@ export declare class TerminalViewport {
     /** Align the first short frame if Morningstar started below an existing shell prompt. */
     alignCursor(row: number): Promise<void>;
     enter(): Promise<void>;
-    scroll(amount: number): Promise<void>;
+    scroll(amount: number, x?: number): Promise<void>;
     page(direction: number): Promise<void>;
     get modal(): boolean;
     private get pinnedHeight();
@@ -55,6 +59,7 @@ export declare class TerminalViewport {
     searchInput(input: string): Promise<void>;
     leave(): Promise<void>;
     private point;
+    private openClickedDocument;
     private openClickedDetail;
     pointer(kind: "down" | "move" | "up", x: number, y: number): Promise<void>;
     private bounds;

@@ -1,3 +1,6 @@
+import { TerminalDocuments, type WorkspaceBridge } from "./useTerminalDocuments.js";
+import { DocumentLinks } from "../runtime/document-preview.js";
+import { TerminalWorkspace } from "../runtime/terminal-workspace.js";
 import { TerminalViewport } from "../runtime/terminal-viewport.js";
 import { joinTerminalInput } from "../runtime/terminal-input.js";
 import { isFindShortcut } from "../runtime/terminal-search.js";
@@ -14,6 +17,7 @@ const FooterContext = createContext<React.MutableRefObject<DOMElement | null> | 
 export function TerminalPointer({ children }: { children: React.ReactNode }) {
   const { internal_eventEmitter } = useStdin(), { stdout } = useStdout();
   const targets = useRef(new Set<Target>());
+  const bridge = useRef<WorkspaceBridge>({ links: new DocumentLinks() });
   const details = useRef(new Map<string, TerminalDetail>());
   const dock = useRef<DOMElement | null>(null);
   const footer = useRef<DOMElement | null>(null);
@@ -22,7 +26,8 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
     if (!stdout.isTTY || process.env.MORNINGSTAR_MOUSE === "0") return;
     const originalWrite = stdout.write;
     const rawWrite = (data: string) => { originalWrite.call(stdout, data); };
-    const viewport = new TerminalViewport({ columns: stdout.columns || 80, rows: stdout.rows || 24, write: rawWrite, detail: id => details.current.get(id), dockHeight: () => dock.current ? measureElement(dock.current).height : 0, liveHeight: () => footer.current ? measureElement(footer.current).height : 0 });
+    const workspace = new TerminalWorkspace(bridge.current.links, () => bridge.current.data, () => { if (workspace.active) viewport.paint(); });
+    const viewport = new TerminalViewport({ workspace, links: bridge.current.links, columns: stdout.columns || 80, rows: stdout.rows || 24, write: rawWrite, detail: id => details.current.get(id), dockHeight: () => dock.current ? measureElement(dock.current).height : 0, liveHeight: () => footer.current ? measureElement(footer.current).height : 0 });
     let drawing = false;
     const draw = () => { if (!drawing) { drawing = true; queueMicrotask(() => { drawing = false; void viewport.renderLive(); }); } };
     internal_eventEmitter.on("morningstar:dock", draw);
@@ -38,6 +43,18 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
     }) as typeof stdout.write;
     let task = Promise.resolve(), disposed = false;
     const enqueue = (run: () => void | Promise<void>) => { task = task.then(async () => { if (!disposed) await run(); }).catch(() => { viewport.dispose(); }); };
+    const workspaceUpdate = () => { if (workspace.active) viewport.paint(); };
+    const workspaceOpen = (href?: string) => enqueue(async () => {
+      if (workspace.active && !href) { await viewport.leave(); return; }
+      finding = false;
+      if (viewport.modal) await viewport.leave();
+      await viewport.enter();
+      if (href) void workspace.openDocument(bridge.current.links.get(href)?.href || href);
+      else workspace.open();
+      viewport.paint();
+    });
+    internal_eventEmitter.on("morningstar:workspace-update", workspaceUpdate);
+    internal_eventEmitter.on("morningstar:workspace", workspaceOpen);
     let finding = false;
     let historySearch = false;
     const onHistorySearch = (active: boolean) => { historySearch = active; };
@@ -55,6 +72,7 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
       return { left: left + 1, top: cursorRow - (root.yogaNode?.getComputedHeight() ?? 0) + top, width, height };
     };
     const dispatch = async (e: Pointer) => {
+      if (workspace.active) { void viewport.pointer(e.kind, e.x, e.y); return; }
       if (viewport.active && !viewport.isLiveRow(e.y) && !capture) { await viewport.pointer(e.kind, e.x, e.y); return; }
       let hit = false;
       for (const target of capture ? [capture] : [...targets.current].reverse()) {
@@ -89,7 +107,8 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
         if (end < 0) { pasteBuffer = value.slice(0, 1_048_576); return true; }
         pasteBuffer = null;
         const pasted = value.slice(0, end);
-        if (finding || viewport.searching) enqueue(() => viewport.searchInput(pasted));
+        if (workspace.active) { /* Pasted prose never runs commands while browsing. */ }
+        else if (finding || viewport.searching) enqueue(() => viewport.searchInput(pasted));
         else originalEmit.call(this, "input", pasted, ...args.slice(1));
         const rest = value.slice(end + 6);
         if (rest) internal_eventEmitter.emit("input", rest);
@@ -101,7 +120,7 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
           enqueue(async () => { for (const e of queued) await dispatch(e); });
         } else {
           const button = Number(code);
-          if (button & 64) { if (suffix === "M") enqueue(() => viewport.scroll(button & 1 ? 3 : -3)); }
+          if (button & 64) { if (suffix === "M") enqueue(() => viewport.scroll(button & 1 ? 3 : -3, Number(x))); }
           else if ((button & 3) === 0) {
             const e: Pointer = { x: Number(x), y: Number(y), kind: suffix === "m" ? "up" : button & 32 ? "move" : "down", shift: Boolean(button & 4) };
             enqueue(async () => {
@@ -113,6 +132,14 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
         return "";
       });
       if (!rest) return true;
+      if (rest === "\x02") { workspaceOpen(); return true; }
+      if (workspace.active) {
+        enqueue(async () => {
+          if (rest === "\x1b" || rest === "\x03") await viewport.leave();
+          else void workspace.input(rest).then(async () => { if (!workspace.active) await viewport.leave(); else viewport.paint(); });
+        });
+        return true;
+      }
       if (isFindShortcut(rest)) { find(); return true; }
       if (finding || viewport.searching) {
         if (rest === "\x1b" || rest === "\x03") finding = false;
@@ -147,9 +174,9 @@ export function TerminalPointer({ children }: { children: React.ReactNode }) {
     // Install the mirror before Ink Static prints its first frame; those rows
     // otherwise vanish from selection and detail hit-testing after a refresh.
     setReady(true);
-    return () => { disposed = true; disable(); stdout.write = originalWrite; internal_eventEmitter.emit = originalEmit; internal_eventEmitter.off("morningstar:find", find); internal_eventEmitter.off("morningstar:history-search", onHistorySearch); internal_eventEmitter.off("morningstar:dock", draw); stdout.off("resize", resize); process.off("exit", disable); };
+    return () => { disposed = true; disable(); stdout.write = originalWrite; internal_eventEmitter.emit = originalEmit; internal_eventEmitter.off("morningstar:workspace", workspaceOpen); internal_eventEmitter.off("morningstar:workspace-update", workspaceUpdate); internal_eventEmitter.off("morningstar:find", find); internal_eventEmitter.off("morningstar:history-search", onHistorySearch); internal_eventEmitter.off("morningstar:dock", draw); stdout.off("resize", resize); process.off("exit", disable); };
   }, [stdout, internal_eventEmitter]);
-  return <Context.Provider value={targets.current}><DockContext.Provider value={dock}><FooterContext.Provider value={footer}><TerminalDetails.Provider value={details.current}>{ready ? children : null}</TerminalDetails.Provider></FooterContext.Provider></DockContext.Provider></Context.Provider>;
+  return <Context.Provider value={targets.current}><DockContext.Provider value={dock}><FooterContext.Provider value={footer}><TerminalDetails.Provider value={details.current}><TerminalDocuments.Provider value={stdout.isTTY && process.env.MORNINGSTAR_MOUSE !== "0" ? bridge.current : null}>{ready ? children : null}</TerminalDocuments.Provider></TerminalDetails.Provider></FooterContext.Provider></DockContext.Provider></Context.Provider>;
 }
 export function TerminalLiveFooter({ children }: { children: React.ReactNode }) {
   const footer = useContext(FooterContext);

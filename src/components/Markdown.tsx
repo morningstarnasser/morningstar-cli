@@ -6,6 +6,7 @@ import { useTerminalColumns } from "../hooks/useTerminalColumns.js";
 import { displayText } from "../runtime/work-log.js";
 import { CodeBlock } from "./CodeBlock.js";
 import stringWidth from "string-width";
+import { DocumentLinkText } from "../hooks/useTerminalDocuments.js";
 
 /** No HTML/ANSI execution: Markdown becomes Ink elements, never terminal commands. */
 export function markdownTokens(text: string): Token[] {
@@ -22,7 +23,7 @@ function Inline({ tokens }: { tokens: Token[] }) {
       case "codespan": return <Text key={i} color={t.info}>{token.text}</Text>;
       case "del": return <Text key={i} strikethrough color={t.dim}>{child}</Text>;
       case "br": return <Text key={i}>{"\n"}</Text>;
-      case "link": return <Text key={i} color={t.info} underline>{child}{token.href !== token.text ? ` (${displayText(token.href)})` : ""}</Text>;
+      case "link": return <DocumentLinkText key={i} label={displayText(token.text)} href={token.href} />;
       case "image": return <Text key={i} color={t.info}>[Bild: {token.text || token.href}]</Text>;
       default: return <Text key={i}>{child}</Text>;
     }

@@ -20,6 +20,8 @@ const SHORTCUTS = [
   ["Shift+← / →", "Text markieren; mit Ctrl wortweise"],
   ["Ctrl+S / Ctrl+X", "Gesamte Eingabe markieren / Auswahl ausschneiden"],
   ["Alt+Enter", "Neue Zeile in der Eingabe"],
+  ["Ctrl+B /sidebar", "Seitenleiste: Dokumente, Agenten und Sitzungen"],
+  ["Dateilink anklicken /open", "Lokale Datei oder Vault-Notiz als Vorschau lesen"],
   ["Maus + Cmd+C", "Terminal-Ausgabe markieren und kopieren (Mac)"],
   ["Ctrl+O", "Letzte Tool-Gruppe ein-/ausklappen"],
   ["↑ / ↓", "Ältere / neuere Eingabe; ↓ zurück zum Entwurf, auch im Lauf"],
