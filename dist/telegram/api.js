@@ -4,6 +4,16 @@
 // so retries/timeouts live in a single place.
 const TELEGRAM_API = "https://api.telegram.org";
 const MAX_MESSAGE_LEN = 4096;
+export class TelegramApiError extends Error {
+    status;
+    retryAfterSeconds;
+    constructor(status, description, retryAfterSeconds) {
+        super(`Telegram API failed (${status}): ${description}`);
+        this.status = status;
+        this.retryAfterSeconds = retryAfterSeconds;
+        this.name = "TelegramApiError";
+    }
+}
 /**
  * Split a long string into Telegram-safe chunks (<= 4096 chars). Prefers to
  * break on newline boundaries; a single line longer than the limit is hard-split.
@@ -54,9 +64,22 @@ export class TelegramClient {
                 body: JSON.stringify(body ?? {}),
                 signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
             });
-            const data = (await res.json());
-            if (!data.ok) {
-                throw new Error(`Telegram ${method} failed (${data.error_code}): ${data.description}`);
+            let data;
+            try {
+                data = await res.json();
+            }
+            catch (error) {
+                if (!res.ok)
+                    throw new TelegramApiError(res.status, "Serverantwort ist kein gültiges JSON.");
+                throw error;
+            }
+            if (!res.ok || !data?.ok) {
+                const status = Number.isInteger(data?.error_code) ? data.error_code : res.status;
+                const description = String(data?.description ?? "Anfrage abgewiesen.")
+                    .replaceAll(this.token, "[Token entfernt]").replace(/https?:\/\/\S+/gi, "[URL entfernt]")
+                    .replace(/\d{6,}:[A-Za-z0-9_-]{20,}/g, "[Token entfernt]").replace(/[\x00-\x1f\x7f]/g, " ").slice(0, 300);
+                const retry = data?.parameters?.retry_after;
+                throw new TelegramApiError(status, description, typeof retry === "number" && Number.isSafeInteger(retry) && retry > 0 && retry <= 2147483 ? retry : undefined);
             }
             return data.result;
         }
@@ -119,7 +142,10 @@ export class TelegramClient {
     }
     /** Long-poll for updates. `timeout` is the server-side hold time in seconds. */
     async getUpdates(offset, timeout = 50, signal) {
-        return this.call("getUpdates", { offset, timeout, allowed_updates: ["message", "callback_query"] }, (timeout + 15) * 1000, signal);
+        const updates = await this.call("getUpdates", { offset, timeout, allowed_updates: ["message", "callback_query"] }, (timeout + 15) * 1000, signal);
+        if (!Array.isArray(updates) || updates.some(update => !update || !Number.isSafeInteger(update.update_id) || update.update_id < 0))
+            throw new SyntaxError("Telegram lieferte keine gültige Update-Liste.");
+        return updates;
     }
     /** Resolve a file_id to a downloadable file_path. */
     async getFile(fileId) {

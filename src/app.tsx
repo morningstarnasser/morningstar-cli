@@ -364,6 +364,7 @@ function AppBody({ config: initialConfig, ctx, chatOnly, skipPermissions: initia
   const telegramBridge = useRef<{ message: (text: string, images?: import("./types.js").ImageAttachment[]) => Promise<void> }>({ message: async () => { throw new Error("Sitzung noch nicht bereit."); } });
   const [telegramSetup, setTelegramSetup] = useState(false);
   const [telegramName, setTelegramName] = useState("");
+  const [telegramConnection, setTelegramConnection] = useState<"connected" | "reconnecting" | "stopped">("stopped");
   const remoteBridge = useRef<{ snapshot: () => RemoteSnapshot; action: (action: RemoteAction) => void }>({ snapshot: () => { throw new Error("Noch nicht bereit"); }, action: () => { throw new Error("Noch nicht bereit"); } });
   const remoteStarting = useRef(false);
   const commandBusy = useRef(false);
@@ -848,7 +849,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
     if (action === "configure") { if (value) throw new Error("Token nur im verdeckten Eingabefeld eingeben: /telegram:configure"); setTelegramSetup(true); return; }
     if (action === "off") { telegramRef.current?.stop(); telegramRef.current = null; setTelegramName(""); addOutput({ type: "info", content: "Telegram getrennt; die Terminal-Sitzung läuft weiter." }); return; }
     if (action === "on") {
-      if (telegramRef.current?.running || telegramStarting.current) { addOutput({ type: "info", content: "Telegram ist bereits verbunden oder wird verbunden." }); return; }
+      if (telegramRef.current?.running || telegramStarting.current) { addOutput({ type: "info", content: telegramRef.current?.connectionSummary ?? "Telegram-Verbindung wird gestartet." }); return; }
       telegramStarting.current = true;
       try {
         const [{ TelegramChannel }, { loadTelegramConfig }] = await Promise.all([import("./telegram/channel.js"), import("./telegram/config.js")]);
@@ -857,6 +858,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
         const channel = new TelegramChannel({ token: settings.token, allowedUsers: settings.allowedUsers,
           snapshot: () => remoteBridge.current.snapshot(), message: (text, images) => telegramBridge.current.message(text, images),
           action: action => remoteBridge.current.action(action), notice: content => { addOutput({ type: "notice", content }); if (!telegramRef.current?.running) setTelegramName(""); },
+          onConnectionStatus: setTelegramConnection,
         });
         telegramRef.current = channel;
         const name = await channel.start(); setTelegramName(name);
@@ -869,7 +871,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
     if (action === "pair") { channel.access.pair(value); addOutput({ type: "success", content: "Telegram-Account gekoppelt. Zugriff ist auf die freigegebenen Accounts begrenzt." }); return; }
     if (action === "policy") { channel.access.policy(value); addOutput({ type: "info", content: `Telegram-Zugriff: ${value}` }); return; }
     if (action === "revoke") { if (!/^\d+$/.test(value)) throw new Error("Numerische Telegram-Nutzer-ID erforderlich."); channel.access.revoke(Number(value)); addOutput({ type: "info", content: "Telegram-Zugriff widerrufen." }); return; }
-    addOutput({ type: "info", content: `Telegram @${channel.username} · ${channel.access.state.policy} · ${channel.access.state.users.length} erlaubte Accounts\nDiese Sitzung ist verbunden. /telegram off trennt sie.` });
+    addOutput({ type: "info", content: `Telegram @${channel.username} · ${channel.access.state.policy} · ${channel.access.state.users.length} erlaubte Accounts\n${channel.connectionSummary} /telegram off trennt sie.` });
   }
 
   async function finishDelegation(task: string, results: import("./sub-agents.js").SubAgentResult[], runConfig: CLIConfig, signal: AbortSignal) {
@@ -3584,7 +3586,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
         </Box> : null}
         </Box>
         <TerminalLiveFooter>
-        {telegramName ? <Text color={dim} wrap="truncate"> Telegram · @{telegramName} · diese Sitzung · /telegram off</Text> : null}
+        {telegramName ? <Text color={dim} wrap="truncate"> Telegram · @{telegramName} · {telegramConnection === "reconnecting" ? "verbindet erneut" : "diese Sitzung"} · /telegram off</Text> : null}
         <AgentFooter branches={footerBranches} selected={inspectedAgent} onSelect={setInspectedAgent} />
         {isProcessing ? <Text color={dim} wrap="truncate"> {liveTree && !liveTree.treeDone ? liveTree.treeTitle : taskLabel || "Morningstar arbeitet"}{taskTurn ? ` · Schritt ${taskTurn}` : ""}</Text> : null}
         {/* Input */}

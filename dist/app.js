@@ -242,6 +242,7 @@ function AppBody({ config: initialConfig, ctx, chatOnly, skipPermissions: initia
     const telegramBridge = useRef({ message: async () => { throw new Error("Sitzung noch nicht bereit."); } });
     const [telegramSetup, setTelegramSetup] = useState(false);
     const [telegramName, setTelegramName] = useState("");
+    const [telegramConnection, setTelegramConnection] = useState("stopped");
     const remoteBridge = useRef({ snapshot: () => { throw new Error("Noch nicht bereit"); }, action: () => { throw new Error("Noch nicht bereit"); } });
     const remoteStarting = useRef(false);
     const commandBusy = useRef(false);
@@ -819,7 +820,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
         }
         if (action === "on") {
             if (telegramRef.current?.running || telegramStarting.current) {
-                addOutput({ type: "info", content: "Telegram ist bereits verbunden oder wird verbunden." });
+                addOutput({ type: "info", content: telegramRef.current?.connectionSummary ?? "Telegram-Verbindung wird gestartet." });
                 return;
             }
             telegramStarting.current = true;
@@ -835,6 +836,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                     snapshot: () => remoteBridge.current.snapshot(), message: (text, images) => telegramBridge.current.message(text, images),
                     action: action => remoteBridge.current.action(action), notice: content => { addOutput({ type: "notice", content }); if (!telegramRef.current?.running)
                         setTelegramName(""); },
+                    onConnectionStatus: setTelegramConnection,
                 });
                 telegramRef.current = channel;
                 const name = await channel.start();
@@ -868,7 +870,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
             addOutput({ type: "info", content: "Telegram-Zugriff widerrufen." });
             return;
         }
-        addOutput({ type: "info", content: `Telegram @${channel.username} · ${channel.access.state.policy} · ${channel.access.state.users.length} erlaubte Accounts\nDiese Sitzung ist verbunden. /telegram off trennt sie.` });
+        addOutput({ type: "info", content: `Telegram @${channel.username} · ${channel.access.state.policy} · ${channel.access.state.users.length} erlaubte Accounts\n${channel.connectionSummary} /telegram off trennt sie.` });
     }
     async function finishDelegation(task, results, runConfig, signal) {
         setLiveTree(null);
@@ -3469,7 +3471,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                                 }
                                 catch (error) {
                                     addOutput({ type: "error", content: error.message });
-                                } }, onClose: () => setShowSessionPicker(false) }) : null, inspectedAgent ? _jsxs(Box, { flexDirection: "column", borderStyle: "round", borderColor: accent, paddingX: 1, children: [_jsx(Text, { bold: true, color: accent, children: displayText(allBranches.find(b => (b.taskId ?? b.agentId) === inspectedAgent)?.agentId ?? inspectedAgent) }), _jsx(Text, { children: displayText(allBranches.find(b => (b.taskId ?? b.agentId) === inspectedAgent)?.detail ?? "").slice(0, 1600) }), _jsx(ActivityFeed, { entries: activity.filter(e => e.agent === inspectedAgent), active: isProcessing }), output.filter(o => o.type === "work-log" && o.toolLabel === inspectedAgent).slice(-1).map(renderOutputItem)] }) : null] }), _jsxs(TerminalLiveFooter, { children: [telegramName ? _jsxs(Text, { color: dim, wrap: "truncate", children: [" Telegram \u00B7 @", telegramName, " \u00B7 diese Sitzung \u00B7 /telegram off"] }) : null, _jsx(AgentFooter, { branches: footerBranches, selected: inspectedAgent, onSelect: setInspectedAgent }), isProcessing ? _jsxs(Text, { color: dim, wrap: "truncate", children: [" ", liveTree && !liveTree.treeDone ? liveTree.treeTitle : taskLabel || "Morningstar arbeitet", taskTurn ? ` · Schritt ${taskTurn}` : ""] }) : null, _jsx(Box, { marginTop: 0, children: _jsx(Input, { initialValue: inputDraft, seedImages: [...messages.flatMap(m => m.images ?? []), ...draftImages], onSendNow: () => { if (abortRef.current) {
+                                } }, onClose: () => setShowSessionPicker(false) }) : null, inspectedAgent ? _jsxs(Box, { flexDirection: "column", borderStyle: "round", borderColor: accent, paddingX: 1, children: [_jsx(Text, { bold: true, color: accent, children: displayText(allBranches.find(b => (b.taskId ?? b.agentId) === inspectedAgent)?.agentId ?? inspectedAgent) }), _jsx(Text, { children: displayText(allBranches.find(b => (b.taskId ?? b.agentId) === inspectedAgent)?.detail ?? "").slice(0, 1600) }), _jsx(ActivityFeed, { entries: activity.filter(e => e.agent === inspectedAgent), active: isProcessing }), output.filter(o => o.type === "work-log" && o.toolLabel === inspectedAgent).slice(-1).map(renderOutputItem)] }) : null] }), _jsxs(TerminalLiveFooter, { children: [telegramName ? _jsxs(Text, { color: dim, wrap: "truncate", children: [" Telegram \u00B7 @", telegramName, " \u00B7 ", telegramConnection === "reconnecting" ? "verbindet erneut" : "diese Sitzung", " \u00B7 /telegram off"] }) : null, _jsx(AgentFooter, { branches: footerBranches, selected: inspectedAgent, onSelect: setInspectedAgent }), isProcessing ? _jsxs(Text, { color: dim, wrap: "truncate", children: [" ", liveTree && !liveTree.treeDone ? liveTree.treeTitle : taskLabel || "Morningstar arbeitet", taskTurn ? ` · Schritt ${taskTurn}` : ""] }) : null, _jsx(Box, { marginTop: 0, children: _jsx(Input, { initialValue: inputDraft, seedImages: [...messages.flatMap(m => m.images ?? []), ...draftImages], onSendNow: () => { if (abortRef.current) {
                                         steeringRef.current = true;
                                         abortRef.current.abort();
                                         cancelApprovals();

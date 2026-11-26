@@ -2,8 +2,28 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chunkMessage } from "../src/telegram/api.js";
 
+test("Telegram errors retain HTTP status and retry_after without leaking token or HTML bodies", async t => {
+  const { TelegramClient } = await import("../src/telegram/api.js");
+  const client = new TelegramClient("fixture-secret-token");
+  let limited = false;
+  t.mock.method(globalThis, "fetch", async () => limited
+    ? Response.json({ ok: false, error_code: 429, description: "Retry https://example.test/fixture-secret-token", parameters: { retry_after: 37 } }, { status: 429 })
+    : new Response("<html>upstream-private-details</html>", { status: 502 }));
+  await assert.rejects(client.getMe(), (error: any) => error.status === 502 && !/upstream-private-details/.test(error.message));
+  limited = true;
+  await assert.rejects(client.getMe(), (error: any) => error.status === 429 && error.retryAfterSeconds === 37 && !/fixture-secret-token|example.test/.test(error.message));
+});
+
 test("short text stays one chunk", () => {
   assert.deepEqual(chunkMessage("hello"), ["hello"]);
+});
+
+test("malformed update batches cannot become offsets or channel input", async t => {
+  const { TelegramClient } = await import("../src/telegram/api.js");
+  const client = new TelegramClient("fixture"); let result: unknown;
+  t.mock.method(globalThis, "fetch", async () => Response.json({ ok: true, result }));
+  for (result of [null, {}, [null], [{ update_id: "9" }], [{ update_id: -1 }]]) await assert.rejects(client.getUpdates(91, 0), /gültige Update-Liste/);
+  result = []; assert.deepEqual(await client.getUpdates(91, 0), []);
 });
 
 test("rich Telegram messages preserve threading, clear buttons and only fall back for entity errors", async t => {

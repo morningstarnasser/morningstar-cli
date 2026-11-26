@@ -2,6 +2,7 @@ import type { ImageAttachment } from "../types.js";
 import type { RemoteSnapshot, RemoteAction } from "../remote-control.js";
 import { TelegramClient, type TelegramUpdate } from "./api.js";
 import { TelegramAccess } from "./channel-access.js";
+import { type TelegramConnectionState } from "./polling-recovery.js";
 type Client = Pick<TelegramClient, "getMe" | "getWebhookInfo" | "getUpdates" | "sendMessage" | "sendKeyboard" | "editMessageText" | "answerCallbackQuery" | "sendChatAction" | "getFile" | "downloadFile"> & Partial<Pick<TelegramClient, "sendFile" | "react" | "editOwnMessage" | "sendRichMessage" | "editRichMessage" | "setMyCommands">>;
 export interface TelegramChannelOptions {
     token: string;
@@ -12,6 +13,7 @@ export interface TelegramChannelOptions {
     message: (text: string, images?: ImageAttachment[]) => Promise<void>;
     action: (action: RemoteAction) => void | Promise<void>;
     notice: (message: string) => void;
+    onConnectionStatus?: (status: TelegramConnectionState["status"]) => void;
 }
 /** Telegram is a transport for the existing TUI session, not another agent. */
 export declare class TelegramChannel {
@@ -32,6 +34,11 @@ export declare class TelegramChannel {
     private ticking;
     private connectedAt;
     private linked?;
+    private recovery;
+    private diagnosticFailed;
+    get connectionState(): Readonly<TelegramConnectionState>;
+    get connectionSummary(): string;
+    private publishConnection;
     constructor(options: TelegramChannelOptions);
     start(poll?: boolean): Promise<string>;
     stop(): void;

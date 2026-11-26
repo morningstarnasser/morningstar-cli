@@ -1,6 +1,6 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { TelegramChannel } from "../src/telegram/channel.js";
@@ -213,4 +213,28 @@ test("poll conflicts mark the channel offline before notifying the footer", asyn
   assert.match(telegramConnectionMessage(new Error("401 Unauthorized")), /Token ungültig/);
   assert.match(telegramConnectionMessage(new Error("409 Conflict")), /anderen Sitzung/);
   assert.doesNotMatch(telegramConnectionMessage(new Error("network failure https://api.telegram.org/botSECRET")), /SECRET/);
+});
+
+test("isolated polling disconnects recover without repeated transcript warnings", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+  const f = fixture(t); let reads = 0; const offsets: number[] = [];
+  f.channel.access.state.offset = 91;
+  f.client.getUpdates = async (offset?: number) => {
+    offsets.push(offset!);
+    if (++reads <= 2) throw new TypeError("fetch failed", { cause: Object.assign(new Error("private-url"), { code: "ECONNRESET" }) });
+    if (reads === 3) return [f.update(100, "ignored unauthorized input", 43)];
+    return new Promise(resolve => f.channel.running && t.after(() => resolve([])));
+  };
+  const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+  await f.channel.start(); await settle();
+  assert.equal(f.notices.length, 0, "one transient network failure must not flood the transcript");
+  t.mock.timers.tick(5000); await settle();
+  t.mock.timers.tick(5000); await settle();
+  assert.ok(reads >= 3); assert.equal(f.notices.length, 0);
+  assert.equal(f.channel.running, true);
+  assert.deepEqual(offsets, [91, 91, 91, 101]); assert.equal(f.prompts.length, 0);
+  const persisted = JSON.parse(readFileSync(join(f.channel.access.dir, "connection.json"), "utf8"));
+  assert.equal(persisted.status, "connected"); assert.equal(persisted.consecutiveFailures, 0);
+  assert.match(persisted.lastError, /ECONNRESET/); assert.doesNotMatch(JSON.stringify(persisted), /private-url/);
+  f.channel.stop();
 });

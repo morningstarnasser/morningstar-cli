@@ -1,6 +1,5 @@
-import { telegramConnectionMessage } from "./connection-errors.js";
 import { randomBytes } from "node:crypto";
-import { mkdirSync, writeFileSync, unlinkSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync, writeFileSync, unlinkSync, readFileSync, statSync, lstatSync, renameSync } from "node:fs";
 import { join, basename, extname } from "node:path";
 import { resolveWithinWorkspace } from "../file-guards.js";
 import { registerTelegramTools } from "./channel-tools.js";
@@ -10,6 +9,7 @@ import { isMalformedToolAttempt } from "../runtime/tool-protocol.js";
 import { telegramPages, telegramToolLabel } from "./presentation.js";
 import { TelegramClient } from "./api.js";
 import { TelegramAccess } from "./channel-access.js";
+import { TelegramPollingRecovery, waitForTelegramRetry } from "./polling-recovery.js";
 /** Telegram is a transport for the existing TUI session, not another agent. */
 export class TelegramChannel {
     options;
@@ -29,6 +29,38 @@ export class TelegramChannel {
     ticking = false;
     connectedAt = 0;
     linked;
+    recovery = new TelegramPollingRecovery();
+    diagnosticFailed = false;
+    get connectionState() { return { ...this.recovery.state }; }
+    get connectionSummary() {
+        const state = this.recovery.state;
+        return state.status === "reconnecting"
+            ? `Verbindet erneut · ${state.lastError} · ${state.consecutiveFailures} fehlgeschlagene Abfragen. Wiederholung automatisch.`
+            : state.status === "connected" ? "Diese Sitzung ist verbunden." : "Telegram ist getrennt.";
+    }
+    publishConnection() {
+        if (!this.release)
+            return;
+        this.options.onConnectionStatus?.(this.recovery.state.status);
+        const temporary = join(this.access.dir, `connection-${randomBytes(8).toString("hex")}.tmp`);
+        try {
+            if (lstatSync(this.access.dir).isSymbolicLink())
+                throw new Error("Invalid state directory");
+            writeFileSync(temporary, JSON.stringify(this.recovery.state), { flag: "wx", mode: 0o600 });
+            renameSync(temporary, join(this.access.dir, "connection.json"));
+        }
+        catch {
+            if (!this.diagnosticFailed)
+                this.options.notice("Telegram-Verbindungsdiagnose konnte nicht gespeichert werden.");
+            this.diagnosticFailed = true;
+        }
+        finally {
+            try {
+                unlinkSync(temporary);
+            }
+            catch { }
+        }
+    }
     constructor(options) {
         this.options = options;
         this.client = options.client ?? new TelegramClient(options.token);
@@ -65,6 +97,7 @@ export class TelegramChannel {
         }
         this.running = true;
         this.connectedAt = Math.floor(Date.now() / 1000);
+        this.publishConnection();
         if (this.client.setMyCommands)
             void this.client.setMyCommands().catch(() => this.options.notice("Telegram-Befehlsmenü konnte nicht aktualisiert werden; /help bleibt verfügbar."));
         if (poll) {
@@ -78,6 +111,8 @@ export class TelegramChannel {
         this.controller.abort();
         if (this.timer)
             clearInterval(this.timer);
+        this.recovery.stop();
+        this.publishConnection();
         this.queue = [];
         this.callbacks.clear();
         this.release?.();
@@ -139,23 +174,40 @@ export class TelegramChannel {
     }
     async poll() {
         while (this.running) {
+            let updates;
             try {
-                for (const update of await this.client.getUpdates(this.access.state.offset, 25, this.controller.signal)) {
-                    if (!this.running)
-                        break;
-                    await this.handle(update);
-                }
+                updates = await this.client.getUpdates(this.access.state.offset, 25, this.controller.signal);
             }
             catch (error) {
                 if (!this.running)
                     break;
-                if (/409|401|Unauthorized|Conflict/.test(String(error.message))) {
+                const retry = this.recovery.failure(error);
+                if (retry.fatal)
                     this.stop();
-                    this.options.notice(telegramConnectionMessage(error));
+                else
+                    this.publishConnection();
+                if (retry.notice)
+                    this.options.notice(retry.notice);
+                if (retry.fatal)
                     break;
+                await waitForTelegramRetry(retry.delayMs, this.controller.signal);
+                continue;
+            }
+            if (!this.running)
+                break;
+            const recovered = this.recovery.success();
+            this.publishConnection();
+            if (recovered)
+                this.options.notice(recovered);
+            for (const update of updates) {
+                if (!this.running)
+                    break;
+                try {
+                    await this.handle(update);
                 }
-                this.options.notice("Telegram vorübergehend nicht erreichbar. Erneuter Versuch in wenigen Sekunden.");
-                await new Promise(resolve => setTimeout(resolve, 3000));
+                catch {
+                    this.options.notice("Telegram-Nachricht konnte nicht verarbeitet werden. Die Empfangsverbindung bleibt aktiv; /status erneut senden.");
+                }
             }
         }
     }

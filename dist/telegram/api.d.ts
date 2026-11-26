@@ -53,6 +53,11 @@ export interface InlineButton {
     text: string;
     callback_data: string;
 }
+export declare class TelegramApiError extends Error {
+    readonly status: number;
+    readonly retryAfterSeconds?: number | undefined;
+    constructor(status: number, description: string, retryAfterSeconds?: number | undefined);
+}
 /**
  * Split a long string into Telegram-safe chunks (<= 4096 chars). Prefers to
  * break on newline boundaries; a single line longer than the limit is hard-split.
