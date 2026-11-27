@@ -7,6 +7,7 @@ import { runRuntimeHooks } from "./runtime-hooks.js";
 import { autonomousSwarmPrompt, executeAutonomousSwarm } from "./swarm-tool.js";
 import { WORK_GUIDANCE } from "./runtime/work-guidance.js";
 import { measuredStatusReport } from "./runtime/status-report.js";
+import { loadStatusShortcuts, planStatusShortcut, statusShortcutCalls, statusShortcutReport } from "./runtime/status-shortcuts.js";
 import { requestsFreshKnownStatus, scopeStatusConclusion, withStatusOperatorReminder } from "./runtime/status-grounding.js";
 import { isMalformedToolAttempt } from "./runtime/tool-protocol.js";
 import { formatConnectedMCPToolsForPrompt, stripGeneratedMCPPrompt } from "./mcp.js";
@@ -314,6 +315,9 @@ export async function runAgent(messages, config, cwd, options = {}) {
         finalText = promptHook.messages.join("\n");
         return complete(true);
     }
+    const statusPlan = options.enableTools !== false && !config.jsonSchema && !options.toolExecFn && maxTurns >= 2 && !promptHook.messages.length
+        ? planStatusShortcut(currentTask, options.statusShortcuts === false ? undefined
+            : options.statusShortcuts ?? (options.streamFn ? undefined : loadStatusShortcuts())) : undefined;
     if (config.selfImprovement === true && !config.noSessionPersistence && options.enableTools !== false && options.enableSwarm !== false && !signal?.aborted) {
         try {
             learning = new ActiveLearning(cwd, messages.filter(m => m.role === "user" && !m.contextKind).at(-1)?.content ?? "");
@@ -332,7 +336,7 @@ export async function runAgent(messages, config, cwd, options = {}) {
     }
     if (promptHook.messages.length)
         conversation.push({ role: "user", contextKind: "knowledge", content: `Hook context:\n${promptHook.messages.join("\n")}` });
-    if (config.autoKnowledge && options.enableTools !== false && !signal?.aborted) {
+    if (config.autoKnowledge && !statusPlan && options.enableTools !== false && !signal?.aborted) {
         const beforeKnowledge = conversation.length;
         const allowed = async (tool, command) => {
             if (toolAllowlist && !toolAllowlist.has(tool))
@@ -383,6 +387,15 @@ export async function runAgent(messages, config, cwd, options = {}) {
         const turn = turnIndex + 1;
         turns = turn;
         emit({ type: "turn_start", turn });
+        if (statusPlan && turnIndex > 0) {
+            finalText = statusShortcutReport(statusPlan, toolCalls);
+            options.onContent?.(finalText);
+            emit({ type: "content_delta", turn, delta: finalText });
+            options.onTurnEnd?.(finalText, []);
+            emit({ type: "turn_end", turn, text: finalText, tools: [] });
+            conversation.push({ role: "assistant", content: finalText });
+            break;
+        }
         const measuredReport = measuredStatusReport(currentTask, toolCalls);
         let response = "";
         const nativeCalls = new Map();
@@ -390,7 +403,7 @@ export async function runAgent(messages, config, cwd, options = {}) {
         try {
             // `true` is intentional: every supporting provider should expose native
             // tools to the canonical runner.
-            for await (const token of streamFn(compactRequest(providerMessages(), config.contextChars).messages, providerConfig, signal, options.enableTools ?? true)) {
+            for await (const token of statusPlan ? statusShortcutCalls(statusPlan) : streamFn(compactRequest(providerMessages(), config.contextChars).messages, providerConfig, signal, options.enableTools ?? true)) {
                 if (signal?.aborted)
                     return complete(true);
                 if (token.type === "backend_activity" && token.activity) {

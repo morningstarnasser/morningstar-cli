@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.5.3** (2026-11-27).
+Current release: **1.5.4** (2026-11-27).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -382,6 +382,44 @@ guarantee that the model cannot make mistakes. Avoid copying unrelated credentia
 or host-specific configuration between computers.
 
 See [settings, hooks and parity details](docs/claude-parity-2026-11-23.md).
+
+## Fast configured status reads (1.5.4)
+
+Short requests such as `lab and cloud status` can run without a model round trip.
+Create the optional user file `~/.morningstar/status-shortcuts.json`:
+
+```json
+{
+  "version": 1,
+  "targets": [
+    { "id": "lab", "aliases": ["lab", "lab server"],
+      "source": { "kind": "ssh", "destination": "operator@lab.example",
+        "services": ["network.service"] } },
+    { "id": "cloud", "aliases": ["cloud"],
+      "source": { "kind": "mcp", "server": "host_status",
+        "tool": "entity_status", "entity": "cloud" } }
+  ]
+}
+```
+
+SSH uses an existing login and verified host key with a fixed Linux read-only
+command (hostname, uptime, memory, root disk, named service states). Optional
+`port` and absolute `identityFile` select an existing connection. No arbitrary
+commands, credentials, key installation or host-key bypass are supported.
+The MCP route needs the exact configured server/tool already connected.
+
+Every word must match an explicit target alias or a supported status-request word.
+Unknown targets, analysis, historical questions, additional actions, structured
+JSON answers and tool-free modes keep the normal model path. An incomplete
+configuration never executes only part of the request. Invalid config falls back
+to the normal path. Remove the file to disable shortcuts.
+
+Tools still pass through permissions, approvals, capability restrictions, hooks,
+cancellation and the normal transcript. Denied, failed and unreadable results
+are reported explicitly. Measured reports use no model tokens; inference for
+other tasks is unchanged. User config is private and excluded from releases.
+The shared terminal/print runtime and standalone Telegram chat support shortcuts;
+custom stream integrations must explicitly pass `statusShortcuts` to `runAgent`.
 
 ## Connected live status (1.1.1)
 

@@ -7,6 +7,7 @@ import { runRuntimeHooks } from "./runtime-hooks.js";
 import { autonomousSwarmPrompt, executeAutonomousSwarm, type SwarmEvent } from "./swarm-tool.js";
 import { WORK_GUIDANCE } from "./runtime/work-guidance.js";
 import { measuredStatusReport } from "./runtime/status-report.js";
+import { loadStatusShortcuts, planStatusShortcut, statusShortcutCalls, statusShortcutReport, type StatusShortcutTarget } from "./runtime/status-shortcuts.js";
 import { requestsFreshKnownStatus, scopeStatusConclusion, withStatusOperatorReminder } from "./runtime/status-grounding.js";
 import { isMalformedToolAttempt } from "./runtime/tool-protocol.js";
 import { formatConnectedMCPToolsForPrompt, stripGeneratedMCPPrompt } from "./mcp.js";
@@ -129,6 +130,8 @@ export type AgentLifecycleEvent =
   | { type: "completion"; result: AgentRunResult };
 
 export interface AgentRunOptions {
+  /** Optional trusted status routes; false disables the per-user shortcut file. */
+  statusShortcuts?: StatusShortcutTarget[] | false;
   /** Root runs may delegate; workers cannot recursively start teams. */
   enableSwarm?: boolean;
   /** Optional model/tool turn cap. Omitted or 0 means unlimited. */
@@ -515,6 +518,9 @@ export async function runAgent(
   const hooks = config.runtimeSettings?.trustedHooks;
   const promptHook = await runRuntimeHooks(hooks, "UserPromptSubmit", { cwd, session_id: config.sessionId, prompt: messages.filter((m) => m.role === "user").at(-1)?.content }, signal);
   if (!promptHook.allowed) { finalText = promptHook.messages.join("\n"); return complete(true); }
+  const statusPlan = options.enableTools !== false && !config.jsonSchema && !options.toolExecFn && maxTurns >= 2 && !promptHook.messages.length
+    ? planStatusShortcut(currentTask, options.statusShortcuts === false ? undefined
+      : options.statusShortcuts ?? (options.streamFn ? undefined : loadStatusShortcuts())) : undefined;
   if (config.selfImprovement === true && !config.noSessionPersistence && options.enableTools !== false && options.enableSwarm !== false && !signal?.aborted) {
     try {
       learning = new ActiveLearning(cwd, messages.filter(m => m.role === "user" && !m.contextKind).at(-1)?.content ?? "");
@@ -528,7 +534,7 @@ export async function runAgent(
   }
   if (promptHook.messages.length) conversation.push({ role: "user", contextKind: "knowledge", content: `Hook context:\n${promptHook.messages.join("\n")}` });
 
-  if (config.autoKnowledge && options.enableTools !== false && !signal?.aborted) {
+  if (config.autoKnowledge && !statusPlan && options.enableTools !== false && !signal?.aborted) {
     const beforeKnowledge = conversation.length;
     const allowed = async (tool: "skill" | "vault", command: string) => {
       if (toolAllowlist && !toolAllowlist.has(tool)) return false;
@@ -572,6 +578,16 @@ export async function runAgent(
     turns = turn;
     emit({ type: "turn_start", turn });
 
+    if (statusPlan && turnIndex > 0) {
+      finalText = statusShortcutReport(statusPlan, toolCalls);
+      options.onContent?.(finalText);
+      emit({ type: "content_delta", turn, delta: finalText });
+      options.onTurnEnd?.(finalText, []);
+      emit({ type: "turn_end", turn, text: finalText, tools: [] });
+      conversation.push({ role: "assistant", content: finalText });
+      break;
+    }
+
     const measuredReport = measuredStatusReport(currentTask, toolCalls);
     let response = "";
     const nativeCalls = new Map<string, { id: string; name: string; arguments: string }>();
@@ -580,7 +596,7 @@ export async function runAgent(
     try {
       // `true` is intentional: every supporting provider should expose native
       // tools to the canonical runner.
-      for await (const token of streamFn(
+      for await (const token of statusPlan ? statusShortcutCalls(statusPlan) : streamFn(
         compactRequest(providerMessages(), config.contextChars).messages,
         providerConfig,
         signal,

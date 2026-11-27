@@ -1,5 +1,6 @@
 import { prepareKnowledge } from "./knowledge.js";
 import { type SwarmEvent } from "./swarm-tool.js";
+import { type StatusShortcutTarget } from "./runtime/status-shortcuts.js";
 import type { Decision, PolicyVerdict } from "./policy-engine.js";
 import type { Message, CLIConfig, ToolResult } from "./types.js";
 import type { ParsedToolCall } from "./tools.js";
@@ -90,6 +91,8 @@ export type AgentLifecycleEvent = SwarmEvent | {
     result: AgentRunResult;
 };
 export interface AgentRunOptions {
+    /** Optional trusted status routes; false disables the per-user shortcut file. */
+    statusShortcuts?: StatusShortcutTarget[] | false;
     /** Root runs may delegate; workers cannot recursively start teams. */
     enableSwarm?: boolean;
     /** Optional model/tool turn cap. Omitted or 0 means unlimited. */

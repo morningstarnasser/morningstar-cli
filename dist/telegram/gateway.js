@@ -25,6 +25,7 @@ import { parseTasks, runParallel, formatParallelResults } from "../parallel-agen
 import { loadPersona, seedPersonaDefaults, AGENT_NAME } from "../persona.js";
 import { formatHud } from "../tui-format.js";
 import { escapeApprovalDisplay } from "../approval-display.js";
+import { loadStatusShortcuts } from "../runtime/status-shortcuts.js";
 const FALLBACK_MODEL = "nvidia/moonshotai/kimi-k2-instruct";
 const CRON_TICK_MS = 20000;
 const DEFAULT_APPROVAL_TIMEOUT_MS = 120_000;
@@ -405,6 +406,7 @@ export class TelegramGateway {
         const systemPrompt = this.systemPrefix() + buildSystemPrompt(ctx) + TELEGRAM_SYSTEM_SUFFIX + (recall ? `\n\n${recall}` : "");
         const messages = [{ role: "system", content: systemPrompt }, ...session.messages];
         return runAgent(messages, config, session.cwd, {
+            statusShortcuts: this.streamFn ? false : loadStatusShortcuts(),
             signal,
             maxTurns: this.config.maxTurns,
             streamFn: this.buildStreamFn(primary),
@@ -524,6 +526,7 @@ export class TelegramGateway {
                 { role: "user", content: job.prompt },
             ];
             const result = await runAgent(messages, config, job.cwd, {
+                statusShortcuts: this.streamFn ? false : loadStatusShortcuts(),
                 maxTurns: this.config.maxTurns,
                 streamFn: this.buildStreamFn(config.model),
                 textToolExecFn: this.textToolExecFn,
@@ -550,6 +553,7 @@ export class TelegramGateway {
                 { role: "user", content: buildDistillPrompt(outcomes) },
             ];
             const result = await runAgent(messages, config, this.config.defaultCwd, {
+                statusShortcuts: this.streamFn ? false : loadStatusShortcuts(),
                 maxTurns: 1,
                 streamFn: this.buildStreamFn(config.model),
                 textToolExecFn: this.textToolExecFn,
