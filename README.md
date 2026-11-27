@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.5.1** (2026-11-27).
+Current release: **1.5.2** (2026-11-27).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -14,10 +14,10 @@ Built with TypeScript, React/Ink and Shiki.
 | Long tasks | Unlimited turns by default; optional turn/cost limits, cancellation and no-progress detection |
 | Tools | Files, edits, shell, search, Git and supported integrations through the shared permission/runtime layer |
 | Swarm | Live workers in the pinned footer, dependencies, actual task states and result handoff to the main agent |
-| Work log | Executed commands, exit status, output and actual red/green file diffs with addition/deletion counts |
+| Work log | Colored commands and paths, measured duration, exit codes, counted expandable output and red/green file diffs |
 | Input | Cursor placement, selection, multiline input, persistent ↑/↓ history, Ctrl+R search and queued messages |
 | Output | Markdown, syntax highlighting, scrollback with live composer/status, automatic bottom follow and selection/copy |
-| Learning | Project-scoped durable corrections and repeated verified checks; /learn inspects or disables learning |
+| Learning | Project-scoped durable corrections and repeated verified checks; unresolved references and immediate follow-up tasks are excluded; /learn inspects or disables learning |
 | Review | /review reads staged/unstaged diffs and files with enforced read-only tools |
 | Images | Numbered `[Image #1]` attachments with real image data for supported providers |
 | Sessions | New, clear, resume, rename, conversation rewind and summarization checkpoints |

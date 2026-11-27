@@ -129,6 +129,9 @@ export interface AgentRunOptions {
     onApproval?: (request: ToolApprovalRequest) => ToolApprovalResponse | Promise<ToolApprovalResponse>;
     /** Inject a fake model stream (tests). Defaults to the real provider. */
     streamFn?: StreamFn;
+    /** Structured callers such as the planner validate empty output and own
+     * their bounded repair loop. Normal interactive/print runs must not opt out. */
+    deferEmptyResponseValidation?: boolean;
     /** Injectable local knowledge retrieval, still gated by tool policy. */
     knowledgeFn?: typeof prepareKnowledge;
     /** Legacy whole-response executor retained for compatibility. */

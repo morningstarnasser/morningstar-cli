@@ -79,7 +79,7 @@ if (subcommand === "cron") {
 }
 
 // ─── Config ──────────────────────────────────────────────
-const VERSION = "1.5.1";
+const VERSION = "1.5.2";
 const sessionStart = Date.now();
 
 // ─── CLI Setup ───────────────────────────────────────────

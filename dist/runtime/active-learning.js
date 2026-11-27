@@ -10,8 +10,15 @@ export function durableCorrection(prompt) {
     if (prompt.length > 1200 || sensitive(prompt) || unsafe(prompt) || /```|\n>|\b(?:quoted|zitat)\b/i.test(prompt))
         return;
     const match = /^(?:bitte\s+)?(?:merke dir|merk dir|remember(?: that)?|künftig|kuenftig|ab jetzt|in zukunft|from now on|always|immer)\s*[:,]?\s*(.{5,480})$/i.exec(prompt.trim());
-    if (match)
-        return match[1].trim();
+    if (match) {
+        const note = match[1].trim();
+        // A reference to earlier conversation is not self-contained knowledge. Do
+        // not guess what "that" means or turn the rest of a task into a rule.
+        if (/^(?:das|dies|dieses|dieser|diese|es|that|this|it)(?:\b|[.!])/i.test(note)
+            || /\b(?:jetzt|heute|sofort|now|today)\b/i.test(note))
+            return;
+        return note;
+    }
     if (/^(?:(?:nein|korrektur|no)[,:!]?\s+)?(?:verwende|nutze|use)\s+.{1,180}\s+(?:statt|instead of)\s+.{1,180}[.!]?$/i.test(prompt.trim()))
         return prompt.trim();
 }

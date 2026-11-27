@@ -22,7 +22,7 @@ The repository includes a launcher in `pinokio/`, supported by versions with nes
 
 The terminal asks which installed model to use. Its initial working directory is `pinokio/workspace/`; use `/cd` to change projects. This folder and Pinokio's local state are ignored by Git. Morningstar still uses the current operating-system user's private configuration and session directory; Pinokio is not an OS security sandbox. The launcher performs no global npm installation, credential migration, automatic model download or permission bypass.
 
-**Rebuild / repair** runs the locked dependency installation and rebuild. For updates, stop the app, update a clean checkout with `git pull --ff-only`, then rebuild. No automatic reset or deletion of user work is provided. Inclusion in Pinokio's Discover catalog is a separate maintainer decision; the repository launcher does not imply verified catalog status. See the [Pinokio manual](https://desktop.pinokio.co/docs/).
+**Rebuild / repair** runs the locked dependency installation and rebuild. For updates, stop the app and choose **Update Morningstar**, which runs the verified source updater on its configured upstream. `morningstar update` is the terminal equivalent. No automatic reset or deletion of user work is provided. Inclusion in Pinokio's Discover catalog is a separate maintainer decision; the repository launcher does not imply verified catalog status. See the [Pinokio manual](https://desktop.pinokio.co/docs/).
 
 ## Awesome lists
 

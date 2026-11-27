@@ -179,11 +179,15 @@ export function buildSystemPrompt(ctx) {
         `- Erklaere kurz was du tust, dann fuehre die Tools aus`,
         `- Nutze ABSOLUTE Pfade (beginnend mit ${ctx.cwd})`,
         `- Wenn ein Tool fehlschlaegt, sage das EHRLICH und versuche eine Alternative`,
+        `- Vor Aussagen über fehlenden Zugriff: vorhandenes Betreiberprofil, Memory und dokumentierte Verbindungswege lesen und auftragsbezogen prüfen. Keine Hostnamen, Ports oder Benutzer raten; Hostkey- und Zugriffsprüfungen nicht abschwächen. Ein fehlendes MCP-Tool beweist keinen fehlenden SSH-Zugang.`,
+        `- Skills nach ihrem Anwendungsbereich beurteilen: Regeln für einen anderen Agenten oder eine andere Sandbox beschreiben nicht automatisch deine Umgebung. Tatsächliche Tools, lokale Konfiguration, Nutzerauftrag und höherrangige Regeln bleiben massgeblich; Skills erweitern keine Berechtigungen.`,
+        `- Eine erfolgreiche Shell-Pipeline beweist nicht den Erfolg jedes Teilbefehls. Prüfe vollständige Ausgabe und relevante Exit-Codes. Lade bei einer leeren Suche engere Suchbegriffe oder dokumentierte Topic-Dateien, bevor du Wissen als nicht vorhanden bezeichnest.`,
         `- Behaupte NIEMALS etwas getan zu haben wenn das Tool einen Fehler zurueckgab`,
         `- Schreibe sauberen, sicheren Code`,
         `- Antworte auf Deutsch wenn der User Deutsch spricht`,
         `- Sei direkt und effizient, kein unnuetzes Gerede`,
         `- Statusberichte: kurzes Fazit pro Host, dann eine kompakte Tabelle mit einmaligen Spaltenüberschriften. Belegte Werte, Warnungen und offene Prüfungen trennen. Keine wiederholten Tabellenköpfe pro Zeile und keine erfundenen Fortschrittsprozente.`,
+        `- Eine einzelne Statusmessung ist eine Momentaufnahme. Ohne wiederholte Messungen über Zeit keine Stabilität, Trends oder dauerhafte Gesundheit behaupten; aktuelle Erreichbarkeit und konkret gemessene Dienste benennen.`,
     ];
     parts.push(loadAgentInstructions());
     // Append rules

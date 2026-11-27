@@ -46,6 +46,32 @@ test("single prose turn returns final text and stops", async () => {
   assert.equal(result.hitTurnLimit, false);
 });
 
+test("an empty provider completion is retried once without repeating completed tools", async () => {
+  let turn = 0, executions = 0;
+  const streamFn: StreamFn = async function* (messages) {
+    if (turn++ === 0) yield { type: "tool_call", text: "", toolCall: { id: "read", name: "read", arguments: '{"filePath":"status.json"}' } };
+    else if (turn === 2) yield { type: "content", text: "" };
+    else {
+      assert.ok(messages.some(m => m.role === "tool" && m.content === "measured result"));
+      yield { type: "content", text: "Gemessener Status liegt vor." };
+    }
+  };
+  const result = await runAgent([{ role: "user", content: "Status" }], CONFIG, "/tmp", {
+    streamFn, nativeToolExecFn: () => { executions++; return { tool: "read", success: true, result: "measured result" }; },
+  });
+  assert.equal(executions, 1);
+  assert.equal(result.turns, 3);
+  assert.equal(result.finalText, "Gemessener Status liegt vor.");
+});
+
+test("repeated empty provider completions fail explicitly instead of claiming completion", async () => {
+  let calls = 0;
+  await assert.rejects(runAgent([{ role: "user", content: "Status" }], CONFIG, "/tmp", {
+    streamFn: async function* () { calls++; yield { type: "content", text: "   " }; },
+  }), /keine Antwort/);
+  assert.equal(calls, 2);
+});
+
 test("runs tools then completes on the next turn", async () => {
   const result = await runAgent([{ role: "user", content: "do it" }], CONFIG, "/tmp", {
     streamFn: fakeStream(["RUNTOOL working on it", "Erledigt."]),

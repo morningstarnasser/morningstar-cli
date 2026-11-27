@@ -6,7 +6,7 @@ import { createOutputValidator } from "./structured-output.js";
 import { runRuntimeHooks } from "./runtime-hooks.js";
 import { autonomousSwarmPrompt, executeAutonomousSwarm, type SwarmEvent } from "./swarm-tool.js";
 import { WORK_GUIDANCE } from "./runtime/work-guidance.js";
-import { scopeStatusConclusion } from "./runtime/status-grounding.js";
+import { requestsFreshKnownStatus, scopeStatusConclusion } from "./runtime/status-grounding.js";
 import { isMalformedToolAttempt } from "./runtime/tool-protocol.js";
 import { formatConnectedMCPToolsForPrompt, stripGeneratedMCPPrompt } from "./mcp.js";
 import { getOpenAIToolDefinitions } from "./tool-definitions.js";
@@ -169,6 +169,9 @@ export interface AgentRunOptions {
   ) => ToolApprovalResponse | Promise<ToolApprovalResponse>;
   /** Inject a fake model stream (tests). Defaults to the real provider. */
   streamFn?: StreamFn;
+  /** Structured callers such as the planner validate empty output and own
+   * their bounded repair loop. Normal interactive/print runs must not opt out. */
+  deferEmptyResponseValidation?: boolean;
   /** Injectable local knowledge retrieval, still gated by tool policy. */
   knowledgeFn?: typeof prepareKnowledge;
   /** Legacy whole-response executor retained for compatibility. */
@@ -453,6 +456,9 @@ export async function runAgent(
   let unchangedReadBatches = 0;
   let protocolRepairs = 0;
   let toolProtocolError: string | undefined;
+  let emptyResponseRepairs = 0;
+  let staleStatusRepairs = 0;
+  const freshKnownStatus = options.enableTools !== false && requestsFreshKnownStatus(messages);
 
   const emit = (event: AgentLifecycleEvent): void => {
     if (event.type === "tool_result") learning?.observe(event.result, typeof event.invocation.args.command === "string" ? event.invocation.args.command : undefined);
@@ -638,6 +644,15 @@ export async function runAgent(
     if (budgetExceeded) {
       finalText = response || "Budget-Limit erreicht.";
       return complete(false);
+    }
+
+    if (!response.trim() && nativeCalls.size === 0 && !options.toolExecFn && !options.deferEmptyResponseValidation) {
+      if (emptyResponseRepairs++ >= 1 || turnIndex === maxTurns - 1) {
+        throw new Error("Das Modell lieferte keine Antwort. Der Lauf wurde nicht erfolgreich abgeschlossen; vorhandene Werkzeugergebnisse bleiben im Verlauf.");
+      }
+      conversation.push({ role: "user", contextKind: "tool-feedback", content: "Dein letzter Lauf enthielt keine sichtbare Antwort und keinen Werkzeugaufruf. Bearbeite die bestehende Aufgabe weiter. Nutze bereits vorliegende Werkzeugergebnisse; wiederhole abgeschlossene Aktionen nicht. Abgelehnte Aktionen bleiben abgelehnt. Gib eine belegte Antwort oder benenne den konkreten Fehler." });
+      emit({ type: "turn_end", turn, text: "Leere Modellantwort; Morningstar fordert einmal eine Antwort an.", tools: [] });
+      continue;
     }
 
     const parsedText = parseToolCalls(response);
@@ -954,6 +969,16 @@ export async function runAgent(
       }
     }
 
+    const currentStatusAttempt = toolCalls.some(result => result.tool.startsWith("mcp__")
+      || (["bash", "auto-bash"].includes(result.tool) && /^(?:ssh|ping)\s/.test(result.command ?? "")));
+    if (turnResults.length === 0 && freshKnownStatus && !currentStatusAttempt) {
+      if (staleStatusRepairs++ >= 1 || turnIndex === maxTurns - 1) {
+        throw new Error("Kein neuer Status gemessen: Das Modell wiederholte historischen Kontext ohne Werkzeugabfrage. Frühere Messwerte sind kein aktueller Status.");
+      }
+      conversation.push({ role: "user", contextKind: "tool-feedback", content: "Die neue Statusanfrage verlangt neue Messwerte. Deine Antwort ohne aktuellen Werkzeugaufruf wurde nicht als aktueller Status übernommen. Frühere Messwerte und frühere Zugriffsfehler sind historisch. Prüfe jetzt mit vorhandenen autorisierten Werkzeugen und den Verbindungswegen im aktuellen Betreiberprofil. Keine Benutzer/Ports raten, keine Berechtigungen erweitern. Ein aktueller Fehler ist ehrlich zu melden." });
+      emit({ type: "turn_end", turn, text: "Historische Statusantwort erkannt; Morningstar fordert eine aktuelle Prüfung an.", tools: [] });
+      continue;
+    }
     if (turnResults.length === 0) finalText = scopeStatusConclusion(finalText, toolCalls);
     options.onTurnEnd?.(finalText, turnResults);
     emit({ type: "turn_end", turn, text: finalText, tools: turnResults });

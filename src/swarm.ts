@@ -133,7 +133,7 @@ export async function prepareSwarmPlan(input: string, config: CLIConfig, cwd: st
     if (signal?.aborted) throw new Error("Swarm-Planung abgebrochen.");
     if (config.maxBudgetUsd !== undefined && getSessionCosts().totalCost >= config.maxBudgetUsd) throw new Error("Budget-Limit bei der Swarm-Planung erreicht.");
     options.onPlanningAttempt?.(attempt);
-    const result = await runAgent(messages, { ...config, jsonSchema: undefined }, cwd, { signal, initialCostUsd: getSessionCosts().totalCost, enableTools: false, maxTurns: 1, streamFn: options.streamFn });
+    const result = await runAgent(messages, { ...config, jsonSchema: undefined }, cwd, { signal, initialCostUsd: getSessionCosts().totalCost, enableTools: false, maxTurns: 1, deferEmptyResponseValidation: true, streamFn: options.streamFn });
     trackUsage(config.model, messages.map(m => m.content).join("\n"), result.finalText, result.usage.inputTokens, result.usage.outputTokens, config.provider);
     if (signal?.aborted || result.aborted) throw new Error("Swarm-Planung abgebrochen.");
     if (result.budgetExceeded) throw new Error("Budget-Limit bei der Swarm-Planung erreicht.");

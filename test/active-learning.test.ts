@@ -16,6 +16,20 @@ const config: CLIConfig = { apiKey: "fixture", model: "fixture", provider: "olla
 function project(name: string) { const dir = join(home, name); mkdirSync(dir, { recursive: true }); return dir; }
 const answer: StreamFn = async function* () { yield { type: "content", text: "OK" }; };
 
+test("remember requests with unresolved references or immediate tasks are not durable preferences", async () => {
+  for (const prompt of [
+    "merke dir das und gib mir jetzt deteilierte status pi5",
+    "Merke dir das bitte.",
+    "Remember this and give me the server status now",
+    "Merke dir: Prüfe jetzt den Serverstatus.",
+  ]) assert.equal(durableCorrection(prompt), undefined, prompt);
+  const cwd = project("reference-not-rule");
+  const result = await runAgent([{ role: "user", content: "merke dir das und gib mir jetzt deteilierte status pi5" }], config, cwd, { streamFn: answer });
+  assert.equal(result.learned, undefined);
+  assert.deepEqual(loadInstincts(detectProjectId(cwd)), []);
+  assert.equal(durableCorrection("Merke dir: Verwende pnpm statt npm für dieses Projekt."), "Verwende pnpm statt npm für dieses Projekt.");
+});
+
 test("normal runtime learns explicit corrections and loads them on the next request, scoped to the project", async () => {
   const cwd = project("correction");
   const first = await runAgent([{ role: "user", content: "Merke dir: Verwende pnpm statt npm für dieses Projekt." }], config, cwd, { streamFn: answer });
