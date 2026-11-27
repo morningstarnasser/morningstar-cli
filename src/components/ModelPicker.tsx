@@ -98,6 +98,8 @@ export function buildModelChoices(
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
+  "free-models": "Free_Models",
+  opencode: "OpenCode",
   ollama: "Ollama · lokal",
   "hydra-local": "Hydra · lokal",
   "claude-cli": "Claude CLI · Abo",
@@ -183,6 +185,8 @@ export function filterModelProviderGroups(
 
 export function modelEmptyState(provider: string, query: string, status: string | undefined, refreshing = false): string {
   if (refreshing) return "Modelle werden abgerufen …";
+  if (provider === "opencode" && (status === "failed" || status === "skipped")) return "OpenCode CLI 2 installieren oder Verbindung prüfen; Ctrl+R aktualisiert die Gratis-Modelle.";
+  if (provider === "free-models" && status === "skipped") return "Lokalen Our Free Model Gateway starten. Morningstar liest dessen Schlüssel automatisch; Ctrl+R aktualisiert.";
   if (status === "failed") return provider === "ollama" ? "Ollama nicht erreichbar. Server starten oder Verbindung prüfen; Ctrl+R wiederholt den Abruf." : "Katalogabruf fehlgeschlagen. Verbindung und API-Key prüfen; Ctrl+R erneut.";
   if (query) return `Keine Modelle für „${query}“.`;
   if (provider === "ollama" && (status === "updated" || status === "cached")) return "Ollama erreichbar · keine Modelle installiert. Neu installierte Modelle erscheinen automatisch.";

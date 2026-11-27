@@ -10,6 +10,7 @@ export interface ProviderModelRefreshOptions {
     now?: () => number;
     /** Trusted configured inference endpoint; never a model- or project-supplied URL. */
     ollamaBaseUrl?: string;
+    openCodeModelsFn?: () => Promise<string[]>;
 }
 export declare function getDiscoveredProviderModels(provider: string): string[] | undefined;
 export declare function getProviderModelRefreshStatus(provider: string): ProviderModelRefreshResult["status"] | undefined;

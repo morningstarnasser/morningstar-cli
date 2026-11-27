@@ -5,9 +5,12 @@ import {
   clearDiscoveredProviderModels,
   getDiscoveredProviderModels,
   getProviderModelRefreshStatus,
-  refreshProviderModelCatalogs,
+  refreshProviderModelCatalogs as refreshLiveCatalogs,
 } from "../src/provider-model-discovery.js";
 import { listProviders, resolveModelName } from "../src/providers.js";
+
+const refreshProviderModelCatalogs: typeof refreshLiveCatalogs = (credential, options) =>
+  refreshLiveCatalogs(credential, { openCodeModelsFn: async () => [], ...options });
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -161,7 +164,7 @@ test("catalog refresh uses TTL cache and skips credentialed providers without ke
     () => "",
     { fetchFn, now: () => 5_000 },
   );
-  assert.equal(first.filter(({ status }) => status === "skipped").length, 7);
+  assert.equal(first.filter(({ status }) => status === "skipped").length, 8);
   assert.equal(first.find(({ provider }) => provider === "openrouter")?.status, "updated");
   assert.equal(requests, 2);
 
@@ -182,6 +185,7 @@ test("failed discovery remains non-throwing without inventing selectable models"
     () => "test-key",
     {
       fetchFn: async () => jsonResponse({ error: "no" }, 503),
+      openCodeModelsFn: async () => { throw new Error("offline"); },
       force: true,
     },
   );
@@ -215,14 +219,14 @@ test("catalog discovery rejects redirects without forwarding credentials", async
     { fetchFn, force: true },
   );
 
-  assert.equal(calls.length, 9);
+  assert.equal(calls.length, 10);
   assert.equal(calls.every(({ redirect }) => redirect === "manual"), true);
   assert.equal(
     calls.some(({ url }) => url.includes("credential-thief.invalid")),
     false,
   );
-  assert.equal(results.every(({ status }) => status === "failed"), true);
-  for (const result of results) {
+  assert.equal(results.filter(p => p.provider !== "opencode").every(({ status }) => status === "failed"), true);
+  for (const result of results.filter(p => p.provider !== "opencode")) {
     assert.match(result.error ?? "", /redirect blocked/);
     assert.equal(result.error?.includes(secret), false);
     assert.equal(result.error?.includes("credential-thief.invalid"), false);

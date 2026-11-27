@@ -5,6 +5,7 @@ import { createInterface } from "node:readline";
 import { Writable } from "node:stream";
 import { detectProvider, getProviderApiKeyEnv, getProviderBaseUrl } from "./providers.js";
 import { loadProjectEnvFiles } from "./env.js";
+import { getFreeModelsApiKey } from "./runtime/free-models.js";
 import type { CLIConfig } from "./types.js";
 import type { MorningstarSettings } from "./settings.js";
 
@@ -20,6 +21,7 @@ export const KEYLESS_PROVIDERS: ReadonlySet<string> = new Set([
   "hydra-local",
   "claude-cli",
   "codex-cli",
+  "opencode",
 ]);
 
 export interface CLIOptionShape {
@@ -144,6 +146,7 @@ export function createApiKeyHelpers(
 
   function getStoredApiKey(provider: string): string {
     if (provider === "ollama") return "ollama";
+    if (provider === "free-models" && getFreeModelsApiKey()) return getFreeModelsApiKey();
     if (savedApiKeys[provider]) return savedApiKeys[provider];
     const envVar = getProviderApiKeyEnv(provider);
     return envVar && process.env[envVar] ? process.env[envVar]! : "";

@@ -5,6 +5,7 @@ import { createInterface } from "node:readline";
 import { Writable } from "node:stream";
 import { detectProvider, getProviderApiKeyEnv, getProviderBaseUrl } from "./providers.js";
 import { loadProjectEnvFiles } from "./env.js";
+import { getFreeModelsApiKey } from "./runtime/free-models.js";
 const CONFIG_DIR = join(homedir(), ".morningstar");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 /**
@@ -16,6 +17,7 @@ export const KEYLESS_PROVIDERS = new Set([
     "hydra-local",
     "claude-cli",
     "codex-cli",
+    "opencode",
 ]);
 const DEFAULT_CONFIG = {
     apiKey: "",
@@ -82,6 +84,8 @@ export function createApiKeyHelpers(saved, persist = saveConfig) {
     function getStoredApiKey(provider) {
         if (provider === "ollama")
             return "ollama";
+        if (provider === "free-models" && getFreeModelsApiKey())
+            return getFreeModelsApiKey();
         if (savedApiKeys[provider])
             return savedApiKeys[provider];
         const envVar = getProviderApiKeyEnv(provider);

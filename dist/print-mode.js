@@ -97,14 +97,26 @@ export async function runPrintMode(prompt, systemPrompt, config, cwd, resumedMes
         if (processed > 100)
             throw new Error("Maximum 100 input messages per print session");
         messages.push({ role: "user", content });
-        const result = await runAgent(messages, { ...config, sessionId }, cwd, {
-            ...io.runnerOptions,
-            signal: controller.signal,
-            initialCostUsd: spent,
-            maxTurns: config.maxTurns,
-            enableTools: config.toolAllowlist?.length === 0 ? false : io.runnerOptions?.enableTools,
-            onEvent: format === "stream-json" ? (event) => write(`${JSON.stringify(toPrintStreamEvent(event))}\n`) : undefined,
-        });
+        let result;
+        try {
+            result = await runAgent(messages, { ...config, sessionId }, cwd, {
+                ...io.runnerOptions,
+                signal: controller.signal,
+                initialCostUsd: spent,
+                maxTurns: config.maxTurns,
+                enableTools: config.toolAllowlist?.length === 0 ? false : io.runnerOptions?.enableTools,
+                onEvent: format === "stream-json" ? (event) => write(`${JSON.stringify(toPrintStreamEvent(event))}\n`) : undefined,
+            });
+        }
+        catch (error) {
+            exitCode = controller.signal.aborted ? 130 : 1;
+            const message = error instanceof Error ? error.message : "Provider request failed";
+            if (format === "text")
+                write(`Fehler: ${message}\n`);
+            else
+                write(`${JSON.stringify({ type: "error", is_error: true, session_id: sessionId, model: config.model, error: message })}\n`);
+            return;
+        }
         spent += result.costUsd ?? 0;
         messages = result.messages ?? [...messages, { role: "assistant", content: result.finalText }];
         exitCode = Math.max(exitCode, printExitCode(result));

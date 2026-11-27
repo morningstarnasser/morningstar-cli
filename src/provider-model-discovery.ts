@@ -5,6 +5,8 @@
 
 import { createHash } from "node:crypto";
 import { getOllamaBaseUrl } from "./runtime/ollama-endpoint.js";
+import { getFreeModelsBaseUrl } from "./runtime/free-models.js";
+import { discoverOpenCodeModels } from "./providers/opencode-cli.js";
 const MODEL_CATALOG_TTL_MS = 30_000;
 const MODEL_CATALOG_TIMEOUT_MS = 5_000;
 const MAX_MODEL_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -37,6 +39,7 @@ export interface ProviderModelRefreshOptions {
   now?: () => number;
   /** Trusted configured inference endpoint; never a model- or project-supplied URL. */
   ollamaBaseUrl?: string;
+  openCodeModelsFn?: () => Promise<string[]>;
 }
 
 const catalogs = new Map<string, CachedCatalog>();
@@ -45,6 +48,8 @@ const requests = new Map<string, number>();
 let sequence = 0;
 
 const DISCOVERY_SPECS: DiscoverySpec[] = [
+  { provider: "opencode", url: "cli:opencode", requiresCredential: false, headers: () => ({}) },
+  { provider: "free-models", url: "http://127.0.0.1:18900/v1/models", requiresCredential: true, headers: bearerHeaders },
   { provider: "ollama", url: "http://127.0.0.1:11434/api/tags", requiresCredential: false, headers: () => ({}) },
   {
     provider: "anthropic",
@@ -115,6 +120,9 @@ function isSafeModelId(value: unknown): value is string {
 }
 
 function isUsableGenerationModel(provider: string, model: string): boolean {
+  // Unscoped anonymous models and routing combos belong to OpenCode's
+  // client-only free tier. The dedicated official-CLI provider serves those.
+  if (provider === "free-models") return model.includes("/") && !model.startsWith("combo:");
   const normalized = model.toLowerCase();
   if (provider === "anthropic") return normalized.startsWith("claude-");
   if (provider === "deepseek") return normalized.startsWith("deepseek-");
@@ -145,6 +153,7 @@ function isUsableGenerationModel(provider: string, model: string): boolean {
 }
 
 function providerModelId(provider: string, model: string): string {
+  if (provider === "free-models") return `free-models/${model}`;
   if (provider === "nvidia") {
     return `nvidia/${model}`;
   }
@@ -308,7 +317,15 @@ export async function refreshProviderModelCatalogs(
     let spec = original;
     const credential = resolveCredential(spec.provider) || "";
     const existing = catalogs.get(spec.provider);
-    const identity = createHash("sha256").update(`${spec.provider}\0${credential}\0${spec.provider === "ollama" ? options.ollamaBaseUrl ?? getOllamaBaseUrl() : spec.url}`).digest("hex");
+    // Resolve the local gateway endpoint inside the guarded path below.
+    let endpoint = spec.url;
+    try {
+      if (spec.provider === "free-models") endpoint = `${getFreeModelsBaseUrl()}/models`;
+    } catch {
+      catalogs.delete(spec.provider);
+      return record({ provider: spec.provider, status: "failed", modelCount: 0, error: "invalid gateway endpoint" });
+    }
+    const identity = createHash("sha256").update(`${spec.provider}\0${credential}\0${spec.provider === "ollama" ? options.ollamaBaseUrl ?? getOllamaBaseUrl() : endpoint}`).digest("hex");
     if (spec.requiresCredential && !credential) {
       catalogs.delete(spec.provider);
       return record({ provider: spec.provider, status: "skipped", modelCount: 0 });
@@ -326,8 +343,11 @@ export async function refreshProviderModelCatalogs(
       });
     }
     try {
+      if (spec.provider === "free-models") spec = { ...spec, url: endpoint };
       if (spec.provider === "ollama") spec = { ...spec, url: ollamaCatalogUrl(options.ollamaBaseUrl) };
-      const models = await discoverOne(spec, credential, fetchFn);
+      const models = spec.provider === "opencode"
+        ? await (options.openCodeModelsFn ?? discoverOpenCodeModels)()
+        : await discoverOne(spec, credential, fetchFn);
       if (requests.get(spec.provider) !== request) return { provider: spec.provider, status: "skipped", modelCount: 0 };
       catalogs.set(spec.provider, { models, fetchedAt: now(), identity, endpoint: spec.url });
       return record({

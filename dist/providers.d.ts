@@ -35,7 +35,7 @@ export interface ProviderCatalogEntry {
     envKey: string;
     modelMetadata?: Record<string, ProviderModelMetadata>;
 }
-export declare const PROVIDER_NAMES: readonly ["deepseek", "openai", "anthropic", "google", "nvidia", "github-models", "hydra-local", "ollama", "claude-cli", "codex-cli", "groq", "openrouter"];
+export declare const PROVIDER_NAMES: readonly ["deepseek", "openai", "anthropic", "google", "nvidia", "github-models", "hydra-local", "ollama", "claude-cli", "codex-cli", "groq", "openrouter", "free-models", "opencode"];
 export declare function resolveModelSelectionArg(input: string): {
     model: string;
     provider: string;

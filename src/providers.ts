@@ -1,4 +1,5 @@
 import { getOllamaBaseUrl } from "./runtime/ollama-endpoint.js";
+import { getFreeModelsApiKey, getFreeModelsBaseUrl } from "./runtime/free-models.js";
 export { getOllamaBaseUrl } from "./runtime/ollama-endpoint.js";
 import { imageData, conversationImages } from "./runtime/images.js";
 import { execFileSync } from "child_process";
@@ -12,6 +13,7 @@ import {
   getOpenAIToolDefinitions,
 } from "./tool-definitions.js";
 import { claudeCliStream } from "./providers/claude-cli.js";
+import { openCodeCliStream } from "./providers/opencode-cli.js";
 import {
   codexCliStream,
   getCodexModelDisplayName,
@@ -74,6 +76,8 @@ export const PROVIDER_NAMES = [
   "codex-cli",
   "groq",
   "openrouter",
+  "free-models",
+  "opencode",
 ] as const;
 
 const KNOWN_PROVIDER_NAMES = new Set<string>(PROVIDER_NAMES);
@@ -96,7 +100,7 @@ export function resolveModelSelectionArg(input: string): {
 }
 
 // Providers that support native function calling
-const NATIVE_TOOL_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", "openrouter", "nvidia", "github-models", "ollama"]);
+const NATIVE_TOOL_PROVIDERS = new Set(["openai", "anthropic", "google", "groq", "openrouter", "nvidia", "github-models", "ollama", "free-models"]);
 
 /**
  * Serialize provider-neutral native tool turns into OpenAI-compatible chat
@@ -425,6 +429,8 @@ function isInstalledOllamaModel(model: string): boolean {
 
 export function detectProvider(model: string): string {
   const m = model.toLowerCase();
+  if (m.startsWith("opencode/")) return "opencode";
+  if (m.startsWith("free-models/")) return "free-models";
   // Claude CLI brain (subscription OAuth) — check BEFORE "claude-" and "/" rules.
   if (m === "claude-cli" || m.startsWith("claude-cli/") || m.startsWith("claude-cli-")) return "claude-cli";
   // Codex CLI brain (ChatGPT subscription OAuth) — before the "codex" → openai rule.
@@ -461,6 +467,7 @@ export function getProviderBaseUrl(provider: string): string {
     case "anthropic": return "https://api.anthropic.com";
     case "google": return "https://generativelanguage.googleapis.com";
     case "ollama": return getOllamaBaseUrl();
+    case "free-models": return getFreeModelsBaseUrl();
     case "groq": return "https://api.groq.com/openai/v1";
     case "openrouter": return "https://openrouter.ai/api/v1";
     case "nvidia": return "https://integrate.api.nvidia.com/v1";
@@ -479,15 +486,18 @@ export function getProviderApiKeyEnv(provider: string): string {
     case "groq": return "GROQ_API_KEY";
     case "openrouter": return "OPENROUTER_API_KEY";
     case "nvidia": return "NVIDIA_NIM_API_KEY";
+    case "free-models": return "FREE_MODELS_API_KEY";
     case "github-models": return "GITHUB_MODELS_TOKEN";
     case "ollama": return "";
     case "claude-cli": return "";
     case "codex-cli": return "";
+    case "opencode": return "";
     default: return "OPENAI_API_KEY";
   }
 }
 
 export function resolveApiKey(provider: string, configKey: string): string {
+  if (provider === "free-models") return getFreeModelsApiKey() || configKey;
   const envVar = getProviderApiKeyEnv(provider);
   if (provider === "ollama") return "ollama";
   if (provider === "hydra-local") return "local";
@@ -505,6 +515,7 @@ const OLLAMA_MODEL_MAP: Record<string, string> = {
 };
 
 export function resolveModelName(model: string, provider: string): string {
+  if (provider === "free-models" && model.toLowerCase().startsWith("free-models/")) return model.slice("free-models/".length);
   if (provider === "ollama" && model.toLowerCase().startsWith("ollama/")) return model.slice("ollama/".length);
   if (provider === "ollama" && OLLAMA_MODEL_MAP[model]) {
     return OLLAMA_MODEL_MAP[model];
@@ -557,6 +568,8 @@ export function listProviders(): ProviderCatalogEntry[] {
   const models = (provider: string) => getDiscoveredProviderModels(provider) ?? [];
   const localOllama = isLocalOllamaHost(getProviderModelEndpoint("ollama") ?? getOllamaBaseUrl());
   return [
+    { name: "opencode", models: models("opencode"), envKey: "(OpenCode CLI · Gratis-Modelle)" },
+    { name: "free-models", models: models("free-models"), envKey: "FREE_MODELS_API_KEY", modelMetadata: Object.fromEntries(models("free-models").map(model => [model, { deployment: "hosted" as const, availabilityHint: "Free_Models · externer Anbieter über lokalen Gateway; Verfügbarkeit und Kontingente variieren" }])) },
     ...["deepseek", "openai", "anthropic", "google", "nvidia", "github-models", "groq", "openrouter"].map(name => ({ name, models: models(name), envKey: name === "nvidia" ? "NVIDIA_NIM_API_KEY" : name === "github-models" ? "GITHUB_MODELS_TOKEN" : `${name.toUpperCase()}_API_KEY` })),
     { name: "ollama", models: models("ollama"), envKey: "(laufender Ollama-Server)", modelMetadata: Object.fromEntries(models("ollama").map(model => [model, { deployment: localOllama ? "local" as const : "hosted" as const, availabilityHint: localOllama ? "Vom lokalen Server gemeldet" : "Vom konfigurierten Ollama-Server gemeldet" }])) },
     { name: "claude-cli", models: [...CLAUDE_CLI_ALIASES], envKey: "(Claude-Abo/OAuth)" },
@@ -565,6 +578,7 @@ export function listProviders(): ProviderCatalogEntry[] {
 }
 
 export function getModelDisplayName(model: string): string {
+  if (model.toLowerCase().startsWith("free-models/")) return model.slice("free-models/".length);
   const names: Record<string, string> = {
     "hydra-ch-4b": "Hydra (alter manueller Eintrag)",
     "deepseek-reasoner": "DeepSeek R1 (Thinking)",
@@ -722,6 +736,7 @@ async function* openaiCompatibleStream(
       },
       body: JSON.stringify(body),
       signal,
+      ...(providerName === "free-models" ? { redirect: "manual" as const } : {}),
     });
   } catch (e) {
     // Abort/termination errors are expected when user cancels
@@ -1158,24 +1173,29 @@ function createOpenAICompatible(name: string, defaultBaseUrl: string): LLMProvid
     async *streamChat(messages, config, signal, enableTools) {
       // Lokale Provider immer an ihre eigene Adresse: sonst schickt eine auf die
       // Cloud gesetzte config.baseUrl die Anfrage am lokalen Server vorbei.
-      const LOKAL = new Set(["hydra-local", "ollama"]);
+      const LOKAL = new Set(["hydra-local", "ollama", "free-models"]);
       const runtimeDefaultBaseUrl = name === "ollama"
         ? getOllamaBaseUrl()
-        : defaultBaseUrl;
+        : name === "free-models" ? getFreeModelsBaseUrl() : defaultBaseUrl;
       const baseUrl = LOKAL.has(name)
         ? runtimeDefaultBaseUrl
         : (config.baseUrl !== "https://api.deepseek.com/v1" ? config.baseUrl : runtimeDefaultBaseUrl);
       const apiKey = resolveApiKey(name, config.apiKey);
       const actualModel = resolveModelName(config.model, name);
+      if (name === "free-models" && (!actualModel.includes("/") || actualModel.startsWith("combo:"))) {
+        throw new Error("Use the OpenCode provider for OpenCode free-tier models. Gateway routing combos are not exposed.");
+      }
       yield* openaiCompatibleStream(baseUrl, apiKey, actualModel, messages, config.maxTokens, config.temperature, signal, enableTools, name, config.toolAllowlist, config.enableSwarm !== false);
     },
   };
 }
 
 const PROVIDERS: Record<string, LLMProvider> = {
+  opencode: { name: "opencode", supportsTools: false, async *streamChat(messages, config, signal) { yield* openCodeCliStream(config.model, messages, signal); } },
   deepseek: createOpenAICompatible("deepseek", "https://api.deepseek.com/v1"),
   openai: createOpenAICompatible("openai", "https://api.openai.com/v1"),
   ollama: createOpenAICompatible("ollama", getOllamaBaseUrl()),
+  "free-models": createOpenAICompatible("free-models", "http://127.0.0.1:18900/v1"),
   // Eigenes CH-Fachmodell, lokal via scripts/hydra_mlx_server.py aus MORNINGSTAR-AI-MODEL
   "hydra-local": createOpenAICompatible("hydra-local", "http://127.0.0.1:8100/v1"),
   groq: createOpenAICompatible("groq", "https://api.groq.com/openai/v1"),

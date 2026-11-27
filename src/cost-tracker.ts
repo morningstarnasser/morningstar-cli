@@ -101,6 +101,7 @@ const PRICING: Record<string, { input: number; output: number }> = {
 
 const DEFAULT_CLOUD_PRICING = { input: 1.0, output: 3.0 } as const;
 const ZERO_MARGINAL_COST_PROVIDERS = [
+  "opencode",
   "ollama",
   "hydra-local",
   "claude-cli",

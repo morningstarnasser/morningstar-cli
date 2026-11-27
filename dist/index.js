@@ -73,7 +73,7 @@ if (subcommand === "cron") {
     process.exit(0);
 }
 // ─── Config ──────────────────────────────────────────────
-const VERSION = "1.5.6";
+const VERSION = "1.5.7";
 const sessionStart = Date.now();
 // ─── CLI Setup ───────────────────────────────────────────
 program

@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.5.6** (2026-11-27).
+Current release: **1.5.7** (2026-11-27).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -511,3 +511,14 @@ Tool activity uses separate colors for status, commands, paths, output and diffs
 Completed tool calls show measured runtime and available exit status. A counted
 `+N Zeilen` marker opens the complete captured output; Escape returns to the live
 session. Denied tools do not display an invented runtime or exit code.
+
+## Free_Models und OpenCode (1.5.7)
+
+`/model` enthält zwei zusätzliche Provider mit automatisch neu abgerufenen Katalogen:
+
+- **Free_Models** verbindet den lokal laufenden [Our Free Model Standalone-Gateway](https://github.com/Ebony-Vinyl/dsh-our-free-model). Morningstar liest Port und Schlüssel aus `~/.our-free-model/settings.json`; `OFM_HOME`, `FREE_MODELS_BASE_URL` und `FREE_MODELS_API_KEY` erlauben explizite lokale Konfiguration. Nur Loopback-Adressen sind erlaubt. Die Modelle laufen bei externen Anbietern, nicht auf der lokalen GPU.
+- **OpenCode** nutzt die offizielle OpenCode CLI 2 (`@opencode/cli`). Installation nach den [OpenCode-Anweisungen](https://opencode.ai/docs/cli/), danach `/model` → `OpenCode`. Die kostenlose Modellliste stammt aus `opencode models`. Optional setzt `OPENCODE_BIN` den absoluten Pfad zur ausführbaren Datei. Der Client läuft mit isolierter Konfiguration und gesperrten eigenen Werkzeugen; Morningstar prüft und führt seine eigenen Werkzeuge aus.
+
+Beispiele: `/model free-models/liquid/lfm-3-1.7b:free` und `/model opencode/deepseek-v4.1-flash-free`. Modellnamen sind Beispiele; die aktuelle Auswahl steht in `/model`. Ctrl+R aktualisiert den Katalog. Gelöschte Modelle verschwinden, Abruffehler erzeugen keine erfundenen Einträge. Der Gateway-Katalog zeigt zusätzliche Kontokanäle erst nach deren Einrichtung; OpenCode-Gratis-Modelle und Gateway-Routing-Kombinationen werden dort nicht zusätzlich angeboten.
+
+Gratis-Kontingente können erschöpft sein. Ein HTTP-429 ist eine Anbietergrenze, kein erfolgreicher Auftrag. Die CLI umgeht weder Kontingente noch Client-Zugangsschranken. Datenverarbeitung und mögliche Protokollierung richten sich nach dem ausgewählten Anbieter; für erste Tests synthetische Daten verwenden. Neue Provider werden nicht automatisch zum Standardmodell.
