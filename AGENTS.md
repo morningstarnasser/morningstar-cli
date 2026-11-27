@@ -63,3 +63,14 @@ changes. Preserve unrelated work and never reset, clean, amend, rewrite history,
 or force-push without explicit instruction. Follow the existing Conventional
 Commit style (`feat(scope):`, `fix(scope):`, `test(scope):`, `docs:`,
 `chore(build):`).
+
+## Public distribution boundary
+
+Before every public commit/push, run the staged and working-tree hygiene checks,
+Gitleaks against the full public history and OSV against the lockfiles. Before a
+release, inspect and scan the actual npm archive and install it in a clean prefix.
+Use `docs/distribution.md` for commands and record failed or unavailable checks.
+Never export user credentials, sessions, memories, operator profiles, device
+addresses or private Git ancestry. Only copy individually reviewed product files.
+Do not advertise npm publication, directory listings, verified Pinokio status or
+upstream `ollama launch` inclusion before checking the actual published state.

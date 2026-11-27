@@ -1,0 +1,51 @@
+name: Public distribution checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Install scanners at pinned versions
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@v8.30.1
+          go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.4.0
+      - name: Scan committed tree, working tree and full history
+        run: |
+          npm run hygiene
+          npm run hygiene:worktree
+          gitleaks git . --redact
+          osv-scanner scan source -r .
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Check generated code is current
+        run: git diff --exit-code -- dist
+      - name: Inspect and install the actual package
+        shell: bash
+        run: |
+          task_dir=$(mktemp -d)
+          npm pack --ignore-scripts --pack-destination "$task_dir"
+          mkdir "$task_dir/extracted"
+          tar -xzf "$task_dir"/*.tgz -C "$task_dir/extracted"
+          node scripts/check-public-hygiene.mjs --package "$task_dir/extracted/package"
+          gitleaks dir "$task_dir/extracted/package" --redact
+          npm install --ignore-scripts --prefix "$task_dir/consumer" "$task_dir"/*.tgz
+          "$task_dir/consumer/node_modules/.bin/morningstar" --version
+          "$task_dir/consumer/node_modules/.bin/morningstar" --help

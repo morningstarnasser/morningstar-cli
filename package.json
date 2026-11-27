@@ -16,7 +16,10 @@
     "test": "node --import tsx --test test/*.test.ts",
     "prepack": "npm run typecheck && npm test && npm run build",
     "telegram": "tsx src/index.ts telegram",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "launch:ollama": "node scripts/launch-ollama.mjs",
+    "hygiene": "node scripts/check-public-hygiene.mjs",
+    "hygiene:worktree": "node scripts/check-public-hygiene.mjs --worktree"
   },
   "dependencies": {
     "@xterm/addon-unicode-graphemes": "0.4.0",
@@ -60,7 +63,11 @@
     "bin",
     "dist",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "scripts/launch-ollama.mjs",
+    "SECURITY.md",
+    "PARITY.md",
+    "docs/distribution.md"
   ],
   "repository": {
     "type": "git",

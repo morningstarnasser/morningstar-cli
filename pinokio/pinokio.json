@@ -1,0 +1,5 @@
+{
+  "title": "Morningstar CLI",
+  "description": "Terminal coding agent with Ollama models.",
+  "icon": "../assets/brand/icon-512.png"
+}

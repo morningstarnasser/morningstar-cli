@@ -18,3 +18,9 @@ credentials.json
 credentials.*.json
 *.pem
 *.key
+
+# Pinokio local state and logs
+pinokio/.installed
+pinokio/workspace/
+logs/
+ENVIRONMENT

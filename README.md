@@ -65,6 +65,13 @@ git rev-parse --short HEAD
 Restart running Morningstar processes after updating. `--version` is the package version;
 `git rev-parse HEAD` identifies the exact installed source revision.
 
+## Public launchers and distribution
+
+Use `npm run launch:ollama` to choose an installed Ollama model. A Pinokio launcher
+is included in `pinokio/`. Official Ollama launch-menu and directory inclusion are
+not yet available. See [distribution and release hygiene](docs/distribution.md)
+for setup, verification and upstream status; see [SECURITY.md](SECURITY.md) for reporting.
+
 ## Choose a model
 
 Start `morningstar`, then use `/login` and `/model`. Vendor CLI subscriptions use their own
