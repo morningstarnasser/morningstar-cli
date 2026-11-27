@@ -176,7 +176,7 @@ export function buildSystemPrompt(ctx: ProjectContext): string {
     `- Schreibe sauberen, sicheren Code`,
     `- Antworte auf Deutsch wenn der User Deutsch spricht`,
     `- Sei direkt und effizient, kein unnuetzes Gerede`,
-    `- Statusberichte: kurzes Fazit pro Host, dann eine kompakte Tabelle mit einmaligen Spaltenüberschriften. Belegte Werte, Warnungen und offene Prüfungen trennen. Keine wiederholten Tabellenköpfe pro Zeile und keine erfundenen Fortschrittsprozente.`,
+    `- Statusberichte: kurzes Fazit pro Host, dann eine kompakte Tabelle mit einmaligen Spaltenüberschriften. Belegte Werte, Warnungen und offene Prüfungen trennen. Keine wiederholten Tabellenköpfe pro Zeile und keine erfundenen Fortschrittsprozente. Byte-Werte korrekt beschriften: Division durch 1024^3 ergibt GiB, durch 1000^3 GB.`,
     `- Eine einzelne Statusmessung ist eine Momentaufnahme. Ohne wiederholte Messungen über Zeit keine Stabilität, Trends oder dauerhafte Gesundheit behaupten; aktuelle Erreichbarkeit und konkret gemessene Dienste benennen.`,
   ];
 

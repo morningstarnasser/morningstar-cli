@@ -78,6 +78,9 @@ test("mixed endpoint and SSH snapshots do not establish stability or a complete 
   assert.match(result.finalText, /6\.1\/17 GB/);
   assert.equal(result.messages.at(-1)?.content, result.finalText);
   assert.equal(emitted.at(-1), result.finalText);
+  const variant = await answer("Beide Hosts erreichbar und stabil.", [measured, ssh]);
+  assert.doesNotMatch(variant.result.finalText, /erreichbar und stabil/);
+  assert.match(variant.result.finalText, /Langzeitstabilität wurde nicht geprüft/);
   const quote = '> Beide Hosts sind erreichbar und stabil.\n```text\nKeine Auffälligkeiten.\n```';
   assert.equal((await answer(quote, [measured, ssh])).result.finalText, quote);
   assert.equal((await answer(input, [{tool:'read',success:true,result:'Documented multi-day stability audit'}])).result.finalText, input);

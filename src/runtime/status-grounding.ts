@@ -49,7 +49,7 @@ export function scopeStatusConclusion(text: string, results: ToolResult[]): stri
       return line;
     }
     if (fence) return line;
-    if (/^\s*(?:\*\*)?(?:Beide|Alle) (?:Hosts|Server|Systeme) sind (?:erreichbar und )?stabil[.!]?(?:\*\*)?\s*$/iu.test(line)) {
+    if (/^\s*(?:\*\*)?(?:Beide|Alle) (?:Hosts|Server|Systeme)(?: sind)? (?:erreichbar und )?stabil[.!]?(?:\*\*)?\s*$/iu.test(line)) {
       return "Die Statuswerte sind eine Momentaufnahme. Langzeitstabilität wurde nicht geprüft.";
     }
     if (/^\s*(?:\*\*)?Keine Auffälligkeiten[.!]?(?:\*\*)?\s*$/iu.test(line)) {
