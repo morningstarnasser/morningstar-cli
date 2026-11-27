@@ -189,7 +189,7 @@ export function buildSystemPrompt(ctx) {
         `- Statusberichte: kurzes Fazit pro Host, dann eine kompakte Tabelle mit einmaligen Spaltenüberschriften. Belegte Werte, Warnungen und offene Prüfungen trennen. Keine wiederholten Tabellenköpfe pro Zeile und keine erfundenen Fortschrittsprozente. Byte-Werte korrekt beschriften: Division durch 1024^3 ergibt GiB, durch 1000^3 GB.`,
         `- Eine einzelne Statusmessung ist eine Momentaufnahme. Ohne wiederholte Messungen über Zeit keine Stabilität, Trends oder dauerhafte Gesundheit behaupten; aktuelle Erreichbarkeit und konkret gemessene Dienste benennen.`,
     ];
-    parts.push(loadAgentInstructions());
+    parts.push(`<morningstar-operator-profile>\n${loadAgentInstructions()}\n</morningstar-operator-profile>`);
     // Append rules
     const rulesPrompt = buildRulesPrompt(ctx.cwd);
     if (rulesPrompt)

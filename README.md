@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.5.2** (2026-11-27).
+Current release: **1.5.3** (2026-11-27).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.

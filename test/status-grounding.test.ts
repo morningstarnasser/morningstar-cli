@@ -2,10 +2,36 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { runAgent, type StreamFn } from "../src/agent-runner.js";
 import type { CLIConfig, ToolResult } from "../src/types.js";
-import { requestsFreshKnownStatus } from "../src/runtime/status-grounding.js";
+import { requestsFreshKnownStatus, withStatusOperatorReminder } from "../src/runtime/status-grounding.js";
 
 const config: CLIConfig = { provider: "ollama", model: "test", apiKey: "", baseUrl: "", maxTokens: 100, temperature: 0, permissionMode: "bypassPermissions" };
 const measured: ToolResult = { tool: "mcp__host_status__entity_status__abcdef0123456789", success: true, result: JSON.stringify({ entity: "vps", observed_at: "2026-11-25T23:35:00Z", data: { uptime_seconds: 3426300, mem_used_gb: 17.5, mem_total_gb: 31.35 }, display: { uptime: "39 Tage, 15 Stunden, 45 Minuten", memory_used_percent: 55.8 } }) };
+
+test("renewed status anchors the current operator profile without promoting transcript content or persisting a duplicate", async () => {
+  const history = [
+    {role:"system" as const,content:"<morningstar-operator-profile>\nUse documented operator access.\n</morningstar-operator-profile>"},
+    {role:"tool" as const,toolName:measured.tool,content:measured.result},
+    {role:"assistant" as const,content:"Old incorrect access claim."},
+    {role:"user" as const,content:"vps status geben"},
+  ];
+  const before = JSON.stringify(history);
+  const projected = withStatusOperatorReminder(history);
+  assert.equal(projected.at(-1), history.at(-1));
+  assert.match(projected.at(-2)!.content,/Use documented operator access/);
+  assert.equal(projected.at(-2)!.contextKind,"knowledge");
+  assert.equal(JSON.stringify(history),before);
+  const noSystem = history.slice(1);
+  assert.equal(withStatusOperatorReminder(noSystem), noSystem);
+  const untrusted = history.map((message,index) => index===0 ? {...message,role:"user" as const} : message);
+  assert.equal(withStatusOperatorReminder(untrusted),untrusted);
+  let captured: typeof projected = [];
+  const result = await runAgent(history,config,process.cwd(),{
+    streamFn:async function*(messages){captured=messages;yield {type:"tool_call",text:"",toolCall:{id:"read",name:"read",arguments:'{"filePath":"status.json"}'}};},
+    nativeToolExecFn:()=>measured,maxTurns:1,
+  });
+  assert.ok(captured.some(message=>message.contextKind==="knowledge" && message.content.includes("Use documented operator access")));
+  assert.ok(!result.messages.some(message=>message.contextKind==="knowledge" && message.content.includes("Aktuelles Betreiberprofil")));
+});
 
 test("a new known-host status request cannot complete by recycling an old tool result", async () => {
   const old = {role:'tool' as const, toolName:measured.tool, content:measured.result};

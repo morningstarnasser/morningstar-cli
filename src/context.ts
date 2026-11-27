@@ -180,7 +180,7 @@ export function buildSystemPrompt(ctx: ProjectContext): string {
     `- Eine einzelne Statusmessung ist eine Momentaufnahme. Ohne wiederholte Messungen über Zeit keine Stabilität, Trends oder dauerhafte Gesundheit behaupten; aktuelle Erreichbarkeit und konkret gemessene Dienste benennen.`,
   ];
 
-  parts.push(loadAgentInstructions());
+  parts.push(`<morningstar-operator-profile>\n${loadAgentInstructions()}\n</morningstar-operator-profile>`);
 
   // Append rules
   const rulesPrompt = buildRulesPrompt(ctx.cwd);

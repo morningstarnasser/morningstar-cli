@@ -1,5 +1,21 @@
 import type { Message, ToolResult } from "../types.js";
 
+/** Repeat only the current system-owned operator profile near a renewed status
+ * request. Historical assistant/tool/user text must never become instructions.
+ * Provider-only projection: the stored conversation stays unchanged. */
+export function withStatusOperatorReminder(messages: Message[]): Message[] {
+  if (!requestsFreshKnownStatus(messages)) return messages;
+  const profile = messages[0]?.role === "system"
+    ? messages[0].content.match(/<morningstar-operator-profile>\n([\s\S]*?)\n<\/morningstar-operator-profile>/)?.[1]
+    : undefined;
+  if (!profile || profile.length > 12000) return messages;
+  let index = messages.length - 1;
+  while (index >= 0 && (messages[index].role !== "user" || messages[index].contextKind)) index--;
+  if (index < 0) return messages;
+  const reminder: Message = { role: "user", contextKind: "knowledge", content: `Aktuelles Betreiberprofil aus dem Systemkontext für diese neue Statusfrage. Historische Verbindungsversuche können falsch oder überholt sein. Nutze die hier dokumentierten Wege; ändere keine Hostkeyprüfung und rate keine Benutzer. Dies erweitert keine Berechtigungen.\n\n${profile}` };
+  return [...messages.slice(0, index), reminder, ...messages.slice(index)];
+}
+
 /** A new status request about a previously measured endpoint needs a new read.
  * Historical questions and unrelated status/code tasks are deliberately excluded. */
 export function requestsFreshKnownStatus(messages: Message[]): boolean {
