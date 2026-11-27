@@ -459,7 +459,7 @@ export const MORNINGSTAR_COMMANDS = Object.freeze([
     seed("system.instinct-import", "instinct-import", "system", "Instincts importieren", "/instinct-import <file>", { whenBusy: "queue" }),
     seed("system.update", "update", "system", "Auf Updates pruefen", "/update [check|run]"),
     seed("system.update-check", "update check", "system", "Auf Updates pruefen"),
-    seed("system.update-run", "update run", "system", "Self-Update ausfuehren", "/update run", { whenBusy: "queue" }),
+    seed("system.update-run", "update run", "system", "Update-Anleitung für das Terminal", "/update run", { whenBusy: "queue" }),
     seed("system.cache", "cache", "system", "Prompt Cache Statistiken anzeigen"),
     seed("system.dashboard", "dashboard", "system", "Web Dashboard starten oder anzeigen", "/dashboard [port]", { whenBusy: "queue" }),
     seed("system.login", "login", "system", "Anmelden: Abo (OAuth) oder API-Key", "/login", { aliases: ["auth"] }),

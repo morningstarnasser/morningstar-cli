@@ -1,356 +1,225 @@
-// ─── Self-Update Mechanism ──────────────────────────────
-// Check for updates from GitHub, pull latest changes,
-// rebuild, and notify user of available updates.
-
-import { execSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { homedir } from "node:os";
-
-// ─── Types ───────────────────────────────────────────────
+// Only Node built-ins: the launcher can update without loading the application.
+import { existsSync, readFileSync, realpathSync, mkdtempSync, openSync, closeSync, writeFileSync, unlinkSync, renameSync, rmSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { runUpdateProcess, npmInvocation } from "./update-process.js";
 
 export interface UpdateInfo {
+  status: "current" | "available" | "blocked" | "error" | "unsupported";
   currentVersion: string;
   latestVersion: string | null;
   hasUpdate: boolean;
-  releaseNotes?: string;
-  publishedAt?: string;
   checkedAt: string;
+  currentCommit?: string;
+  latestCommit?: string;
+  branch?: string;
+  remote?: string;
+  upstreamRef?: string;
+  message: string;
 }
-
 export interface UpdateResult {
   success: boolean;
+  changed: boolean;
   fromVersion: string;
   toVersion: string;
   output: string;
   duration: number;
+  commit?: string;
 }
-
-// ─── Constants ───────────────────────────────────────────
-
-const CONFIG_DIR = join(homedir(), ".morningstar");
-const UPDATE_CACHE_FILE = join(CONFIG_DIR, "update-check.json");
-const REPO_URL = "https://github.com/morningstarnasser/morningstar-cli";
-const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-// ─── Version Detection ──────────────────────────────────
-
-/**
- * Get the current installed version from package.json.
- */
-export function getCurrentVersion(installDir?: string): string {
-  const dirs = [
-    installDir,
-    join(__dirname, ".."),
-    join(__dirname, "../.."),
-    process.cwd(),
-  ].filter(Boolean) as string[];
-
-  for (const dir of dirs) {
-    const pkgPath = join(dir, "package.json");
-    try {
-      if (existsSync(pkgPath)) {
-        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-        if (pkg.name === "morningstar-cli" && pkg.version) {
-          return pkg.version;
-        }
-      }
-    } catch {}
-  }
-
-  return "1.0.0"; // fallback
+export interface UpdateOptions {
+  /** Internal/test override. The command always uses its own installation. */
+  installDir?: string;
+  signal?: AbortSignal;
+  onProgress?: (message: string) => void;
 }
-
-/**
- * Get the installation directory of morningstar-cli.
- */
+class UpdateError extends Error {
+  constructor(message: string, readonly status: UpdateInfo["status"] = "error") { super(message); }
+}
+function packageVersion(dir: string): string {
+  const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+  if (pkg.name !== "morningstar-cli" || typeof pkg.version !== "string" || !/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(pkg.version)) throw new UpdateError("Kein gültiges Morningstar-Paket in dieser Installation.");
+  return pkg.version;
+}
+/** Resolve from this module, never from the user's current project directory. */
 export function getInstallDir(): string | null {
-  const dirs = [
-    join(__dirname, ".."),
-    join(__dirname, "../.."),
-  ];
-
-  for (const dir of dirs) {
-    const pkgPath = join(dir, "package.json");
-    const gitDir = join(dir, ".git");
-    try {
-      if (existsSync(pkgPath) && existsSync(gitDir)) {
-        const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-        if (pkg.name === "morningstar-cli") return dir;
+  try {
+    const dir = realpathSync(join(dirname(fileURLToPath(import.meta.url)), ".."));
+    packageVersion(dir);
+    return dir;
+  } catch { return null; }
+}
+export function getCurrentVersion(installDir = getInstallDir()): string {
+  try { return installDir ? packageVersion(installDir) : "unbekannt"; }
+  catch { return "unbekannt"; }
+}
+async function git(dir: string, args: string[], signal?: AbortSignal): Promise<string> {
+  return (await runUpdateProcess("git", ["-c", "core.hooksPath=", ...args], dir, "Git-Prüfung", 60_000, signal)).trim();
+}
+async function requireClean(dir: string): Promise<void> {
+  try {
+    await git(dir, ["diff", "--quiet", "--ignore-submodules=none"]);
+    await git(dir, ["diff", "--cached", "--quiet", "--ignore-submodules=none"]);
+  } catch { throw new UpdateError("Lokale Änderungen gefunden. Bitte zuerst selbst committen oder sichern; nichts wurde überschrieben.", "blocked"); }
+  if (await git(dir, ["ls-files", "--others", "--exclude-standard"])) throw new UpdateError("Unversionierte Dateien gefunden. Bitte zuerst selbst sichern oder einordnen; nichts wurde gelöscht.", "blocked");
+}
+async function installation(options: UpdateOptions): Promise<string> {
+  const path = options.installDir ?? getInstallDir();
+  if (!path || !existsSync(join(path, ".git"))) throw new UpdateError("Automatische Updates benötigen eine Git-Installation (git clone und npm link). Dieses Paket bitte über seinen ursprünglichen Installationsweg aktualisieren.", "unsupported");
+  const dir = realpathSync(path);
+  packageVersion(dir);
+  const top = await git(dir, ["rev-parse", "--show-toplevel"], options.signal);
+  if (realpathSync(top) !== dir) throw new UpdateError("Git-Wurzel und Morningstar-Installation stimmen nicht überein.", "blocked");
+  return dir;
+}
+async function lock(dir: string): Promise<() => void> {
+  const common = await git(dir, ["rev-parse", "--git-common-dir"]);
+  const path = resolve(dir, common, "morningstar-update.lock");
+  let fd: number;
+  try { fd = openSync(path, "wx", 0o600); }
+  catch { throw new UpdateError("Eine Update-Sperre besteht. Falls kein Update mehr läuft, die Datei morningstar-update.lock im Git-Verzeichnis prüfen und entfernen.", "blocked"); }
+  try { writeFileSync(fd, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }) + "\n"); }
+  finally { closeSync(fd); }
+  return () => unlinkSync(path);
+}
+async function inspect(dir: string, options: UpdateOptions): Promise<UpdateInfo> {
+  await requireClean(dir);
+  const branch = await git(dir, ["symbolic-ref", "--quiet", "--short", "HEAD"]).catch(() => "");
+  if (!branch) throw new UpdateError("Detached HEAD: zuerst den gewünschten Update-Zweig auschecken.", "blocked");
+  const remote = await git(dir, ["config", "--get", `branch.${branch}.remote`]).catch(() => "");
+  const merge = await git(dir, ["config", "--get", `branch.${branch}.merge`]).catch(() => "");
+  if (!remote || remote === "." || remote.startsWith("-") || !merge.startsWith("refs/heads/") || merge.includes("\n")) throw new UpdateError("Kein gültiger Remote-Tracking-Zweig eingerichtet. Bitte den Upstream dieser Installation konfigurieren.", "blocked");
+  // A configured name only; never interpret branch.remote as a new URL.
+  await git(dir, ["remote", "get-url", "--", remote]).catch(() => { throw new UpdateError("Der konfigurierte Remote fehlt.", "blocked"); });
+  options.onProgress?.("Prüfe den konfigurierten Update-Zweig …");
+  // A private ref avoids racing a user's unrelated fetch and its FETCH_HEAD.
+  const fetchRef = `refs/morningstar-update/${randomUUID()}`;
+  let latestCommit: string;
+  try {
+    await runUpdateProcess("git", ["-c", "core.hooksPath=", "fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--", remote, `${merge}:${fetchRef}`], dir, "Abruf des Update-Zweigs", 60_000, options.signal);
+    latestCommit = await git(dir, ["rev-parse", `${fetchRef}^{commit}`]);
+  } finally { await git(dir, ["update-ref", "-d", fetchRef]); }
+  const currentCommit = await git(dir, ["rev-parse", "HEAD"]);
+  const [ahead, behind] = (await git(dir, ["rev-list", "--left-right", "--count", `${currentCommit}...${latestCommit}`])).split(/\s+/).map(Number);
+  if (ahead !== 0) throw new UpdateError("Lokale Commits oder abweichende Historie gefunden. Automatisch sind nur Fast-forward-Updates möglich.", "blocked");
+  const candidate = JSON.parse(await git(dir, ["show", `${latestCommit}:package.json`]));
+  if (candidate.name !== "morningstar-cli" || typeof candidate.version !== "string" || !/^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(candidate.version)) throw new UpdateError("Der Update-Zweig enthält kein gültiges Morningstar-Paket.");
+  return { status: behind > 0 ? "available" : "current", currentVersion: packageVersion(dir), latestVersion: candidate.version,
+    hasUpdate: behind > 0, checkedAt: new Date().toISOString(), currentCommit, latestCommit, branch, remote, upstreamRef: merge,
+    message: behind > 0 ? `${behind} neue Commits verfügbar. Im Terminal: morningstar update` : "Bereits auf dem neuesten Stand." };
+}
+function errorMessage(error: unknown): string {
+  return error instanceof UpdateError || (error instanceof Error && error.name === "UpdateProcessError")
+    ? error.message : "Update-Prüfung fehlgeschlagen. Installation und Git-Konfiguration prüfen.";
+}
+export async function checkForUpdate(options: UpdateOptions = {}): Promise<UpdateInfo> {
+  let unlock: (() => void) | undefined;
+  try {
+    const dir = await installation(options);
+    unlock = await lock(dir);
+    return await inspect(dir, options);
+  } catch (error) {
+    return { status: error instanceof UpdateError ? error.status : "error", currentVersion: getCurrentVersion(options.installDir), latestVersion: null,
+      hasUpdate: false, checkedAt: new Date().toISOString(), message: errorMessage(error) };
+  } finally { unlock?.(); }
+}
+export async function performUpdate(options: UpdateOptions = {}): Promise<UpdateResult> {
+  const start = Date.now();
+  const fromVersion = getCurrentVersion(options.installDir);
+  const result: UpdateResult = { success: false, changed: false, fromVersion, toVersion: fromVersion, duration: 0, output: "" };
+  let unlock: (() => void) | undefined;
+  let dir: string | undefined;
+  let stage: string | undefined;
+  let candidate: string | undefined;
+  let worktree = false;
+  let movedOld = false;
+  let movedNew = false;
+  let activated = false;
+  let retain = false;
+  try {
+    dir = await installation(options);
+    unlock = await lock(dir);
+    const info = await inspect(dir, options);
+    if (!info.hasUpdate) {
+      result.success = true; result.output = info.message; result.commit = info.currentCommit;
+      return result;
+    }
+    stage = mkdtempSync(join(dirname(dir), ".morningstar-update-"));
+    candidate = join(stage, "candidate");
+    options.onProgress?.(`Bereite Version ${info.latestVersion} separat vor …`);
+    await git(dir, ["worktree", "add", "--quiet", "--detach", candidate, info.latestCommit!], options.signal);
+    worktree = true;
+    if (!existsSync(join(candidate, "package-lock.json"))) throw new UpdateError("Im Update fehlt package-lock.json.");
+    const npm = npmInvocation();
+    for (const [args, phase] of [
+      [["ci", "--include=dev", "--no-audit", "--no-fund"], "Abhängigkeiten installieren"],
+      [["run", "typecheck"], "Typprüfung"], [["run", "build"], "Build"],
+    ] as const) {
+      options.onProgress?.(`${phase} …`);
+      await runUpdateProcess(npm.command, [...npm.args, ...args], candidate, phase, 600_000, options.signal);
+    }
+    const version = packageVersion(candidate);
+    const smoke = await runUpdateProcess(process.execPath, [join(candidate, "bin", "morningstar.js"), "--version"], candidate, "Startprüfung", 30_000, options.signal);
+    if (smoke.trim() !== version) throw new UpdateError("Die vorbereitete Version hat die Startprüfung nicht bestanden.");
+    await requireClean(candidate);
+    await requireClean(dir);
+    if (await git(dir, ["rev-parse", "HEAD"]) !== info.currentCommit) throw new UpdateError("Die Installation wurde während des Updates geändert. Bitte erneut prüfen.", "blocked");
+    if (await git(dir, ["symbolic-ref", "--quiet", "--short", "HEAD"]) !== info.branch
+      || await git(dir, ["config", "--get", `branch.${info.branch}.remote`]) !== info.remote
+      || await git(dir, ["config", "--get", `branch.${info.branch}.merge`]) !== info.upstreamRef) {
+      throw new UpdateError("Der Update-Zweig wurde während der Vorbereitung geändert.", "blocked");
+    }
+    if (options.signal?.aborted) throw new UpdateError("Update abgebrochen; bisherige Installation beibehalten.");
+    options.onProgress?.("Aktiviere die geprüfte Version …");
+    // Finish activation if Ctrl+C arrives during the dependency swap/FF merge.
+    if (existsSync(join(dir, "node_modules"))) { renameSync(join(dir, "node_modules"), join(stage, "previous-node_modules")); movedOld = true; }
+    if (existsSync(join(candidate, "node_modules"))) { renameSync(join(candidate, "node_modules"), join(dir, "node_modules")); movedNew = true; }
+    await git(dir, ["merge", "--ff-only", "--no-edit", info.latestCommit!]);
+    activated = result.changed = true;
+    result.toVersion = getCurrentVersion(dir);
+    result.commit = await git(dir, ["rev-parse", "HEAD"]);
+    const installed = await runUpdateProcess(process.execPath, [join(dir, "bin", "morningstar.js"), "--version"], dir, "Prüfung der installierten Version", 30_000);
+    if (result.commit !== info.latestCommit || installed.trim() !== version) throw new UpdateError("Die aktivierte Installation hat die Abschlussprüfung nicht bestanden.");
+    result.success = true;
+    result.output = "Update installiert und Start geprüft. Laufende Morningstar-Sitzungen bitte neu starten.";
+  } catch (error) {
+    result.output = errorMessage(error);
+    if (dir && stage && (movedOld || movedNew)) {
+      // Git can have finished despite a process error. Do not put old deps on a
+      // newly activated revision. Never reset the user's repository.
+      if (!activated) {
+        try { activated = result.changed = (await git(dir, ["rev-parse", "HEAD"])) === (await git(candidate!, ["rev-parse", "HEAD"])); }
+        catch { retain = true; }
       }
-    } catch {}
-  }
-
-  return null;
-}
-
-// ─── Update Check ────────────────────────────────────────
-
-/**
- * Load cached update check result.
- */
-function loadUpdateCache(): UpdateInfo | null {
-  try {
-    if (existsSync(UPDATE_CACHE_FILE)) {
-      const data = JSON.parse(readFileSync(UPDATE_CACHE_FILE, "utf-8"));
-      return data as UpdateInfo;
-    }
-  } catch {}
-  return null;
-}
-
-/**
- * Save update check result to cache.
- */
-function saveUpdateCache(info: UpdateInfo): void {
-  try {
-    writeFileSync(UPDATE_CACHE_FILE, JSON.stringify(info, null, 2), "utf-8");
-  } catch {}
-}
-
-/**
- * Check for updates from GitHub (uses git or GitHub API).
- * Caches the result to avoid frequent network calls.
- */
-export function checkForUpdate(force = false): UpdateInfo {
-  const currentVersion = getCurrentVersion();
-  const cached = loadUpdateCache();
-
-  // Return cached if recent enough
-  if (!force && cached) {
-    const cacheAge = Date.now() - new Date(cached.checkedAt).getTime();
-    if (cacheAge < CHECK_INTERVAL_MS) {
-      return { ...cached, currentVersion };
-    }
-  }
-
-  const info: UpdateInfo = {
-    currentVersion,
-    latestVersion: null,
-    hasUpdate: false,
-    checkedAt: new Date().toISOString(),
-  };
-
-  // Method 1: Check via git (if installed via git clone)
-  const installDir = getInstallDir();
-  if (installDir) {
-    try {
-      // Fetch latest from remote
-      execSync("git fetch origin --quiet", {
-        cwd: installDir,
-        encoding: "utf-8",
-        timeout: 15000,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      // Check if behind
-      const behind = execSync("git rev-list HEAD..origin/main --count", {
-        cwd: installDir,
-        encoding: "utf-8",
-        timeout: 5000,
-      }).trim();
-
-      const behindCount = parseInt(behind, 10);
-      if (behindCount > 0) {
-        info.hasUpdate = true;
-        info.latestVersion = `+${behindCount} commits`;
-
-        // Get latest commit message as release notes
-        try {
-          const log = execSync("git log origin/main -1 --format=%s", {
-            cwd: installDir,
-            encoding: "utf-8",
-            timeout: 5000,
-          }).trim();
-          info.releaseNotes = log;
-        } catch {}
+      if (activated || retain) {
+        retain = true;
+        result.toVersion = getCurrentVersion(dir);
+        result.output += ` Aktivierung unvollständig; Sicherung erhalten: ${stage}. Bitte Installation vor weiterer Nutzung prüfen.`;
       } else {
-        info.latestVersion = currentVersion;
+        try {
+          if (movedNew) renameSync(join(dir, "node_modules"), join(candidate!, "node_modules"));
+          if (movedOld) renameSync(join(stage, "previous-node_modules"), join(dir, "node_modules"));
+          result.output += " Bisherige Abhängigkeiten wiederhergestellt.";
+        } catch { retain = true; result.output += ` Wiederherstellung unvollständig; Sicherung erhalten: ${stage}.`; }
       }
-    } catch {
-      // Git check failed — try npm/API fallback
-      info.latestVersion = null;
     }
-  }
-
-  // Method 2: Check GitHub tags/releases via API (fallback)
-  if (info.latestVersion === null) {
-    try {
-      const result = execSync(
-        `curl -sf --max-time 10 "https://api.github.com/repos/morningstarnasser/morningstar-cli/releases/latest"`,
-        { encoding: "utf-8", timeout: 15000, stdio: ["pipe", "pipe", "pipe"] },
-      );
-      const release = JSON.parse(result);
-      if (release.tag_name) {
-        info.latestVersion = release.tag_name.replace(/^v/, "");
-        info.releaseNotes = release.body?.slice(0, 500);
-        info.publishedAt = release.published_at;
-        info.hasUpdate = compareVersions(currentVersion, info.latestVersion!) < 0;
-      }
-    } catch {
-      // API check also failed
-      info.latestVersion = null;
+  } finally {
+    if (stage && !retain) {
+      try {
+        if (worktree || existsSync(join(candidate!, ".git"))) await git(dir!, ["worktree", "remove", "--force", candidate!]);
+        rmSync(stage, { recursive: true, force: true });
+      } catch { result.output += ` Temporäre Update-Dateien konnten nicht vollständig entfernt werden: ${stage}`; }
     }
+    unlock?.();
+    result.duration = Date.now() - start;
   }
-
-  saveUpdateCache(info);
-  return info;
+  return result;
 }
-
-/**
- * Compare semver versions. Returns -1 if a < b, 0 if equal, 1 if a > b.
- */
-export function compareVersions(a: string, b: string): number {
-  const pa = a.split(".").map(Number);
-  const pb = b.split(".").map(Number);
-  const len = Math.max(pa.length, pb.length);
-
-  for (let i = 0; i < len; i++) {
-    const va = pa[i] || 0;
-    const vb = pb[i] || 0;
-    if (va < vb) return -1;
-    if (va > vb) return 1;
-  }
-  return 0;
-}
-
-// ─── Self-Update ─────────────────────────────────────────
-
-/**
- * Perform the self-update: git pull, npm install, npm run build.
- */
-export function performUpdate(): UpdateResult {
-  const startTime = Date.now();
-  const currentVersion = getCurrentVersion();
-  const installDir = getInstallDir();
-
-  if (!installDir) {
-    return {
-      success: false,
-      fromVersion: currentVersion,
-      toVersion: currentVersion,
-      output: "Installations-Verzeichnis nicht gefunden. Bitte manuell updaten:\n  cd morningstar-cli && git pull && npm install && npm run build",
-      duration: Date.now() - startTime,
-    };
-  }
-
-  const outputs: string[] = [];
-
-  try {
-    // Step 1: Git pull
-    outputs.push("$ git pull origin main");
-    const pullOutput = execSync("git pull origin main", {
-      cwd: installDir,
-      encoding: "utf-8",
-      timeout: 30000,
-    });
-    outputs.push(pullOutput.trim());
-
-    // Check if already up to date
-    if (pullOutput.includes("Already up to date") || pullOutput.includes("Bereits aktuell")) {
-      return {
-        success: true,
-        fromVersion: currentVersion,
-        toVersion: currentVersion,
-        output: outputs.join("\n") + "\n\nBereits auf dem neuesten Stand.",
-        duration: Date.now() - startTime,
-      };
-    }
-
-    // Step 2: npm install
-    outputs.push("\n$ npm install");
-    const installOutput = execSync("npm install --production=false", {
-      cwd: installDir,
-      encoding: "utf-8",
-      timeout: 120000,
-    });
-    outputs.push(installOutput.trim().split("\n").slice(-3).join("\n"));
-
-    // Step 3: npm run build
-    outputs.push("\n$ npm run build");
-    const buildOutput = execSync("npm run build", {
-      cwd: installDir,
-      encoding: "utf-8",
-      timeout: 60000,
-    });
-    outputs.push(buildOutput.trim());
-
-    // Get new version
-    const newVersion = getCurrentVersion(installDir);
-
-    return {
-      success: true,
-      fromVersion: currentVersion,
-      toVersion: newVersion,
-      output: outputs.join("\n"),
-      duration: Date.now() - startTime,
-    };
-  } catch (e) {
-    const error = e as Error;
-    outputs.push(`\nFehler: ${error.message}`);
-
-    return {
-      success: false,
-      fromVersion: currentVersion,
-      toVersion: currentVersion,
-      output: outputs.join("\n"),
-      duration: Date.now() - startTime,
-    };
-  }
-}
-
-/**
- * Format update info for display.
- */
 export function formatUpdateInfo(info: UpdateInfo): string {
-  const lines: string[] = [];
-
-  lines.push(`  Version:  ${info.currentVersion}`);
-
-  if (info.hasUpdate && info.latestVersion) {
-    lines.push(`  Update:   ${info.latestVersion} verfuegbar!`);
-    if (info.releaseNotes) {
-      lines.push(`  Notes:    ${info.releaseNotes.slice(0, 100)}`);
-    }
-    lines.push(`  Update:   /update ausfuehren`);
-  } else if (info.latestVersion) {
-    lines.push(`  Status:   Auf dem neuesten Stand`);
-  } else {
-    lines.push(`  Status:   Update-Check fehlgeschlagen`);
-  }
-
-  lines.push(`  Geprueft: ${info.checkedAt.split("T")[0]}`);
-
-  return lines.join("\n");
+  return [`Version: ${info.currentVersion}${info.currentCommit ? ` (${info.currentCommit.slice(0, 8)})` : ""}`,
+    ...(info.remote ? [`Zweig: ${info.remote}/${info.branch}`] : []),
+    ...(info.hasUpdate ? [`Verfügbar: ${info.latestVersion} (${info.latestCommit?.slice(0, 8)})`] : []), info.message].join("\n");
 }
-
-/**
- * Format update result for display.
- */
 export function formatUpdateResult(result: UpdateResult): string {
-  const icon = result.success ? "\u2714" : "\u2718";
-  const duration = result.duration >= 1000
-    ? `${(result.duration / 1000).toFixed(1)}s`
-    : `${result.duration}ms`;
-
-  const lines: string[] = [
-    `  ${icon} Self-Update ${result.success ? "erfolgreich" : "fehlgeschlagen"} (${duration})`,
-    `  Von: ${result.fromVersion} -> ${result.toVersion}`,
-  ];
-
-  // Show last few lines of output
-  const outputLines = result.output.split("\n").filter(l => l.trim());
-  const relevant = outputLines.slice(-5);
-  if (relevant.length > 0) {
-    lines.push("");
-    for (const l of relevant) {
-      lines.push(`  ${l}`);
-    }
-  }
-
-  if (result.success && result.fromVersion !== result.toVersion) {
-    lines.push("\n  Bitte morningstar neu starten fuer die neuen Aenderungen.");
-  }
-
-  return lines.join("\n");
+  return `${result.success ? "✓" : "✗"} ${result.output}\nVersion: ${result.fromVersion} → ${result.toVersion}${result.commit ? ` (${result.commit.slice(0, 8)})` : ""}`;
 }

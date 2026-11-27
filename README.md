@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.4.0** (2026-11-26).
+Current release: **1.5.0** (2026-11-27).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -52,18 +52,37 @@ morningstar
 In PowerShell, use `npm.cmd` / `morningstar.cmd` when script execution policy blocks `.ps1` shims.
 Do not overwrite an existing dirty checkout. Install beside it, then link the new checkout.
 
-To update a clean checkout:
+Update from any working directory (close running Morningstar sessions first):
+
+```sh
+morningstar update --check
+morningstar update
+```
+
+On Windows, `morningstar.cmd update` also works. The updater follows this installation's
+configured Git remote and tracking branch, including private installations. It refuses
+local changes, untracked files, detached HEADs and divergent commits. Dependencies,
+typecheck, build and a version-start check run in a temporary checkout before a
+fast-forward activates the update. Your settings, sessions and downloaded models stay
+in their existing locations. Restart Morningstar afterwards.
+
+`morningstar update --json` returns a machine-readable result; combine it with `--check`
+for a check without installation. `/update` inside Morningstar checks availability;
+`/update run` shows the terminal instructions. An interrupted preparation leaves the
+current installation in place. During the short activation step, cancellation waits
+for completion. Updates require Git, npm, network access and room for a second set of
+dependencies. They use only the configured upstream; there is no public-repo fallback.
+
+For versions before 1.5.0, bootstrap the new command once in a **clean checkout**:
 
 ```sh
 git pull --ff-only
 npm ci
 npm run build
-npm link
-git rev-parse --short HEAD
 ```
 
-Restart running Morningstar processes after updating. `--version` is the package version;
-`git rev-parse HEAD` identifies the exact installed source revision.
+Standalone npm/tarball installs without Git must use their original installation method.
+`--version` reports the package version; `git rev-parse HEAD` identifies the exact source.
 
 ## Public launchers and distribution
 

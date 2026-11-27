@@ -59,3 +59,25 @@ gitleaks dir /path/to/extracted/package --redact
 Install that exact archive into a separate prefix and check `morningstar --version`, `--help`, and an isolated task with a real provider. Do not call a unit test a provider or terminal E2E test. Record the OS, commit, commands, failures and untested platforms. Check the final diff, license, README claims and generated `dist/` files. Recheck relevant findings before publishing; scanning is not a guarantee.
 
 The GitHub workflow repeats the automated checks on pushes and pull requests, with read-only repository permissions and pinned scanner versions/action revisions. It does not publish npm packages or submit upstream listings. Local commands are still required before pushing: CI cannot prevent a secret from entering Git history in the first place.
+
+## Updating an existing source installation
+
+Version 1.5.0 adds `morningstar update` and `morningstar update --check` (also
+`--json`). It updates the installed Git checkout, independent of the current working
+directory, using that checkout's configured tracking remote and branch. Public and
+private installations keep their respective sources. No npm-registry release is
+required for this source-installation path.
+
+The update refuses dirty, untracked, detached or divergent checkouts. It prepares
+locked dependencies and verifies typecheck, build and executable version in a separate
+worktree, then fast-forwards and checks the installed version. A failed preparation
+preserves the live checkout. A failed activation reports the remaining state and keeps
+its dependency backup when recovery cannot be verified; it never resets user commits.
+A lock prevents overlapping updater runs. After a forced process termination, inspect
+`morningstar-update.lock` in the Git common directory and remove it only after confirming
+that its process is no longer running. Run updates outside an active Morningstar session
+and restart all existing sessions afterwards.
+
+Automated verification covers real local Git remotes and npm, failure recovery, local
+changes, tracking branches, command argument handling, and check/update exit codes.
+An update's own startup check is not a full model or external-service E2E test.

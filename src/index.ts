@@ -42,6 +42,10 @@ import type { MorningstarSettings } from "./settings.js";
 // ─── Subcommand Routing (telegram gateway / cron) ────────
 // Handled before commander/Ink so the interactive path stays untouched.
 const subcommand = process.argv[2];
+if (subcommand === "update") {
+  const { runUpdateCli } = await import("./update-cli.js");
+  process.exit(await runUpdateCli(process.argv.slice(3)));
+}
 if (subcommand === "status-mcp") {
   const { serveStatusMCP } = await import("./runtime/status-mcp.js");
   await serveStatusMCP(process.argv[3]);
@@ -75,7 +79,7 @@ if (subcommand === "cron") {
 }
 
 // ─── Config ──────────────────────────────────────────────
-const VERSION = "1.4.0";
+const VERSION = "1.5.0";
 const sessionStart = Date.now();
 
 // ─── CLI Setup ───────────────────────────────────────────
@@ -83,6 +87,7 @@ program
   .name("morningstar")
   .description("Morningstar AI - Multi-Provider Terminal Coding Assistant")
   .version(VERSION)
+  .addHelpText("after", "\nUpdates: morningstar update [--check] [--json]")
   .argument("[prompt...]", "Initial prompt")
   .option("-w, --worktree [name]", "Create an isolated Git worktree from HEAD")
   .option("-k, --api-key <key>", "API Key (sichtbar in der Prozessliste; Umgebungsvariable bevorzugen)")

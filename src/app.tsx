@@ -133,7 +133,7 @@ import { isBudgetExceeded, getRemainingBudget } from "./cost-tracker.js";
 import { isValidPermissionMode, getPermissionModeDescription, type PermissionMode } from "./permissions.js";
 import { createFileWatcher, formatFileChanges, summarizeChanges, detectWatchDirs, type FileWatcherInstance } from "./file-watcher.js";
 import { createBranch, listBranches, switchBranch, mergeBranch, deleteBranch, formatBranchesList, saveBranch, type ConversationBranch } from "./conversation-branch.js";
-import { checkForUpdate, performUpdate, formatUpdateInfo, formatUpdateResult } from "./self-update.js";
+import { checkForUpdate, formatUpdateInfo } from "./self-update.js";
 import { startDashboard, formatDashboardStatus, type DashboardState } from "./web-dashboard.js";
 import { fetchPRData, analyzePRDiff, generateReviewPrompt, formatReviewResult } from "./pr-review.js";
 import { getCacheStats, formatCacheStats, trackCacheHit, trackRequest } from "./prompt-cache.js";
@@ -2420,12 +2420,11 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
       case "/update": {
         if (!arg || arg === "check") {
           addOutput({ type: "info", content: "Pruefe auf Updates..." });
-          const info = checkForUpdate(true);
-          addOutput({ type: "info", content: formatUpdateInfo(info) });
+          void checkForUpdate().then(info => {
+            addOutput({ type: info.status === "error" || info.status === "blocked" ? "error" : "info", content: formatUpdateInfo(info) });
+          }).catch(() => addOutput({ type: "error", content: "Update-Prüfung fehlgeschlagen." }));
         } else if (arg === "run" || arg === "install") {
-          addOutput({ type: "info", content: "Starte Self-Update..." });
-          const result = performUpdate();
-          addOutput({ type: result.success ? "success" : "error", content: formatUpdateResult(result) });
+          addOutput({ type: "info", content: "Bitte diese Sitzung mit /exit schliessen und im Terminal `morningstar update` ausführen. Danach Morningstar neu starten." });
         } else {
           addOutput({ type: "info", content: "Nutzung: /update [check|run]" });
         }
