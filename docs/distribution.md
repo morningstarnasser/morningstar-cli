@@ -60,6 +60,10 @@ Install that exact archive into a separate prefix and check `morningstar --versi
 
 The GitHub workflow repeats the automated checks on pushes and pull requests, with read-only repository permissions and pinned scanner versions/action revisions. It does not publish npm packages or submit upstream listings. Local commands are still required before pushing: CI cannot prevent a secret from entering Git history in the first place.
 
+The Pinokio menu includes **Update Morningstar** after installation. It invokes the
+same verified updater from the product checkout. Stop its running terminal first.
+Install the launcher from a Git clone so that the configured upstream is available.
+
 ## Updating an existing source installation
 
 Version 1.5.0 adds `morningstar update` and `morningstar update --check` (also

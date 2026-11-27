@@ -140,3 +140,16 @@ test("unchanged rows stay untouched across live frames and shortened lines erase
   await view.scroll(-1); await view.leave(); await new Promise<void>(resolve => screen.write("", resolve));
   assert.equal(screen.buffer.active.getLine(0)!.translateToString(true).trimEnd(), "stable heading");
 });
+
+
+test("clicking the counted output marker opens every omitted line", async t => {
+  let output = "";
+  const view = new TerminalViewport({ columns: 70, rows: 8, write: text => { output += text; }, detail: id => {
+    assert.equal(id, "rCount"); return { title: "Command details", body: "first\nlast omitted line" };
+  } });
+  t.after(() => view.dispose());
+  view.feed("    ▸ +18 Zeilen [rCount] · klicken\r\n"); await view.flush();
+  await view.pointer("down", 9, 1); await view.pointer("up", 9, 1);
+  assert.equal(view.modal, true); assert.match(output, /last omitted line/);
+  await view.leave(); assert.equal(view.modal, false);
+});

@@ -93,9 +93,10 @@ test("the current native result batch survives compaction even when one service 
 });
 
 test("unchanging read loops stop but polling with changing results remains unlimited", async () => {
+  let measuredCalls = 0;
   const identical: StreamFn = async function* () { yield { type: "content", text: "<tool:read>state.txt</tool>" }; };
   const stuck = await runAgent([{ role: "user", content: "task" }], config, "/tmp", { streamFn: identical,
-    textToolExecFn: () => ({ tool: "read", result: "unchanged", success: true }) });
+    textToolExecFn: () => ({ tool: "read", result: "unchanged", success: true, durationMs: ++measuredCalls }) });
   assert.equal(stuck.turns, 3); assert(stuck.loopDetected); assert(!stuck.hitTurnLimit);
   let calls = 0;
   const advancing = await runAgent([{ role: "user", content: "task" }], config, "/tmp", {

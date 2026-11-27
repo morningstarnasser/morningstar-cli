@@ -18,6 +18,12 @@ export declare function fileChange(before: string, after: string, startLine?: nu
 /** Attach invocation metadata even when a policy denial never reached the executor. */
 export declare function workResult(invocation: ToolInvocation, result: ToolResult): ToolResult;
 export declare function workHeading(r: ToolResult): string;
+export declare function workMetadata(r: ToolResult): string;
+/** Count actual omitted lines after normalizing CRLF and the final newline. */
+export declare function workPreview(text: string, limit?: number): {
+    lines: string[];
+    omitted: number;
+};
 /** Group adjacent fast edits without delaying commands or mixing worker identities. */
 export declare function createWorkLogBatcher(emit: (agent: string, results: ToolResult[]) => void, delayMs?: number): {
     push(owner: string, result: ToolResult): void;

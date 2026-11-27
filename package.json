@@ -1,6 +1,6 @@
 {
   "name": "morningstar-cli",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Morningstar AI - sovereign multi-provider terminal coding agent",
   "engines": {
     "node": ">=22"

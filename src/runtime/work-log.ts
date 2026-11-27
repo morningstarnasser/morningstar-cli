@@ -59,12 +59,30 @@ export function workResult(invocation: ToolInvocation, result: ToolResult): Tool
 
 export function workHeading(r: ToolResult): string {
   if (r.command) {
-    const status = r.exitCode !== undefined && r.exitCode !== null ? `Exited (status ${r.exitCode})`
+    const status = r.success && r.exitCode === 0 ? "Ran" : r.exitCode !== undefined && r.exitCode !== null ? `Exited (status ${r.exitCode})`
       : r.exitSignal ? `Exited (${r.exitSignal})` : r.taskId ? "Started in background" : r.success ? "Ran" : "Failed";
     return `${status} ${r.command}`;
   }
   const label: Record<string, string> = { read: "Read", grep: "Searched", glob: "Listed", ls: "Listed", write: "Wrote", edit: "Edited", delete: "Deleted", swarm: "Swarm" };
   return `${r.success ? label[r.tool] || r.tool : `Failed ${r.tool}`}${r.filePath ? ` ${r.filePath}` : ""}`;
+}
+
+export function workMetadata(r: ToolResult): string {
+  const parts: string[] = [];
+  if (typeof r.durationMs === "number" && Number.isFinite(r.durationMs) && r.durationMs >= 0) {
+    parts.push(r.durationMs < 1000 ? `${Math.round(r.durationMs)}ms` : `${(r.durationMs / 1000).toFixed(1)}s`);
+  }
+  if (r.exitCode !== undefined && r.exitCode !== null) parts.push(`Exit ${r.exitCode}`);
+  else if (r.exitSignal) parts.push(displayText(r.exitSignal));
+  if (r.taskId) parts.push(`Task ${displayText(r.taskId)}`);
+  return parts.join(" · ");
+}
+
+/** Count actual omitted lines after normalizing CRLF and the final newline. */
+export function workPreview(text: string, limit = 4): { lines: string[]; omitted: number } {
+  const clean = displayText(text).replace(/\r\n/g, "\n").replace(/\n$/, "");
+  const lines = clean ? clean.split("\n") : [];
+  return { lines: lines.slice(0, limit), omitted: Math.max(0, lines.length - limit) };
 }
 
 /** Group adjacent fast edits without delaying commands or mixing worker identities. */

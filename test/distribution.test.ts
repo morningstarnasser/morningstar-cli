@@ -33,6 +33,10 @@ test("Pinokio menus follow install and running state without destructive control
   assert.equal((await menu(true))[0].href, "start.js");
   assert.deepEqual((await menu(true, "start.js")).map(x => x.text), ["Terminal"]);
   assert.deepEqual((await menu(true, "install.js")).map(x => x.text), ["Installing"]);
+  assert.deepEqual((await menu(true, "update.js")).map(x => x.text), ["Updating"]);
+  assert.ok((await menu(true)).some(x => x.href === "update.js"));
+  assert.ok(!(await menu(false)).some(x => x.href === "update.js"));
+  assert.equal(require("../pinokio/update.js").run[0].params.message, "node bin/morningstar.js update");
   assert.equal(require("../pinokio/start.js").run[0].params.input, true);
 });
 

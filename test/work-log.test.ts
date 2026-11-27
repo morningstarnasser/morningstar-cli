@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileChange, displayText, workHeading, workResult, createWorkLogBatcher } from "../src/runtime/work-log.js";
+import { fileChange, displayText, workHeading, workResult, createWorkLogBatcher, workMetadata, workPreview } from "../src/runtime/work-log.js";
 import { writeFile, editFile, deleteFile, bash } from "../src/tools.js";
 import { deletionKey, erase } from "../src/runtime/composer.js";
 
@@ -78,4 +78,16 @@ test("adjacent edits group by worker and flush before commands without reorderin
   batch.push("docs", { tool: "bash", success: true, result: "ok", exitCode: 0 });
   assert.deepEqual(emitted, [["api", ["a.ts", "b.ts"]], ["docs", ["README.md"]], ["docs", ["bash"]]]);
   batch.cancel();
+});
+
+
+test("work previews count hidden lines exactly and never invent timing or exit codes", () => {
+  const preview = workPreview("a\r\nb\r\nc\r\nd\r\ne\r\n");
+  assert.deepEqual(preview, { lines: ["a", "b", "c", "d"], omitted: 1 });
+  assert.deepEqual(workPreview(""), { lines: [], omitted: 0 });
+  const result = { tool: "bash", command: "echo done", result: "done", success: true };
+  assert.equal(workMetadata(result), "");
+  assert.equal(workMetadata({ ...result, durationMs: 1250, exitCode: 0 }), "1.3s · Exit 0");
+  assert.equal(workMetadata({ ...result, durationMs: Number.NaN, exitCode: 7 }), "Exit 7");
+  assert.equal(workHeading({ ...result, exitCode: 0 }), "Ran echo done");
 });

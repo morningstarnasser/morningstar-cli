@@ -207,7 +207,7 @@ export class TerminalViewport {
     const cells = this.snapshot[point.row]?.cells ?? [];
     const line = cells.map(c => c.width ? c.text : "").join("");
     const offset = cells.slice(0, point.column).map(c => c.width ? c.text : "").join("").length;
-    const match = [...line.matchAll(/▸ Details \[([a-zA-Z0-9_-]+)\]/g)].find(m => offset >= m.index! && offset < m.index! + m[0].length);
+    const match = [...line.matchAll(/▸ (?:Details|\+\d+ Zeilen) \[([a-zA-Z0-9_-]+)\]/g)].find(m => offset >= m.index! && offset < m.index! + m[0].length);
     const detail = match && this.options.detail(match[1]);
     if (!detail) return false;
     const page = new xterm.Terminal({ cols: this.terminal.cols, rows: this.terminal.rows, scrollback: 100000, allowProposedApi: true, convertEol: true, logLevel: "off" });

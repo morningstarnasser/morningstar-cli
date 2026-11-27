@@ -648,10 +648,12 @@ export async function runAgent(messages, config, cwd, options = {}) {
                 results = [errorResult(invocation, invocation.parseError)];
             }
             else {
+                let toolStarted;
                 try {
                     const hook = await runRuntimeHooks(hooks, "PreToolUse", { cwd, session_id: config.sessionId, tool_name: invocation.name, tool_input: invocation.args }, signal);
                     if (!hook.allowed)
                         throw new Error(hook.messages.join("\n") || "Blocked by PreToolUse hook");
+                    toolStarted = performance.now();
                     if (invocation.name === "swarm") {
                         const delegated = await executeAutonomousSwarm(`swarm-${turn}-${invocation.id}`, invocation.args, conversation, { ...providerConfig, permissionMode: resolvePermissionMode(config, options.toolExecFn !== undefined) }, cwd, { ...options, signal }, (options.initialCostUsd ?? 0) + costUsd, emit);
                         delegatedUsage = addUsage(delegatedUsage, delegated.usage);
@@ -685,6 +687,11 @@ export async function runAgent(messages, config, cwd, options = {}) {
                     results = [
                         errorResult(invocation, `Tool execution failed: ${error.message}`),
                     ];
+                }
+                // Legacy executors can return several tools at once. Do not present the
+                // batch duration as an individual tool's time.
+                if (toolStarted !== undefined && results.length === 1) {
+                    results = [{ ...results[0], durationMs: results[0].durationMs ?? Math.max(0, performance.now() - toolStarted) }];
                 }
             }
             if (signal?.aborted)
@@ -769,7 +776,7 @@ export async function runAgent(messages, config, cwd, options = {}) {
         ];
         // Read-only/unknown calls may repeat while their output changes (polling).
         // Three identical requests with identical outcomes indicate no progress.
-        const stableResult = JSON.stringify({ signature, results: turnResults });
+        const stableResult = JSON.stringify({ signature, results: turnResults.map(({ durationMs: _timing, ...outcome }) => outcome) });
         unchangedReadBatches = !canDetectLoop && stableResult === previousStableResult ? unchangedReadBatches + 1 : 1;
         previousStableResult = stableResult;
         if (!canDetectLoop && pending.every(({ invocation }) => invocation.source !== "legacy") && unchangedReadBatches >= 3) {

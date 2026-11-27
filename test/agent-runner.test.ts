@@ -752,3 +752,23 @@ test("a real tool still runs when it arrives alongside an invented answer tool",
   assert.deepEqual(executed, ["read"], "only the real tool executes");
   assert.equal(result.finalText, "Fertig.");
 });
+
+
+test("tool duration measures execution and stays absent when permission is denied", async () => {
+  const { tmpdir } = await import("node:os");
+  const prompt = [{ role: "user" as const, content: "run the local fixture" }];
+  const response = '<tool:bash>printf DURATION_PROBE</tool>';
+  const executed = await runAgent(prompt, { ...CONFIG, permissionMode: "bypassPermissions" }, tmpdir(), {
+    streamFn: fakeStream([response, "done"]),
+  });
+  assert.equal(executed.toolCalls.length, 1);
+  assert.equal(executed.toolCalls[0].result, "DURATION_PROBE");
+  assert.equal(executed.toolCalls[0].exitCode, 0);
+  assert.ok(Number.isFinite(executed.toolCalls[0].durationMs));
+  assert.ok(executed.toolCalls[0].durationMs! > 0);
+  const denied = await runAgent(prompt, { ...CONFIG, permissionMode: "dontAsk", disallowedTools: ["bash"] }, tmpdir(), {
+    streamFn: fakeStream([response, "done"]),
+  });
+  assert.equal(denied.toolCalls[0].success, false);
+  assert.equal(denied.toolCalls[0].durationMs, undefined);
+});

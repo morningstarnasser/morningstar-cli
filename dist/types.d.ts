@@ -40,6 +40,8 @@ export interface ToolResult {
     startLineNumber?: number;
     exitCode?: number | null;
     exitSignal?: string | null;
+    /** Measured execution time; absent for tools that never ran. */
+    durationMs?: number;
 }
 export interface ProjectContext {
     cwd: string;
