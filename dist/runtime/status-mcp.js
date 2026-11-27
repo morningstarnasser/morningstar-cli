@@ -1,5 +1,24 @@
 import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
+/** Report transport failures without exposing URLs, credentials or raw causes. */
+function connectionError(error) {
+    const cause = error instanceof Error ? error.cause : undefined;
+    const code = cause && typeof cause === "object" && "code" in cause ? cause.code : undefined;
+    let message = "Verbindung zum Status-Endpunkt fehlgeschlagen. Netzwerk und Endpunkt prüfen.";
+    if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+        message = `DNS-Auflösung des Status-Endpunkts fehlgeschlagen (${code}). Netzwerk/VPN und DNS prüfen.`;
+    }
+    else if (code === "ECONNREFUSED") {
+        message = "Verbindung zum Status-Endpunkt abgewiesen (ECONNREFUSED). Dienst und Port prüfen.";
+    }
+    else if (code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT" || (error instanceof Error && error.name === "TimeoutError")) {
+        message = "Zeitüberschreitung beim Status-Endpunkt. Netzwerk/VPN und Erreichbarkeit prüfen.";
+    }
+    else if (typeof code === "string" && /^(?:ERR_TLS_|CERT_|DEPTH_ZERO_SELF_SIGNED_CERT$|SELF_SIGNED_CERT_IN_CHAIN$|UNABLE_TO_VERIFY_LEAF_SIGNATURE$)/.test(code)) {
+        message = "TLS-Prüfung des Status-Endpunkts fehlgeschlagen. Zertifikat und Systemzeit prüfen.";
+    }
+    return new Error(message);
+}
 /** Derived display values use the endpoint's explicit units. Keep raw data intact
  * so the model can cite measurements without mentally converting large numbers. */
 export function statusDisplay(data) {
@@ -40,7 +59,7 @@ export async function readEntityStatus(targets, args) {
         throw new Error(`Kein Status-Zugang für dieses Ziel konfiguriert. Verfügbar: ${Object.keys(targets).join(", ")}.`);
     }
     const target = targets[args.entity];
-    const response = await fetch(target.url, { redirect: "error", signal: AbortSignal.timeout(8_000), headers: { Accept: "application/json" } });
+    const response = await fetch(target.url, { redirect: "error", signal: AbortSignal.timeout(8_000), headers: { Accept: "application/json" } }).catch(error => { throw connectionError(error); });
     if (!response.ok)
         throw new Error(`Status-Endpunkt antwortet mit HTTP ${response.status}.`);
     if (!response.body)

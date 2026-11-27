@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.5.5** (2026-11-27).
+Current release: **1.5.6** (2026-11-27).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -382,6 +382,13 @@ guarantee that the model cannot make mistakes. Avoid copying unrelated credentia
 or host-specific configuration between computers.
 
 See [settings, hooks and parity details](docs/claude-parity-2026-11-23.md).
+
+## Status error diagnostics (1.5.6)
+
+Status requests distinguish permission denial from a failed measurement. DNS,
+connection refusal, connection timeout and TLS errors include a concrete diagnostic
+in the tool result. A failed request never reports unmeasured server values.
+See [release notes](docs/release-1.5.6-2026-11-27.md).
 
 ## Fresh model selection (1.5.5)
 

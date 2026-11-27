@@ -80,6 +80,7 @@ test("denial and failed or malformed measurements remain visible without model r
   for (const success of [true, false]) {
     const result = await run({}, { nativeToolExecFn: (tool, args) => ({ tool, command: String(args.command), success, result: "invalid" }) });
     assert.match(result.finalText, /Keine Messwerte/); assert.doesNotMatch(result.finalText, /GiB/);
+    assert.doesNotMatch(result.finalText, /nicht freigegeben/);
   }
 });
 

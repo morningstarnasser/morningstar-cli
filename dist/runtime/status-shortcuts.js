@@ -130,7 +130,10 @@ export function statusShortcutReport(plan, results) {
     return plan.map((call, index) => {
         const result = results[index];
         const report = result && result.tool === call.name && measuredStatusReport("status", [result]);
-        return report ?? `**${call.target}**\n\n${!result?.success ? "Statusabfrage fehlgeschlagen oder nicht freigegeben. Details stehen im Werkzeugergebnis." : "Werkzeugantwort nicht als vollständige Statusmessung lesbar."} Keine Messwerte für dieses Ziel bestätigt.`;
+        const failure = result?.result.startsWith("Permission denied:")
+            ? "Statusabfrage nicht freigegeben. Details stehen im Werkzeugergebnis."
+            : "Statusabfrage fehlgeschlagen. Details stehen im Werkzeugergebnis.";
+        return report ?? `**${call.target}**\n\n${!result?.success ? failure : "Werkzeugantwort nicht als vollständige Statusmessung lesbar."} Keine Messwerte für dieses Ziel bestätigt.`;
     }).join("\n\n");
 }
 //# sourceMappingURL=status-shortcuts.js.map

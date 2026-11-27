@@ -137,3 +137,26 @@ test("only explicitly enabled MCP servers auto-connect and advertise their real 
   assert.ok(getConnectedMCPTools().every(tool => tool.serverName === "active"));
   assert.throws(() => parseSettings({ mcpServers: { bad: { command: "node", autoConnect: "true" } } }), /autoConnect/);
 });
+
+test("status transport failures identify DNS, connection, timeout and TLS without leaking raw causes", async (t) => {
+  const targets = parseStatusTargets({ lab: { label: "Lab", url: "https://lab.invalid/status?key=never-print-this" } });
+  const failures: [unknown, RegExp][] = [
+    [new TypeError("fetch failed", { cause: Object.assign(new Error("private resolver details"), { code: "ENOTFOUND" }) }), /DNS-Auflösung.*ENOTFOUND/],
+    [new TypeError("fetch failed", { cause: { code: "EAI_AGAIN" } }), /DNS-Auflösung.*EAI_AGAIN/],
+    [new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } }), /Verbindung.*ECONNREFUSED/],
+    [new TypeError("fetch failed", { cause: { code: "UND_ERR_CONNECT_TIMEOUT" } }), /Zeitüberschreitung/],
+    [new DOMException("request timed out", "TimeoutError"), /Zeitüberschreitung/],
+    [new TypeError("fetch failed", { cause: { code: "ERR_TLS_CERT_ALTNAME_INVALID" } }), /TLS-Prüfung/],
+    [new Error("private resolver details never-print-this"), /Verbindung.*fehlgeschlagen/],
+  ];
+  for (const [error, expected] of failures) {
+    const mock = t.mock.method(globalThis, "fetch", async () => { throw error; });
+    try {
+      await assert.rejects(readEntityStatus(targets, { entity: "lab" }), (actual: Error) => {
+        assert.match(actual.message, expected);
+        assert.doesNotMatch(actual.message, /private resolver|never-print-this|nicht freigegeben|Permission denied/);
+        return true;
+      });
+    } finally { mock.mock.restore(); }
+  }
+});
