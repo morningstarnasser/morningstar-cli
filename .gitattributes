@@ -1,0 +1,5 @@
+# Keep source and generated runtime byte-stable when building on Windows.
+# TypeScript also preserves literal line breaks inside template strings.
+src/** text eol=lf
+dist/** text eol=lf
+bin/** text eol=lf
