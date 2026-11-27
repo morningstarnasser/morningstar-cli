@@ -1,3 +1,4 @@
+export { getOllamaBaseUrl } from "./runtime/ollama-endpoint.js";
 import type { Message, CLIConfig } from "./types.js";
 import { type CodexCatalogModel } from "./providers/codex-cli.js";
 export interface ToolCallData {
@@ -76,7 +77,6 @@ export declare function mergeOllamaModelSources(liveModels: string[], localManif
 export declare function listInstalledOllamaModels(): string[];
 export declare function refreshInstalledOllamaModels(): string[];
 export declare function detectProvider(model: string): string;
-export declare function getOllamaBaseUrl(configuredHost?: string | undefined): string;
 export declare function getProviderBaseUrl(provider: string): string;
 export declare function getProviderApiKeyEnv(provider: string): string;
 export declare function resolveApiKey(provider: string, configKey: string): string;
@@ -97,5 +97,4 @@ export declare function buildCodexCliModels(catalog: readonly CodexCatalogModel[
 export declare function listProviders(): ProviderCatalogEntry[];
 export declare function getModelDisplayName(model: string): string;
 export declare function getProvider(config: CLIConfig): LLMProvider;
-export {};
 //# sourceMappingURL=providers.d.ts.map

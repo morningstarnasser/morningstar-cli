@@ -1,9 +1,9 @@
 import { terminalReport } from "../runtime/composer-layout.js";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
 import type { ProviderCatalogEntry } from "../providers.js";
-import { getModelDisplayName, listProviders } from "../providers.js";
-import { getProviderModelRefreshStatus } from "../provider-model-discovery.js";
+import { getModelDisplayName, listProviders, isLocalOllamaHost } from "../providers.js";
+import { getProviderModelRefreshStatus, getProviderModelEndpoint } from "../provider-model-discovery.js";
 import { useTerminalColumns } from "../hooks/useTerminalColumns.js";
 import { useTheme } from "../hooks/useTheme.js";
 import { fitText, getTerminalDensity } from "../tui-layout.js";
@@ -28,6 +28,7 @@ export interface ModelPickerProps {
   hasCredential: (provider: string) => boolean;
   onSelect: (model: string, provider: string) => void;
   onCancel: () => void;
+  onRefresh?: () => Promise<void>;
   isActive?: boolean;
 }
 
@@ -35,6 +36,7 @@ function modelLocation(
   provider: string,
   deployment?: "local" | "hosted",
 ): ModelChoice["location"] {
+  if (deployment === "hosted") return "hosted";
   if (deployment === "local" || provider === "ollama" || provider === "hydra-local") {
     return "local";
   }
@@ -109,6 +111,8 @@ const PROVIDER_LABELS: Record<string, string> = {
   groq: "Groq",
   openrouter: "OpenRouter",
 };
+const providerLabel = (provider: string): string => provider === "ollama" && !isLocalOllamaHost(getProviderModelEndpoint("ollama"))
+  ? "Ollama · Server" : PROVIDER_LABELS[provider] ?? provider;
 
 export function groupModelChoices(
   choices: readonly ModelChoice[],
@@ -122,7 +126,7 @@ export function groupModelChoices(
     }
     groups.push({
       provider: choice.provider,
-      label: PROVIDER_LABELS[choice.provider] ?? choice.provider,
+      label: providerLabel(choice.provider),
       choices: [choice],
     });
   }
@@ -142,7 +146,7 @@ export function buildModelProviderGroups(
     if (included.has(provider.name)) continue;
     groups.push({
       provider: provider.name,
-      label: PROVIDER_LABELS[provider.name] ?? provider.name,
+      label: providerLabel(provider.name),
       choices: [],
     });
   }
@@ -177,21 +181,53 @@ export function filterModelProviderGroups(
     filterModelChoices(group.choices, normalized).length > 0);
 }
 
+export function modelEmptyState(provider: string, query: string, status: string | undefined, refreshing = false): string {
+  if (refreshing) return "Modelle werden abgerufen …";
+  if (status === "failed") return provider === "ollama" ? "Ollama nicht erreichbar. Server starten oder Verbindung prüfen; Ctrl+R wiederholt den Abruf." : "Katalogabruf fehlgeschlagen. Verbindung und API-Key prüfen; Ctrl+R erneut.";
+  if (query) return `Keine Modelle für „${query}“.`;
+  if (provider === "ollama" && (status === "updated" || status === "cached")) return "Ollama erreichbar · keine Modelle installiert. Neu installierte Modelle erscheinen automatisch.";
+  if (status === "skipped") return "Kein API-Key für diesen Provider eingerichtet.";
+  return "Dieser Provider meldet keine verfügbaren Modelle.";
+}
+
 export function ModelPicker({
   currentModel,
   currentProvider,
   hasCredential,
   onSelect,
   onCancel,
+  onRefresh,
   isActive = true,
 }: ModelPickerProps) {
   const { primary, accent, dim, warning, success } = useTheme();
   const columns = useTerminalColumns();
   const density = getTerminalDensity(columns);
   const visibleCount = density === "compact" ? 6 : density === "comfortable" ? 8 : 10;
+  const [revision, setRevision] = useState(0);
+  const [refreshing, setRefreshing] = useState(Boolean(onRefresh));
+  const [refreshError, setRefreshError] = useState(false);
+  const [checkedAt, setCheckedAt] = useState<string>();
+  const refreshCallback = useRef(onRefresh);
+  refreshCallback.current = onRefresh;
+  const refreshAction = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!isActive || !refreshCallback.current) { setRefreshing(false); return; }
+    let mounted = true, running = false;
+    const refresh = async () => {
+      if (running || !mounted) return;
+      running = true; setRefreshing(true);
+      try { await refreshCallback.current?.(); if (mounted) { setRefreshError(false); setCheckedAt(new Date().toLocaleTimeString()); } }
+      catch { if (mounted) setRefreshError(true); }
+      finally { running = false; if (mounted) { setRevision(v => v + 1); setRefreshing(false); } }
+    };
+    refreshAction.current = () => { void refresh(); };
+    void refresh();
+    const timer = setInterval(() => { void refresh(); }, 30_000);
+    return () => { mounted = false; clearInterval(timer); refreshAction.current = () => {}; };
+  }, [isActive]);
   const providerCatalog = useMemo(
     () => listProviders(),
-    [currentModel],
+    [currentModel, revision],
   );
   const allChoices = useMemo(
     () => buildModelChoices(providerCatalog, currentModel, currentProvider),
@@ -241,6 +277,7 @@ export function ModelPicker({
 
   useInput((input, key) => {
     if (terminalReport(input)) return;
+    if (key.ctrl && input === "r") { refreshAction.current(); return; }
     if (key.escape) {
       if (selectedProvider) returnToProviders();
       else onCancel();
@@ -260,6 +297,7 @@ export function ModelPicker({
     }
     if (key.return || (key.rightArrow && !selectedProvider)) {
       if (selectedProvider) {
+        if (refreshing) return;
         const choice = modelChoices[selectedIndex];
         if (choice) onSelect(choice.model, choice.provider);
       } else {
@@ -313,6 +351,14 @@ export function ModelPicker({
         </Text>
         {query ? <Text color={primary}>█</Text> : null}
       </Text>
+      <Text color={refreshError ? warning : dim}>
+        {refreshing ? "Kataloge werden frisch abgerufen …" : refreshError ? "Abruf fehlgeschlagen · Ctrl+R erneut versuchen" : checkedAt ? `Abgleich ${checkedAt} · automatisch alle 30 s · Ctrl+R jetzt` : "Ctrl+R aktualisieren"}
+      </Text>
+      {!refreshing && selectedProvider === resolvedCurrentProvider
+        && getProviderModelRefreshStatus(selectedProvider ?? "") === "updated"
+        && activeGroup && !activeGroup.choices.some(choice => choice.model === currentModel) ? (
+        <Text color={warning}>Das aktive Modell wird nicht mehr angeboten. Bitte ein verfügbares Modell wählen.</Text>
+      ) : null}
 
       <Box flexDirection="column" marginTop={1}>
         {!selectedProvider && visibleProviders.length === 0 ? (
@@ -323,19 +369,17 @@ export function ModelPicker({
           const isSelected = absoluteIndex === selectedIndex;
           const isCurrent = group.provider === resolvedCurrentProvider
             && group.choices.some((choice) => choice.model === currentModel);
-          const location = group.choices[0]?.location ?? "hosted";
+          const location = group.choices[0]?.location ?? modelLocation(group.provider);
           const needsCredential = location === "hosted" && !hasCredential(group.provider);
           const refreshStatus = getProviderModelRefreshStatus(group.provider);
-          const state = location === "local"
-            ? "local"
-            : location === "subscription"
+          const state = location === "subscription"
               ? "Abo"
               : needsCredential
                 ? "Key fehlt"
                 : refreshStatus === "failed"
-                  ? "nicht erreichbar"
+                  ? "Abruf fehlgeschlagen"
                   : refreshStatus === "updated" || refreshStatus === "cached"
-                    ? "live"
+                    ? group.choices.length ? "live" : "leer"
                     : "bereit";
           const modelNoun = group.choices.length === 1 ? "Modell" : "Modelle";
           const suffix = `${group.choices.length} ${modelNoun} · ${state}${isCurrent ? " · aktiv" : ""}  ›`;
@@ -351,7 +395,7 @@ export function ModelPicker({
         }) : null}
 
         {selectedProvider && visibleModels.length === 0 ? (
-          <Text color={warning}>Keine Modelle für „{query}“.</Text>
+          <Text color={warning}>{modelEmptyState(selectedProvider, query, getProviderModelRefreshStatus(selectedProvider), refreshing)}</Text>
         ) : null}
         {selectedProvider ? visibleModels.map((choice, visibleIndex) => {
           const absoluteIndex = start + visibleIndex;

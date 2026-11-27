@@ -22,6 +22,7 @@ test("live discovery normalizes provider ids and keeps only generation models", 
 
   const fetchFn: typeof fetch = async (input) => {
     const url = String(input);
+    if (url.includes("11434")) return jsonResponse({ models: [{ name: "local-test:latest" }] });
     if (url.includes("anthropic")) {
       return jsonResponse({ data: [
         { id: "claude-opus-5" },
@@ -151,9 +152,9 @@ test("catalog refresh uses TTL cache and skips credentialed providers without ke
   clearDiscoveredProviderModels();
   t.after(clearDiscoveredProviderModels);
   let requests = 0;
-  const fetchFn: typeof fetch = async () => {
+  const fetchFn: typeof fetch = async input => {
     requests++;
-    return jsonResponse({ data: [{ id: "openrouter/test-model" }] });
+    return String(input).includes("11434") ? jsonResponse({ models: [] }) : jsonResponse({ data: [{ id: "openrouter/test-model" }] });
   };
 
   const first = await refreshProviderModelCatalogs(
@@ -237,3 +238,68 @@ test("catalog discovery rejects redirects without forwarding credentials", async
   assert.deepEqual(listProviders().find(p => p.name === "ollama")?.models, []);
   clearDiscoveredProviderModels();
  });
+
+
+test("forced refresh replaces removed entries, including a successfully empty cloud catalog", async t => {
+  clearDiscoveredProviderModels(); t.after(clearDiscoveredProviderModels);
+  let ids = ["gpt-old"], calls = 0;
+  const fetchFn: typeof fetch = async input => { if (String(input).includes("openai.com")) { calls++; return jsonResponse({data: ids.map(id => ({id}))}); } return jsonResponse({},503); };
+  const credentials = (p:string) => p === "openai" ? "test-key" : "";
+  for (const expected of [["gpt-old"],["gpt-new"],[]]) {
+    ids=expected; await refreshProviderModelCatalogs(credentials,{fetchFn,force:true,now:()=>1000});
+    assert.deepEqual(getDiscoveredProviderModels("openai"),expected);
+    assert.equal(getProviderModelRefreshStatus("openai"),"updated");
+  }
+  assert.equal(calls,3);
+});
+
+test("failed or malformed replies never keep obsolete selectable entries", async t => {
+  clearDiscoveredProviderModels();t.after(clearDiscoveredProviderModels);
+  const creds=(p:string)=>p==="openai"?"test-key":"";
+  for(const bad of [jsonResponse({},503),jsonResponse({error:"bad"}),new Response("not JSON")]) {
+    await refreshProviderModelCatalogs(creds,{force:true,fetchFn:async()=>jsonResponse({data:[{id:"gpt-old"}]})});
+    await refreshProviderModelCatalogs(creds,{force:true,fetchFn:async()=>bad.clone()});
+    assert.equal(getDiscoveredProviderModels("openai"),undefined);
+    assert.equal(getProviderModelRefreshStatus("openai"),"failed");
+  }
+});
+
+test("credential removal and account changes invalidate cached models",async t=>{
+  clearDiscoveredProviderModels();t.after(clearDiscoveredProviderModels);
+  let id="gpt-account-one",count=0;
+  const fetchFn:typeof fetch=async input=>{if(String(input).includes("openai.com")){count++;return jsonResponse({data:[{id}]});}return jsonResponse({},503);};
+  await refreshProviderModelCatalogs(p=>p==="openai"?"key-one":"",{fetchFn,now:()=>1000});
+  id="gpt-account-two";
+  await refreshProviderModelCatalogs(p=>p==="openai"?"key-two":"",{fetchFn,now:()=>1001});
+  assert.equal(count,2);assert.deepEqual(getDiscoveredProviderModels("openai"),[id]);
+  await refreshProviderModelCatalogs(()=>"",{fetchFn,now:()=>1002});
+  assert.equal(getDiscoveredProviderModels("openai"),undefined);assert.equal(getProviderModelRefreshStatus("openai"),"skipped");
+});
+
+test("Ollama discovery follows inference endpoint and never reuses another server catalog",async t=>{
+  clearDiscoveredProviderModels();t.after(clearDiscoveredProviderModels);
+  const urls:string[]=[];
+  const fetchFn:typeof fetch=async(input,init)=>{const u=String(input);urls.push(u);if(u.includes("example.test")){assert.equal(new Headers(init?.headers).has("Authorization"),false);return jsonResponse({models:[{name:u.includes("second")?"second:latest":"first:latest"}]});}return jsonResponse({},503);};
+  await refreshProviderModelCatalogs(()=>"",{fetchFn,now:()=>1000,ollamaBaseUrl:"https://first.example.test/prefix/v1"});
+  assert.deepEqual(getDiscoveredProviderModels("ollama"),["first:latest"]);
+  await refreshProviderModelCatalogs(()=>"",{fetchFn,now:()=>1001,ollamaBaseUrl:"https://second.example.test/v1"});
+  assert.deepEqual(getDiscoveredProviderModels("ollama"),["second:latest"]);
+  assert.ok(urls.includes("https://first.example.test/prefix/api/tags"));
+  assert.ok(urls.includes("https://second.example.test/api/tags"));
+});
+
+test("late responses cannot restore removed models or clear newer catalogs",async t=>{
+  clearDiscoveredProviderModels();t.after(clearDiscoveredProviderModels);
+  let release!:(r:Response)=>void;
+  const old=refreshProviderModelCatalogs(()=>"",{force:true,fetchFn:async input=>String(input).includes("11434")?new Promise<Response>(resolve=>{release=resolve;}):jsonResponse({},503)});
+  await refreshProviderModelCatalogs(()=>"",{force:true,fetchFn:async input=>String(input).includes("11434")?jsonResponse({models:[{name:"new:latest"}]}):jsonResponse({},503)});
+  release(jsonResponse({models:[{name:"old:latest"}]}));await old;
+  assert.deepEqual(getDiscoveredProviderModels("ollama"),["new:latest"]);
+});
+
+test("invalid endpoint credentials are rejected without any request or diagnostic leak",async t=>{
+ clearDiscoveredProviderModels();t.after(clearDiscoveredProviderModels);const urls:string[]=[];
+ const results=await refreshProviderModelCatalogs(()=>"",{force:true,ollamaBaseUrl:"https://user:private-secret@example.test/v1",fetchFn:async input=>{urls.push(String(input));return jsonResponse({},503);}});
+ assert.ok(urls.every(url=>!url.includes("example.test")));
+ const result=results.find(r=>r.provider==="ollama")!;assert.equal(result.status,"failed");assert.doesNotMatch(result.error??"",/private-secret|user|example.test/);
+});

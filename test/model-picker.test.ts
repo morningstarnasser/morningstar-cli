@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  modelEmptyState,
   buildModelChoices,
   buildModelProviderGroups,
   filterModelChoices,
@@ -151,4 +152,13 @@ test("picker search matches provider, display name, location, and exact ids", ()
     filterModelChoices(choices, "subscription").map(({ model }) => model),
     ["claude-cli"],
   );
+});
+
+
+test("empty Ollama state distinguishes installed-zero, unreachable and search",()=>{
+ assert.match(modelEmptyState("ollama","","updated"),/keine Modelle installiert/);
+ assert.match(modelEmptyState("ollama","","failed"),/nicht erreichbar/);
+ assert.match(modelEmptyState("ollama","missing","updated"),/missing/);
+ assert.match(modelEmptyState("openai","","skipped"),/API-Key/);
+ assert.match(modelEmptyState("ollama","","updated",true),/abgerufen/);
 });

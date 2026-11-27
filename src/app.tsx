@@ -77,7 +77,7 @@ import { saveConversation, loadConversation, listConversations, deleteConversati
 import { undoLastChange, getUndoStack, getUndoStackSize, clearUndoStack } from "./undo.js";
 import { THEMES, setTheme as setThemeId, getTheme, getThemeId, listThemes } from "./theme.js";
 import type { Message, CLIConfig, ProjectContext, ToolResult as ToolResultType } from "./types.js";
-import { detectProvider, getProviderBaseUrl, getProviderApiKeyEnv, resolveApiKey, listProviders, getModelDisplayName, refreshInstalledOllamaModels, resolveModelSelectionArg } from "./providers.js";
+import { detectProvider, getProviderBaseUrl, getProviderApiKeyEnv, resolveApiKey, listProviders, getModelDisplayName, resolveModelSelectionArg } from "./providers.js";
 import { buildModelSwitchConfig, KEYLESS_PROVIDERS } from "./cli-bootstrap.js";
 import { refreshProviderModelCatalogs } from "./provider-model-discovery.js";
 import { getPermissionMode, setPermissionMode } from "./permissions.js";
@@ -1264,35 +1264,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
           saveConfig({ model: newModel, provider: newProv, baseUrl: newConfig.baseUrl });
           addOutput({ type: "success", content: `Model: ${getModelDisplayName(newModel)} [${newProv}]` });
         } else {
-          refreshInstalledOllamaModels();
-          addOutput({ type: "info", content: "Aktualisiere verfügbare Provider-Modelle..." });
-          (async () => {
-            try {
-              const results = await refreshProviderModelCatalogs(getStoredApiKey);
-              const updated = results.filter((result) => result.status === "updated");
-              const failed = results.filter((result) => result.status === "failed");
-              if (updated.length > 0) {
-                addOutput({
-                  type: "success",
-                  content: `Modellkatalog aktualisiert: ${updated.map((result) => `${result.provider} (${result.modelCount})`).join(", ")}`,
-                });
-              }
-              if (failed.length > 0) {
-                addOutput({
-                  type: "info",
-                  content: `Katalog derzeit nicht erreichbar für: ${failed.map((result) => result.provider).join(", ")}`,
-                });
-              }
-            } catch (error) {
-              addOutput({
-                type: "info",
-                content: `Live-Modellkatalog nicht erreichbar (${(error as Error).message}).`,
-              });
-            } finally {
-              setSlashCommands(buildSlashCommands(customCommands));
-              setShowModelPicker(true);
-            }
-          })();
+          setShowModelPicker(true);
         }
         return true;
 
@@ -1301,6 +1273,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
           const providers = listProviders();
           const found = providers.find((p: any) => p.name === arg.toLowerCase());
           if (found) {
+            if (!found.models.length) { addOutput({ type: "info", content: "Keine aktuell verfügbaren Modelle. /model ruft den Katalog frisch ab." }); return true; }
             const defaultModel = found.models[0]?.startsWith("(") ? config.model : found.models[0];
             const newConfig = buildModelSwitchConfig(
               config,
@@ -3504,6 +3477,13 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
 
         {showModelPicker ? (
           <ModelPicker
+            onRefresh={async () => {
+              await refreshProviderModelCatalogs(getStoredApiKey, {
+                force: true,
+                ...(config.provider === "ollama" ? { ollamaBaseUrl: config.baseUrl } : {}),
+              });
+              setSlashCommands(buildSlashCommands(customCommands));
+            }}
             currentModel={config.model}
             currentProvider={config.provider || detectProvider(config.model)}
             hasCredential={(provider) =>

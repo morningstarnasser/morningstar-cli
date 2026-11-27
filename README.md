@@ -1,6 +1,6 @@
 # Morningstar CLI
 
-Current release: **1.5.4** (2026-11-27).
+Current release: **1.5.5** (2026-11-27).
 
 A local-first, multi-provider coding assistant for your terminal. Morningstar combines
 editable input, visible tool work, parallel agents, shared skills and private phone access.
@@ -382,6 +382,28 @@ guarantee that the model cannot make mistakes. Avoid copying unrelated credentia
 or host-specific configuration between computers.
 
 See [settings, hooks and parity details](docs/claude-parity-2026-11-23.md).
+
+## Fresh model selection (1.5.5)
+
+`/model` opens immediately and fetches current provider inventories. While the
+picker is open, it refreshes every 30 seconds; **Ctrl+R** refreshes immediately.
+Successful inventories replace the previous list, including an empty inventory.
+New models appear and removed models disappear from the picker. An unavailable
+provider is shown as unavailable, with no stale entries advertised as live.
+
+Ollama lists models from the configured inference server (`OLLAMA_HOST`, or the
+active Ollama endpoint). A reachable server with zero models is shown as
+**no models installed**, separately from a connection failure. Local and remote
+inventories are not merged. Switching between Ollama models retains that server.
+Refresh never downloads weights, deletes installed files, or silently switches
+the active model. If the active model disappears, choose another model explicitly.
+
+Hosted API inventories require their own credentials where applicable. Account
+and endpoint changes invalidate cached entries; late responses cannot overwrite
+a newer inventory. Invalid or explicitly incomplete inventories are rejected.
+Claude CLI aliases and the installed Codex CLI catalog retain their existing
+local discovery. This refresh applies to the terminal picker; the standalone
+Telegram gateway has a separate menu.
 
 ## Fast configured status reads (1.5.4)
 

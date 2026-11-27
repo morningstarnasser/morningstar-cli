@@ -120,3 +120,9 @@ test("stored provider keys can be deleted and legacy keys do not reappear", () =
     apiKey: "",
   });
 });
+
+test("switching Ollama models preserves the server whose catalog was displayed", () => {
+  const config={apiKey:"ollama",model:"old:latest",provider:"ollama",baseUrl:"http://192.0.2.10:11434/v1",maxTokens:100,temperature:0};
+  assert.equal(buildModelSwitchConfig(config,"new:latest","ollama",()=>"ollama").baseUrl,config.baseUrl);
+  assert.equal(buildModelSwitchConfig(config,"gpt-test","openai",()=>"provider-test-key").baseUrl,"https://api.openai.com/v1");
+});

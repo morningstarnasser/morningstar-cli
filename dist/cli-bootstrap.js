@@ -203,7 +203,8 @@ export function buildModelSwitchConfig(config, model, provider, getStoredApiKey)
         ...config,
         model,
         provider,
-        baseUrl: getProviderBaseUrl(provider),
+        baseUrl: provider === "ollama" && config.provider === "ollama" && config.baseUrl
+            ? config.baseUrl : getProviderBaseUrl(provider),
         apiKey: getStoredApiKey(provider),
     };
 }

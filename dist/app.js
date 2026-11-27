@@ -61,7 +61,7 @@ import { addTodo, toggleTodo, removeTodo, loadTodos, clearDoneTodos, clearAllTod
 import { listConversations, deleteConversation, autoSave } from "./history.js";
 import { undoLastChange, getUndoStack, getUndoStackSize, clearUndoStack } from "./undo.js";
 import { THEMES, setTheme as setThemeId, getTheme, getThemeId, listThemes } from "./theme.js";
-import { detectProvider, getProviderBaseUrl, listProviders, getModelDisplayName, refreshInstalledOllamaModels, resolveModelSelectionArg } from "./providers.js";
+import { detectProvider, getProviderBaseUrl, listProviders, getModelDisplayName, resolveModelSelectionArg } from "./providers.js";
 import { buildModelSwitchConfig, KEYLESS_PROVIDERS } from "./cli-bootstrap.js";
 import { refreshProviderModelCatalogs } from "./provider-model-discovery.js";
 import { getPermissionMode, setPermissionMode } from "./permissions.js";
@@ -1260,37 +1260,7 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                     addOutput({ type: "success", content: `Model: ${getModelDisplayName(newModel)} [${newProv}]` });
                 }
                 else {
-                    refreshInstalledOllamaModels();
-                    addOutput({ type: "info", content: "Aktualisiere verfügbare Provider-Modelle..." });
-                    (async () => {
-                        try {
-                            const results = await refreshProviderModelCatalogs(getStoredApiKey);
-                            const updated = results.filter((result) => result.status === "updated");
-                            const failed = results.filter((result) => result.status === "failed");
-                            if (updated.length > 0) {
-                                addOutput({
-                                    type: "success",
-                                    content: `Modellkatalog aktualisiert: ${updated.map((result) => `${result.provider} (${result.modelCount})`).join(", ")}`,
-                                });
-                            }
-                            if (failed.length > 0) {
-                                addOutput({
-                                    type: "info",
-                                    content: `Katalog derzeit nicht erreichbar für: ${failed.map((result) => result.provider).join(", ")}`,
-                                });
-                            }
-                        }
-                        catch (error) {
-                            addOutput({
-                                type: "info",
-                                content: `Live-Modellkatalog nicht erreichbar (${error.message}).`,
-                            });
-                        }
-                        finally {
-                            setSlashCommands(buildSlashCommands(customCommands));
-                            setShowModelPicker(true);
-                        }
-                    })();
+                    setShowModelPicker(true);
                 }
                 return true;
             case "/provider":
@@ -1298,6 +1268,10 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
                     const providers = listProviders();
                     const found = providers.find((p) => p.name === arg.toLowerCase());
                     if (found) {
+                        if (!found.models.length) {
+                            addOutput({ type: "info", content: "Keine aktuell verfügbaren Modelle. /model ruft den Katalog frisch ab." });
+                            return true;
+                        }
                         const defaultModel = found.models[0]?.startsWith("(") ? config.model : found.models[0];
                         const newConfig = buildModelSwitchConfig(config, defaultModel, found.name, getStoredApiKey);
                         setConfig(newConfig);
@@ -3436,7 +3410,13 @@ Bereits angehängte Bilder mit [Image #N] werden dem Modell als Bilddaten überg
         }
     }
     // ── Render ──
-    return (_jsxs(_Fragment, { children: [_jsx(Static, { items: output, children: (item) => renderOutputItem(item) }, sessionEpoch), _jsxs(TerminalDock, { children: [_jsxs(Box, { flexDirection: "column", flexShrink: 1, overflowY: "hidden", children: [showIntro ? _jsx(StartupBanner, { config: config, ctx: ctx, skipPermissions: skipPermissions, onDone: finishIntro }) : null, !inspectedAgent && isStreaming && !streamText && !streamReasoning && (_jsx(MorningstarSpinner, { startTime: streamStart, streamedChars: streamedChars, thinkingTime: thinkingStartTime > 0 ? thinkingStartTime : undefined })), !inspectedAgent && (streamText || streamReasoning) && (_jsx(StreamingOutput, { text: streamText, reasoning: streamReasoning, isStreaming: isStreaming, startTime: streamStart })), !inspectedAgent ? _jsx(ActivityFeed, { entries: activity, active: isProcessing, label: liveTree ? undefined : taskLabel, turn: liveTree ? 0 : taskTurn, maxTurns: taskMaxTurns }) : null, pendingApproval ? (_jsx(ApprovalPrompt, { tool: pendingApproval.tool, target: pendingApproval.target, reason: pendingApproval.reason, risk: pendingApproval.risk, onDecision: resolveApproval })) : null, showModelPicker ? (_jsx(ModelPicker, { currentModel: config.model, currentProvider: config.provider || detectProvider(config.model), hasCredential: (provider) => KEYLESS_PROVIDERS.has(provider)
+    return (_jsxs(_Fragment, { children: [_jsx(Static, { items: output, children: (item) => renderOutputItem(item) }, sessionEpoch), _jsxs(TerminalDock, { children: [_jsxs(Box, { flexDirection: "column", flexShrink: 1, overflowY: "hidden", children: [showIntro ? _jsx(StartupBanner, { config: config, ctx: ctx, skipPermissions: skipPermissions, onDone: finishIntro }) : null, !inspectedAgent && isStreaming && !streamText && !streamReasoning && (_jsx(MorningstarSpinner, { startTime: streamStart, streamedChars: streamedChars, thinkingTime: thinkingStartTime > 0 ? thinkingStartTime : undefined })), !inspectedAgent && (streamText || streamReasoning) && (_jsx(StreamingOutput, { text: streamText, reasoning: streamReasoning, isStreaming: isStreaming, startTime: streamStart })), !inspectedAgent ? _jsx(ActivityFeed, { entries: activity, active: isProcessing, label: liveTree ? undefined : taskLabel, turn: liveTree ? 0 : taskTurn, maxTurns: taskMaxTurns }) : null, pendingApproval ? (_jsx(ApprovalPrompt, { tool: pendingApproval.tool, target: pendingApproval.target, reason: pendingApproval.reason, risk: pendingApproval.risk, onDecision: resolveApproval })) : null, showModelPicker ? (_jsx(ModelPicker, { onRefresh: async () => {
+                                    await refreshProviderModelCatalogs(getStoredApiKey, {
+                                        force: true,
+                                        ...(config.provider === "ollama" ? { ollamaBaseUrl: config.baseUrl } : {}),
+                                    });
+                                    setSlashCommands(buildSlashCommands(customCommands));
+                                }, currentModel: config.model, currentProvider: config.provider || detectProvider(config.model), hasCredential: (provider) => KEYLESS_PROVIDERS.has(provider)
                                     || Boolean(getStoredApiKey(provider)), onSelect: (model, provider) => {
                                     const nextConfig = buildModelSwitchConfig(config, model, provider, getStoredApiKey);
                                     setConfig(nextConfig);

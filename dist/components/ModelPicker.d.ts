@@ -17,6 +17,7 @@ export interface ModelPickerProps {
     hasCredential: (provider: string) => boolean;
     onSelect: (model: string, provider: string) => void;
     onCancel: () => void;
+    onRefresh?: () => Promise<void>;
     isActive?: boolean;
 }
 /**
@@ -29,5 +30,6 @@ export declare function groupModelChoices(choices: readonly ModelChoice[]): Mode
 export declare function buildModelProviderGroups(providers: readonly ProviderCatalogEntry[], currentModel: string, currentProvider?: string): ModelProviderGroup[];
 export declare function filterModelChoices(choices: readonly ModelChoice[], query: string): ModelChoice[];
 export declare function filterModelProviderGroups(groups: readonly ModelProviderGroup[], query: string): ModelProviderGroup[];
-export declare function ModelPicker({ currentModel, currentProvider, hasCredential, onSelect, onCancel, isActive, }: ModelPickerProps): import("react/jsx-runtime").JSX.Element;
+export declare function modelEmptyState(provider: string, query: string, status: string | undefined, refreshing?: boolean): string;
+export declare function ModelPicker({ currentModel, currentProvider, hasCredential, onSelect, onCancel, onRefresh, isActive, }: ModelPickerProps): import("react/jsx-runtime").JSX.Element;
 //# sourceMappingURL=ModelPicker.d.ts.map

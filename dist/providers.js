@@ -1,3 +1,5 @@
+import { getOllamaBaseUrl } from "./runtime/ollama-endpoint.js";
+export { getOllamaBaseUrl } from "./runtime/ollama-endpoint.js";
 import { imageData, conversationImages } from "./runtime/images.js";
 import { execFileSync } from "child_process";
 import { readdirSync } from "node:fs";
@@ -6,7 +8,7 @@ import { join, relative, sep } from "node:path";
 import { getAnthropicToolDefinitions, getGoogleToolDefinitions, getOpenAIToolDefinitions, } from "./tool-definitions.js";
 import { claudeCliStream } from "./providers/claude-cli.js";
 import { codexCliStream, getCodexModelDisplayName, listCodexModels, } from "./providers/codex-cli.js";
-import { getDiscoveredProviderModels } from "./provider-model-discovery.js";
+import { getDiscoveredProviderModels, getProviderModelEndpoint } from "./provider-model-discovery.js";
 import { selectRequestTools } from "./runtime/tool-discovery.js";
 export const PROVIDER_NAMES = [
     "deepseek",
@@ -364,27 +366,6 @@ export function detectProvider(model) {
         return "ollama";
     return "openai";
 }
-export function getOllamaBaseUrl(configuredHost = process.env.OLLAMA_HOST) {
-    const fallback = "http://localhost:11434/v1";
-    if (!configuredHost?.trim())
-        return fallback;
-    try {
-        const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(configuredHost)
-            ? configuredHost
-            : `http://${configuredHost}`;
-        const url = new URL(withScheme);
-        if (url.protocol !== "http:" && url.protocol !== "https:")
-            return fallback;
-        const pathname = url.pathname.replace(/\/+$/, "");
-        url.pathname = pathname.endsWith("/v1") ? pathname : `${pathname}/v1`;
-        url.search = "";
-        url.hash = "";
-        return url.toString().replace(/\/$/, "");
-    }
-    catch {
-        return fallback;
-    }
-}
 export function getProviderBaseUrl(provider) {
     switch (provider) {
         case "deepseek": return "https://api.deepseek.com/v1";
@@ -481,9 +462,10 @@ export function buildCodexCliModels(catalog) {
 }
 export function listProviders() {
     const models = (provider) => getDiscoveredProviderModels(provider) ?? [];
+    const localOllama = isLocalOllamaHost(getProviderModelEndpoint("ollama") ?? getOllamaBaseUrl());
     return [
         ...["deepseek", "openai", "anthropic", "google", "nvidia", "github-models", "groq", "openrouter"].map(name => ({ name, models: models(name), envKey: name === "nvidia" ? "NVIDIA_NIM_API_KEY" : name === "github-models" ? "GITHUB_MODELS_TOKEN" : `${name.toUpperCase()}_API_KEY` })),
-        { name: "ollama", models: models("ollama"), envKey: "(lokal · laufender Ollama-Server)", modelMetadata: Object.fromEntries(models("ollama").map(model => [model, { deployment: "local", availabilityHint: "Vom lokalen Server gemeldet" }])) },
+        { name: "ollama", models: models("ollama"), envKey: "(laufender Ollama-Server)", modelMetadata: Object.fromEntries(models("ollama").map(model => [model, { deployment: localOllama ? "local" : "hosted", availabilityHint: localOllama ? "Vom lokalen Server gemeldet" : "Vom konfigurierten Ollama-Server gemeldet" }])) },
         { name: "claude-cli", models: [...CLAUDE_CLI_ALIASES], envKey: "(Claude-Abo/OAuth)" },
         { name: "codex-cli", models: buildCodexCliModels(listCodexModels()), envKey: "(ChatGPT-Abo/OAuth)" },
     ];

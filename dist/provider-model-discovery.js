@@ -1,13 +1,17 @@
 // ─── Live provider model discovery ──────────────────────────────────────────
-// Best-effort catalog refresh with a static provider fallback in providers.ts.
+// Successful catalogs replace previous inventories, including empty lists.
 // Credentials are used only for the provider that owns them and are never
 // persisted or included in returned diagnostics.
-const MODEL_CATALOG_TTL_MS = 15 * 60 * 1_000;
+import { createHash } from "node:crypto";
+import { getOllamaBaseUrl } from "./runtime/ollama-endpoint.js";
+const MODEL_CATALOG_TTL_MS = 30_000;
 const MODEL_CATALOG_TIMEOUT_MS = 5_000;
 const MAX_MODEL_RESPONSE_BYTES = 5 * 1024 * 1024;
 const MAX_MODELS_PER_PROVIDER = 2_000;
 const catalogs = new Map();
 const refreshStatuses = new Map();
+const requests = new Map();
+let sequence = 0;
 const DISCOVERY_SPECS = [
     { provider: "ollama", url: "http://127.0.0.1:11434/api/tags", requiresCredential: false, headers: () => ({}) },
     {
@@ -127,10 +131,17 @@ function parseProviderModels(provider, payload) {
         if (["google", "ollama"].includes(provider) && Array.isArray(object.models)) {
             entries = object.models;
         }
-        else if (Array.isArray(object.data)) {
+        else if (!["google", "ollama"].includes(provider) && Array.isArray(object.data)) {
             entries = object.data;
         }
+        else
+            throw new Error("invalid model catalog");
+        // Never treat an explicitly incomplete inventory as a complete replacement.
+        if (object.has_more === true || object.nextPageToken)
+            throw new Error("incomplete model catalog");
     }
+    else
+        throw new Error("invalid model catalog");
     const unique = new Set();
     for (const entry of entries) {
         if (!entry || typeof entry !== "object")
@@ -156,8 +167,8 @@ function parseProviderModels(provider, payload) {
         if (!isSafeModelId(raw) || !isUsableGenerationModel(provider, raw))
             continue;
         unique.add(providerModelId(provider, raw));
-        if (unique.size >= MAX_MODELS_PER_PROVIDER)
-            break;
+        if (unique.size > MAX_MODELS_PER_PROVIDER)
+            throw new Error("model catalog exceeds limit");
     }
     return [...unique];
 }
@@ -209,8 +220,6 @@ async function discoverOne(spec, credential, fetchFn) {
             throw new Error(`HTTP ${response.status}`);
         }
         const models = parseProviderModels(spec.provider, await readBoundedJson(response));
-        if (models.length === 0 && spec.provider !== "ollama")
-            throw new Error("provider returned no chat models");
         return models;
     }
     finally {
@@ -224,6 +233,18 @@ export function getDiscoveredProviderModels(provider) {
 export function getProviderModelRefreshStatus(provider) {
     return refreshStatuses.get(provider);
 }
+export function getProviderModelEndpoint(provider) {
+    return catalogs.get(provider)?.endpoint;
+}
+export function ollamaCatalogUrl(baseUrl = getOllamaBaseUrl()) {
+    const url = new URL(baseUrl);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password)
+        throw new Error("invalid Ollama endpoint");
+    url.pathname = url.pathname.replace(/\/+$/, "").replace(/\/v1$/, "") + "/api/tags";
+    url.search = "";
+    url.hash = "";
+    return url.href;
+}
 export async function refreshProviderModelCatalogs(resolveCredential, options = {}) {
     const fetchFn = options.fetchFn ?? fetch;
     const now = options.now ?? Date.now;
@@ -231,11 +252,20 @@ export async function refreshProviderModelCatalogs(resolveCredential, options = 
         refreshStatuses.set(result.provider, result.status);
         return result;
     };
-    return Promise.all(DISCOVERY_SPECS.map(async (spec) => {
+    return Promise.all(DISCOVERY_SPECS.map(async (original) => {
+        const request = ++sequence;
+        requests.set(original.provider, request);
+        let spec = original;
         const credential = resolveCredential(spec.provider) || "";
         const existing = catalogs.get(spec.provider);
+        const identity = createHash("sha256").update(`${spec.provider}\0${credential}\0${spec.provider === "ollama" ? options.ollamaBaseUrl ?? getOllamaBaseUrl() : spec.url}`).digest("hex");
+        if (spec.requiresCredential && !credential) {
+            catalogs.delete(spec.provider);
+            return record({ provider: spec.provider, status: "skipped", modelCount: 0 });
+        }
         if (!options.force
             && existing
+            && existing.identity === identity
             && now() - existing.fetchedAt < MODEL_CATALOG_TTL_MS) {
             return record({
                 provider: spec.provider,
@@ -243,16 +273,13 @@ export async function refreshProviderModelCatalogs(resolveCredential, options = 
                 modelCount: existing.models.length,
             });
         }
-        if (spec.requiresCredential && !credential) {
-            return record({
-                provider: spec.provider,
-                status: "skipped",
-                modelCount: existing?.models.length ?? 0,
-            });
-        }
         try {
+            if (spec.provider === "ollama")
+                spec = { ...spec, url: ollamaCatalogUrl(options.ollamaBaseUrl) };
             const models = await discoverOne(spec, credential, fetchFn);
-            catalogs.set(spec.provider, { models, fetchedAt: now() });
+            if (requests.get(spec.provider) !== request)
+                return { provider: spec.provider, status: "skipped", modelCount: 0 };
+            catalogs.set(spec.provider, { models, fetchedAt: now(), identity, endpoint: spec.url });
             return record({
                 provider: spec.provider,
                 status: "updated",
@@ -260,13 +287,15 @@ export async function refreshProviderModelCatalogs(resolveCredential, options = 
             });
         }
         catch (error) {
-            if (spec.provider === "ollama")
-                catalogs.delete(spec.provider);
+            if (requests.get(spec.provider) !== request)
+                return { provider: spec.provider, status: "skipped", modelCount: 0 };
+            catalogs.delete(spec.provider);
             return record({
                 provider: spec.provider,
                 status: "failed",
-                modelCount: existing?.models.length ?? 0,
-                error: error.message,
+                modelCount: 0,
+                error: /^(?:HTTP \d{3}(?: \(redirect blocked\))?|invalid (?:model catalog|Ollama endpoint)|incomplete model catalog|model catalog (?:exceeds limit|response (?:is too large|has no body)))$/.test(error.message)
+                    ? error.message : "model catalog request failed",
             });
         }
     }));
@@ -275,5 +304,6 @@ export async function refreshProviderModelCatalogs(resolveCredential, options = 
 export function clearDiscoveredProviderModels() {
     catalogs.clear();
     refreshStatuses.clear();
+    requests.clear();
 }
 //# sourceMappingURL=provider-model-discovery.js.map
