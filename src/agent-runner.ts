@@ -6,6 +6,7 @@ import { createOutputValidator } from "./structured-output.js";
 import { runRuntimeHooks } from "./runtime-hooks.js";
 import { autonomousSwarmPrompt, executeAutonomousSwarm, type SwarmEvent } from "./swarm-tool.js";
 import { WORK_GUIDANCE } from "./runtime/work-guidance.js";
+import { measuredStatusReport } from "./runtime/status-report.js";
 import { requestsFreshKnownStatus, scopeStatusConclusion, withStatusOperatorReminder } from "./runtime/status-grounding.js";
 import { isMalformedToolAttempt } from "./runtime/tool-protocol.js";
 import { formatConnectedMCPToolsForPrompt, stripGeneratedMCPPrompt } from "./mcp.js";
@@ -458,6 +459,7 @@ export async function runAgent(
   let toolProtocolError: string | undefined;
   let emptyResponseRepairs = 0;
   let staleStatusRepairs = 0;
+  const currentTask = messages.filter(message => message.role === "user" && !message.contextKind).at(-1)?.content ?? "";
   const freshKnownStatus = options.enableTools !== false && requestsFreshKnownStatus(messages);
 
   const emit = (event: AgentLifecycleEvent): void => {
@@ -570,6 +572,7 @@ export async function runAgent(
     turns = turn;
     emit({ type: "turn_start", turn });
 
+    const measuredReport = measuredStatusReport(currentTask, toolCalls);
     let response = "";
     const nativeCalls = new Map<string, { id: string; name: string; arguments: string }>();
     let anonymousNativeCall = 0;
@@ -592,7 +595,7 @@ export async function runAgent(
           }
         } else if (token.type === "content") {
           response += token.text;
-          options.onContent?.(token.text);
+          if (!measuredReport) options.onContent?.(token.text);
           emit({ type: "content_delta", turn, delta: token.text });
         } else if (token.type === "reasoning") {
           options.onReasoning?.(token.text);
@@ -979,7 +982,7 @@ export async function runAgent(
       emit({ type: "turn_end", turn, text: "Historische Statusantwort erkannt; Morningstar fordert eine aktuelle Prüfung an.", tools: [] });
       continue;
     }
-    if (turnResults.length === 0) finalText = scopeStatusConclusion(finalText, toolCalls);
+    if (turnResults.length === 0) finalText = measuredStatusReport(currentTask, toolCalls) ?? scopeStatusConclusion(finalText, toolCalls);
     options.onTurnEnd?.(finalText, turnResults);
     emit({ type: "turn_end", turn, text: finalText, tools: turnResults });
 

@@ -6,6 +6,7 @@ import { createOutputValidator } from "./structured-output.js";
 import { runRuntimeHooks } from "./runtime-hooks.js";
 import { autonomousSwarmPrompt, executeAutonomousSwarm } from "./swarm-tool.js";
 import { WORK_GUIDANCE } from "./runtime/work-guidance.js";
+import { measuredStatusReport } from "./runtime/status-report.js";
 import { requestsFreshKnownStatus, scopeStatusConclusion, withStatusOperatorReminder } from "./runtime/status-grounding.js";
 import { isMalformedToolAttempt } from "./runtime/tool-protocol.js";
 import { formatConnectedMCPToolsForPrompt, stripGeneratedMCPPrompt } from "./mcp.js";
@@ -252,6 +253,7 @@ export async function runAgent(messages, config, cwd, options = {}) {
     let toolProtocolError;
     let emptyResponseRepairs = 0;
     let staleStatusRepairs = 0;
+    const currentTask = messages.filter(message => message.role === "user" && !message.contextKind).at(-1)?.content ?? "";
     const freshKnownStatus = options.enableTools !== false && requestsFreshKnownStatus(messages);
     const emit = (event) => {
         if (event.type === "tool_result")
@@ -381,6 +383,7 @@ export async function runAgent(messages, config, cwd, options = {}) {
         const turn = turnIndex + 1;
         turns = turn;
         emit({ type: "turn_start", turn });
+        const measuredReport = measuredStatusReport(currentTask, toolCalls);
         let response = "";
         const nativeCalls = new Map();
         let anonymousNativeCall = 0;
@@ -399,7 +402,8 @@ export async function runAgent(messages, config, cwd, options = {}) {
                 }
                 else if (token.type === "content") {
                     response += token.text;
-                    options.onContent?.(token.text);
+                    if (!measuredReport)
+                        options.onContent?.(token.text);
                     emit({ type: "content_delta", turn, delta: token.text });
                 }
                 else if (token.type === "reasoning") {
@@ -737,7 +741,7 @@ export async function runAgent(messages, config, cwd, options = {}) {
             continue;
         }
         if (turnResults.length === 0)
-            finalText = scopeStatusConclusion(finalText, toolCalls);
+            finalText = measuredStatusReport(currentTask, toolCalls) ?? scopeStatusConclusion(finalText, toolCalls);
         options.onTurnEnd?.(finalText, turnResults);
         emit({ type: "turn_end", turn, text: finalText, tools: turnResults });
         if (turnResults.length === 0) {

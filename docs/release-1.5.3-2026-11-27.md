@@ -5,3 +5,5 @@ A renewed status request in an old conversation now repeats the current system-o
 The reminder exists only in the provider request. It does not rewrite the stored conversation, promote tool/user/assistant text into instructions, change permissions or disable host-key checks. It is limited to recognized renewed host-status requests and a bounded profile already loaded in the system context. This improves model guidance; it is not a guarantee of correct tool selection.
 
 Update with `morningstar update` and restart existing sessions. The access, empty-answer and learning fixes from 1.5.2 remain included.
+
+Short direct status requests with recognized successful endpoint/SSH snapshots use a measured report: byte values are converted to GiB, percentages are calculated, and individual service states are preserved. This branch withholds model prose after measurements while the next tool/final decision is generated, then stores and displays the computed report. It does not claim a full health audit. Failed, mixed or unsupported reads and analytical questions retain the normal answer path.
